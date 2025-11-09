@@ -43,3 +43,111 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ===== SECURITY: Sensitive Files =====
+# Firebase Configuration Files (CRITICAL - Contains API Keys)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+lib/config/firebase_options.dart
+web/index.html
+
+# Local Configuration (Contains SDK paths and local settings)
+android/local.properties
+ios/Flutter/flutter_export_environment.sh
+
+# Environment Variables (If you add .env files)
+.env
+.env.local
+.env.*.local
+
+# Private Keys and Certificates
+*.jks
+*.keystore
+*.p12
+*.key
+*.pem
+*.crt
+*.cer
+
+# API Keys and Secrets (If stored separately)
+api_keys.dart
+secrets.dart
+config/secrets.dart
+
+# Build Outputs that may contain sensitive data
+/android/.gradle/
+/android/build/
+/android/app/build/
+/build/
+/ios/Pods/
+/ios/.symlinks/
+/ios/Flutter/App.framework
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Flutter.podspec
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/ephemeral/
+/ios/Runner/GeneratedPluginRegistrant.*
+
+# Firebase CLI Cache
+.firebase/
+.firebaserc
+firebase-debug.log
+firebase-debug.*.log
+
+# Database Files (If using local SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary and Cache Files
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+pubspec.lock
+
+# IDE Specific (May contain project-specific settings)
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Log Files
+*.log
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# ===== DOCUMENTATION FILES (Project Specific) =====
+# Documentation that should not be in public repository
+SECURITY_GUIDE.md
+SECURITY_FIX_SUMMARY.md
+FIREBASE_SETUP_DETAILED.md
+FIX_WHITE_SCREEN.md
+DEVELOPER_GUIDE.md
+PROJECT_SUMMARY.md
+SETUP_GUIDE.md
+TODO.md
+APP_FLOW_DIAGRAM.md
+
+# Thesis/Research Documents (Contains sensitive project information)
+SMART-PARCEL-DROP-BOX-SYSTEM-WITH-MOBILE-APP-FOR-SECURE-CONTACTLESS-DELIVERIES.pdf
+REVISIONS.pdf
+Hardware & Software Requirements.docx
+*.docx
+*.pdf
+
+# Keep only README.md for public repo
+# README.md should be the only documentation in public repo
+
+# ===== IMPORTANT NOTES =====
+# NEVER commit:
+# 1. google-services.json - Contains Firebase project credentials
+# 2. firebase_options.dart - Contains API keys and project IDs
+# 3. local.properties - Contains local SDK paths
+# 4. Any .keystore or .jks files - Used for app signing
+# 5. Any files with "secret", "key", or "password" in the name
+# 6. Project documentation with sensitive information
+# 7. Thesis documents or research papers
