@@ -6,6 +6,7 @@ import '../models/tracking_model.dart';
 import 'login_screen.dart';
 import 'add_tracking_screen.dart';
 import 'tracking_details_screen.dart';
+import 'logs_screen.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -27,12 +28,24 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Smart Parcel Drop Box'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'View Logs',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const LogsScreen(),
+                ),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
             onPressed: _logout,
           ),
         ],
       ),
-      body: _selectedIndex == 0 ? _buildActiveOrdersTab() : _buildProfileTab(),
+      body: _getSelectedTab(),
       floatingActionButton: _selectedIndex == 0
           ? FloatingActionButton.extended(
               onPressed: () {
@@ -56,6 +69,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.history_outlined),
+            selectedIcon: Icon(Icons.history),
+            label: 'Logs',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
@@ -216,6 +234,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _getSelectedTab() {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildActiveOrdersTab();
+      case 1:
+        return const LogsScreen();
+      case 2:
+        return _buildProfileTab();
+      default:
+        return _buildActiveOrdersTab();
+    }
+  }
+
   Widget _buildProfileTab() {
     User? user = _authService.currentUser;
     if (user == null) return const Center(child: Text('Not logged in'));
@@ -229,63 +260,278 @@ class _HomeScreenState extends State<HomeScreen> {
 
         Map<String, dynamic>? userData = snapshot.data;
 
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              // Profile Header with Gradient
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Theme.of(context).colorScheme.primary,
+                      Theme.of(context).colorScheme.primary.withOpacity(0.7),
+                    ],
+                  ),
+                ),
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+                    child: Column(
+                      children: [
+                        // Profile Avatar
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: 4,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: CircleAvatar(
+                            radius: 50,
+                            backgroundColor: Colors.white,
+                            child: Text(
+                              (userData?['fullName']?[0]?.toUpperCase() ?? 
+                               user.email?[0].toUpperCase() ?? 'U'),
+                              style: TextStyle(
+                                fontSize: 40,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        // Name
+                        Text(
+                          userData?['fullName'] ?? 'User',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Email
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.email_outlined,
+                              size: 16,
+                              color: Colors.white.withOpacity(0.9),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                user.email ?? '',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.white.withOpacity(0.9),
+                                ),
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Profile Information Cards
+              Padding(
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: Text(
-                        userData?['fullName']?[0]?.toUpperCase() ?? 'U',
-                        style: const TextStyle(
-                          fontSize: 32,
-                          color: Colors.white,
-                        ),
+                    // Contact Information Card
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.contact_phone_outlined,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Contact Information',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          _buildInfoTile(
+                            context,
+                            icon: Icons.phone_outlined,
+                            title: 'Phone Number',
+                            value: userData?['phoneNumber'] ?? 'Not set',
+                            isEmpty: userData?['phoneNumber'] == null ||
+                                (userData?['phoneNumber'] as String).isEmpty,
+                          ),
+                          const Divider(height: 1),
+                          _buildInfoTile(
+                            context,
+                            icon: Icons.home_outlined,
+                            title: 'Address',
+                            value: userData?['address'] ?? 'Not set',
+                            isEmpty: userData?['address'] == null ||
+                                (userData?['address'] as String).isEmpty,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      userData?['fullName'] ?? 'User',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(height: 20),
+                    // Account Information Card
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      user.email ?? '',
-                      style: TextStyle(color: Colors.grey[600]),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.account_circle_outlined,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Account Information',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          _buildInfoTile(
+                            context,
+                            icon: Icons.email_outlined,
+                            title: 'Email Address',
+                            value: user.email ?? 'Not available',
+                            isEmpty: false,
+                          ),
+                          const Divider(height: 1),
+                          _buildInfoTile(
+                            context,
+                            icon: Icons.verified_user_outlined,
+                            title: 'Account Status',
+                            value: 'Verified',
+                            isEmpty: false,
+                            showValueIcon: true,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.phone_outlined),
-                    title: const Text('Phone'),
-                    subtitle: Text(userData?['phoneNumber'] ?? 'Not set'),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.home_outlined),
-                    title: const Text('Address'),
-                    subtitle: Text(userData?['address'] ?? 'Not set'),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildInfoTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String value,
+    required bool isEmpty,
+    bool showValueIcon = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              size: 22,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        value,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: isEmpty ? Colors.grey[400] : Colors.grey[900],
+                          fontWeight: isEmpty ? FontWeight.normal : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (showValueIcon)
+                      Icon(
+                        Icons.check_circle,
+                        size: 18,
+                        color: Colors.green[600],
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

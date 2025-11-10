@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/tracking_model.dart';
+import '../models/scan_log_model.dart';
 
 /// Database Service for Smart Parcel Drop Box System
 /// Handles all Firestore operations for tracking IDs and delivery logs
@@ -10,6 +11,7 @@ class DatabaseService {
   final String _trackingCollection = 'tracking_ids';
   final String _deliveryLogsCollection = 'delivery_logs';
   final String _usersCollection = 'users';
+  final String _scanLogsCollection = 'scan_logs';
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -177,5 +179,56 @@ class DatabaseService {
     } catch (e) {
       throw 'Failed to update user profile: $e';
     }
+  }
+
+  /// Log a scan attempt (QR code or barcode scan)
+  /// This should be called when the dropbox scans a code
+  Future<void> logScanAttempt({
+    required String scannedCode,
+    required bool accessGranted,
+    String? trackingId,
+    String? userId,
+    String? reason,
+  }) async {
+    try {
+      await _firestore.collection(_scanLogsCollection).add({
+        'scannedCode': scannedCode,
+        'accessGranted': accessGranted,
+        'timestamp': FieldValue.serverTimestamp(),
+        'trackingId': trackingId,
+        'userId': userId,
+        'reason': reason,
+      });
+    } catch (e) {
+      throw 'Failed to log scan attempt: $e';
+    }
+  }
+
+  /// Get all scan logs (for the logs page)
+  /// Returns logs ordered by timestamp (most recent first)
+  Stream<List<ScanLogModel>> getScanLogs() {
+    return _firestore
+        .collection(_scanLogsCollection)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => ScanLogModel.fromFirestore(doc))
+          .toList();
+    });
+  }
+
+  /// Get scan logs for a specific user
+  Stream<List<ScanLogModel>> getUserScanLogs(String userId) {
+    return _firestore
+        .collection(_scanLogsCollection)
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => ScanLogModel.fromFirestore(doc))
+          .toList();
+    });
   }
 }
