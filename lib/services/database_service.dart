@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/tracking_model.dart';
 import '../models/scan_log_model.dart';
+import '../models/notification_model.dart';
 
 /// Database Service for Smart Parcel Drop Box System
 /// Handles all Firestore operations for tracking IDs and delivery logs
@@ -12,6 +14,7 @@ class DatabaseService {
   final String _deliveryLogsCollection = 'delivery_logs';
   final String _usersCollection = 'users';
   final String _scanLogsCollection = 'scan_logs';
+  final String _notificationsCollection = 'notifications';
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -199,6 +202,22 @@ class DatabaseService {
         'userId': userId,
         'reason': reason,
       });
+
+      // Create notification for the user if userId is provided
+      if (userId != null) {
+        try {
+          await createScanAttemptNotification(
+            userId: userId,
+            scannedCode: scannedCode,
+            accessGranted: accessGranted,
+            trackingId: trackingId,
+            reason: reason,
+          );
+        } catch (e) {
+          // Don't fail the scan log if notification creation fails
+          debugPrint('Failed to create notification: $e');
+        }
+      }
     } catch (e) {
       throw 'Failed to log scan attempt: $e';
     }
@@ -230,5 +249,180 @@ class DatabaseService {
           .map((doc) => ScanLogModel.fromFirestore(doc))
           .toList();
     });
+  }
+
+  /// Create a notification for a user
+  Future<void> createNotification({
+    required String userId,
+    required String type,
+    required String title,
+    required String message,
+    String? trackingId,
+    Map<String, dynamic>? data,
+  }) async {
+    try {
+      await _firestore.collection(_notificationsCollection).add({
+        'userId': userId,
+        'type': type,
+        'title': title,
+        'message': message,
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+        'trackingId': trackingId,
+        'data': data,
+      });
+    } catch (e) {
+      throw 'Failed to create notification: $e';
+    }
+  }
+
+  /// Get notifications for a specific user
+  Stream<List<NotificationModel>> getUserNotifications(String userId) {
+    return _firestore
+        .collection(_notificationsCollection)
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => NotificationModel.fromFirestore(doc))
+          .toList();
+    });
+  }
+
+  /// Get unread notifications count for a user
+  Stream<int> getUnreadNotificationsCount(String userId) {
+    return _firestore
+        .collection(_notificationsCollection)
+        .where('userId', isEqualTo: userId)
+        .where('isRead', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
+  }
+
+  /// Mark a notification as read
+  Future<void> markNotificationAsRead(String notificationId) async {
+    try {
+      await _firestore
+          .collection(_notificationsCollection)
+          .doc(notificationId)
+          .update({'isRead': true});
+    } catch (e) {
+      throw 'Failed to mark notification as read: $e';
+    }
+  }
+
+  /// Mark all notifications as read for a user
+  Future<void> markAllNotificationsAsRead(String userId) async {
+    try {
+      final batch = _firestore.batch();
+      final snapshot = await _firestore
+          .collection(_notificationsCollection)
+          .where('userId', isEqualTo: userId)
+          .where('isRead', isEqualTo: false)
+          .get();
+
+      for (var doc in snapshot.docs) {
+        batch.update(doc.reference, {'isRead': true});
+      }
+
+      await batch.commit();
+    } catch (e) {
+      throw 'Failed to mark all notifications as read: $e';
+    }
+  }
+
+  /// Create notification when scan attempt happens
+  Future<void> createScanAttemptNotification({
+    required String userId,
+    required String scannedCode,
+    required bool accessGranted,
+    String? trackingId,
+    String? reason,
+  }) async {
+    String title;
+    String message;
+    String type;
+
+    if (accessGranted) {
+      type = 'access_granted';
+      title = 'Access Granted';
+      message = trackingId != null
+          ? 'Access granted for tracking ID: $trackingId'
+          : 'Access granted for code: $scannedCode';
+    } else {
+      type = 'access_denied';
+      title = 'Access Denied';
+      message = reason ?? 'Access denied for code: $scannedCode';
+    }
+
+    await createNotification(
+      userId: userId,
+      type: type,
+      title: title,
+      message: message,
+      trackingId: trackingId,
+      data: {
+        'scannedCode': scannedCode,
+        'accessGranted': accessGranted,
+        'reason': reason,
+      },
+    );
+  }
+
+  /// Create notification when parcel is delivered
+  Future<void> createDeliveryNotification({
+    required String userId,
+    required String trackingId,
+    required String shopName,
+  }) async {
+    await createNotification(
+      userId: userId,
+      type: 'parcel_delivered',
+      title: 'Parcel Delivered',
+      message: 'Your parcel from $shopName has been delivered to the dropbox.',
+      trackingId: trackingId,
+      data: {
+        'shopName': shopName,
+      },
+    );
+  }
+
+  /// Create notification when tracking status changes
+  Future<void> createStatusUpdateNotification({
+    required String userId,
+    required String trackingId,
+    required String status,
+    required String shopName,
+  }) async {
+    String title = 'Status Updated';
+    String message = 'Your order from $shopName is now ${_getStatusText(status)}.';
+
+    await createNotification(
+      userId: userId,
+      type: 'status_update',
+      title: title,
+      message: message,
+      trackingId: trackingId,
+      data: {
+        'status': status,
+        'shopName': shopName,
+      },
+    );
+  }
+
+  String _getStatusText(String status) {
+    switch (status) {
+      case 'pending':
+        return 'Pending';
+      case 'in_transit':
+        return 'In Transit';
+      case 'delivered':
+        return 'Delivered';
+      case 'retrieved':
+        return 'Retrieved';
+      default:
+        return status;
+    }
   }
 }
