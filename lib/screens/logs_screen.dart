@@ -1,408 +1,429 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/database_service.dart';
-import '../services/auth_service.dart';
+import '../services/auth_service.dart'; // Keep if AuthService is necessary for other features, otherwise, remove. I'll keep it commented out for minimum dependency.
 import '../models/scan_log_model.dart';
 
 /// Logs Screen - Displays scan access logs
 class LogsScreen extends StatefulWidget {
-  const LogsScreen({super.key});
+  const LogsScreen({super.key});
 
-  @override
-  State<LogsScreen> createState() => _LogsScreenState();
+  @override
+  State<LogsScreen> createState() => _LogsScreenState();
 }
 
 class _LogsScreenState extends State<LogsScreen> {
-  final DatabaseService _databaseService = DatabaseService();
-  final AuthService _authService = AuthService();
-  String _filter = 'all'; // 'all', 'granted', 'denied'
+  final DatabaseService _databaseService = DatabaseService();
+  // final AuthService _authService = AuthService(); // Using FirebaseAuth.instance directly
+  
+  // Filter state from 'Brant'
+  String _filter = 'all'; // 'all', 'granted', 'denied'
 
-  @override
-  Widget build(BuildContext context) {
-    User? user = _authService.currentUser;
-    if (user == null) {
-      return const Scaffold(
-        body: Center(child: Text('Not logged in')),
-      );
-    }
+  @override
+  Widget build(BuildContext context) {
+    // Use standard FirebaseAuth check
+    final User? currentUser = FirebaseAuth.instance.currentUser;
+    
+    if (currentUser == null) {
+      return const Scaffold(
+        body: Center(
+          child: Text('Please log in to view logs'),
+        ),
+      );
+    }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Scan Logs'),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.filter_list),
-            onSelected: (value) {
-              setState(() => _filter = value);
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'all',
-                child: Text('All Logs'),
-              ),
-              const PopupMenuItem(
-                value: 'granted',
-                child: Text('Granted Only'),
-              ),
-              const PopupMenuItem(
-                value: 'denied',
-                child: Text('Denied Only'),
-              ),
-            ],
-          ),
-        ],
-      ),
-      body: StreamBuilder<List<ScanLogModel>>(
-        stream: _databaseService.getUserScanLogs(user.uid),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Scan Logs'),
+        elevation: 0, // From 'main'
+        actions: [
+          // Filter button from 'Brant'
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.filter_list),
+            onSelected: (value) {
+              setState(() => _filter = value);
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'all',
+                child: Text('All Logs'),
+              ),
+              const PopupMenuItem(
+                value: 'granted',
+                child: Text('Granted Only'),
+              ),
+              const PopupMenuItem(
+                value: 'denied',
+                child: Text('Denied Only'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: StreamBuilder<List<ScanLogModel>>(
+        // Use currentUser.uid and DatabaseService
+        stream: _databaseService.getUserScanLogs(currentUser.uid),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red[300],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error loading logs',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${snapshot.error}',
-                    style: TextStyle(
-                      color: Colors.grey[500],
-                      fontSize: 14,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Colors.red[300],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading logs',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[700], // Using 'main's darker grey
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    snapshot.error.toString(), // Using 'main's error display
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[500],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          }
 
-          List<ScanLogModel> allLogs = snapshot.data ?? [];
-          
-          // Apply filter
-          List<ScanLogModel> filteredLogs = allLogs.where((log) {
-            if (_filter == 'granted') {
-              return log.accessGranted;
-            } else if (_filter == 'denied') {
-              return !log.accessGranted;
-            }
-            return true;
-          }).toList();
+          List<ScanLogModel> allLogs = snapshot.data ?? [];
+          
+          // Apply filter from 'Brant'
+          List<ScanLogModel> filteredLogs = allLogs.where((log) {
+            if (_filter == 'granted') {
+              return log.accessGranted;
+            } else if (_filter == 'denied') {
+              return !log.accessGranted;
+            }
+            return true;
+          }).toList();
 
-          if (filteredLogs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.history_outlined,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _filter == 'all'
-                        ? 'No scan logs yet'
-                        : _filter == 'granted'
-                            ? 'No granted access logs'
-                            : 'No denied access logs',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Scan logs will appear here when the dropbox is used',
-                    style: TextStyle(
-                      color: Colors.grey[500],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
+          if (filteredLogs.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.history_outlined,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    // Custom message based on filter from 'Brant'
+                    _filter == 'all'
+                        ? 'No scan logs yet'
+                        : _filter == 'granted'
+                            ? 'No granted access logs'
+                            : 'No denied access logs',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Scan logs will appear here when the dropbox is used', // Using 'Brant's description
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: filteredLogs.length,
-            itemBuilder: (context, index) {
-              ScanLogModel log = filteredLogs[index];
-              return _buildLogCard(log);
-            },
-          );
-        },
-      ),
-    );
-  }
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: filteredLogs.length, // Use filtered logs
+            itemBuilder: (context, index) {
+              ScanLogModel log = filteredLogs[index];
+              return _buildLogCard(log);
+            },
+          );
+        },
+      ),
+    );
+  }
 
-  Widget _buildLogCard(ScanLogModel log) {
-    final isGranted = log.accessGranted;
-    final statusColor = isGranted ? Colors.green : Colors.red;
-    final statusIcon = isGranted ? Icons.check_circle : Icons.cancel;
-    final statusText = isGranted ? 'Access Granted' : 'Access Denied';
+  Widget _buildLogCard(ScanLogModel log) {
+    final isGranted = log.accessGranted;
+    final statusColor = isGranted ? Colors.green : Colors.red;
+    final statusIcon = isGranted ? Icons.check_circle : Icons.cancel;
+    final statusText = isGranted ? 'Access Granted' : 'Access Denied';
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Status row
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        statusIcon,
-                        size: 18,
-                        color: statusColor,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          color: statusColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  log.getFormattedDateTime(),
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Scanned code
-            Row(
-              children: [
-                Icon(
-                  Icons.qr_code_scanner,
-                  size: 20,
-                  color: Colors.grey[600],
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Scanned Code',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        log.scannedCode,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            // Tracking ID if available
-            if (log.trackingId != null) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(
-                    Icons.local_shipping_outlined,
-                    size: 20,
-                    color: Colors.grey[600],
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Tracking ID',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          log.trackingId!,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            // Reason if denied
-            if (!log.accessGranted && log.reason != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 18,
-                      color: Colors.red[700],
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        log.reason!,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.red[700],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            // Full date/time (expandable or on tap)
-            const SizedBox(height: 8),
-            InkWell(
-              onTap: () {
-                _showLogDetails(context, log);
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 16,
-                      color: Colors.grey[500],
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      log.getFullFormattedDateTime(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[500],
-                      ),
-                    ),
-                    const Spacer(),
-                    Icon(
-                      Icons.chevron_right,
-                      size: 16,
-                      color: Colors.grey[400],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      // Adopted styling details from 'main' and combined with 'Brant' structure
+      elevation: 2, 
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Status row (from 'Brant')
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        statusIcon,
+                        size: 18,
+                        color: statusColor,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        statusText, // Using local statusText
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  log.getFormattedDateTime(), // Assumes previous merge adopted this method
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // Scanned code (from 'Brant')
+            Row(
+              children: [
+                Icon(
+                  Icons.qr_code_scanner,
+                  size: 20,
+                  color: Colors.grey[600],
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Scanned Code',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        log.scannedCode,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            
+            // Tracking ID if available (from 'Brant')
+            if (log.trackingId != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(
+                    Icons.local_shipping_outlined,
+                    size: 20,
+                    color: Colors.grey[600],
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tracking ID',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          log.trackingId!,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            
+            // Reason if denied (from 'Brant')
+            if (!log.accessGranted && log.reason != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Colors.red[700],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        log.reason!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.red[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            
+            // Full date/time and Details button (from 'Brant')
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: () {
+                _showLogDetails(context, log);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.access_time,
+                      size: 16,
+                      color: Colors.grey[500],
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      log.getFullFormattedDateTime(), // Assumes previous merge adopted this method
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 16,
+                      color: Colors.grey[400],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-  void _showLogDetails(BuildContext context, ScanLogModel log) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Log Details'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('Status', log.accessGranted ? 'Granted' : 'Denied'),
-              _buildDetailRow('Date & Time', log.getFullFormattedDateTime()),
-              _buildDetailRow('Scanned Code', log.scannedCode),
-              if (log.trackingId != null)
-                _buildDetailRow('Tracking ID', log.trackingId!),
-              if (log.userId != null)
-                _buildDetailRow('User ID', log.userId!),
-              if (log.reason != null)
-                _buildDetailRow('Reason', log.reason!),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
+  // Dialog method from 'Brant'
+  void _showLogDetails(BuildContext context, ScanLogModel log) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log Details'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDetailRow('Status', log.accessGranted ? 'Granted' : 'Denied'),
+              _buildDetailRow('Date & Time', log.getFullFormattedDateTime()),
+              _buildDetailRow('Scanned Code', log.scannedCode),
+              if (log.trackingId != null)
+                _buildDetailRow('Tracking ID', log.trackingId!),
+              if (log.userId != null)
+                _buildDetailRow('User ID', log.userId!),
+              if (log.reason != null)
+                _buildDetailRow('Reason', log.reason!),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Detail row utility (from 'Brant')
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
-
