@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/database_service.dart';
-import '../services/auth_service.dart';
 import '../models/scan_log_model.dart';
 
 /// Logs Screen - Displays scan access logs
 class LogsScreen extends StatefulWidget {
-  const LogsScreen({super.key});
+  final bool isAdmin;
+  const LogsScreen({super.key, this.isAdmin = false});
 
   @override
   State<LogsScreen> createState() => _LogsScreenState();
@@ -14,12 +14,11 @@ class LogsScreen extends StatefulWidget {
 
 class _LogsScreenState extends State<LogsScreen> {
   final DatabaseService _databaseService = DatabaseService();
-  final AuthService _authService = AuthService();
   String _filter = 'all'; // 'all', 'granted', 'denied'
 
   @override
   Widget build(BuildContext context) {
-    User? user = _authService.currentUser;
+    User? user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       return const Scaffold(
         body: Center(child: Text('Not logged in')),
@@ -28,7 +27,7 @@ class _LogsScreenState extends State<LogsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scan Logs'),
+        title: Text(widget.isAdmin ? 'All Scan Logs' : 'Scan Logs'),
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),
@@ -53,7 +52,9 @@ class _LogsScreenState extends State<LogsScreen> {
         ],
       ),
       body: StreamBuilder<List<ScanLogModel>>(
-        stream: _databaseService.getUserScanLogs(user.uid),
+        stream: widget.isAdmin
+            ? _databaseService.getAllScanLogs()
+            : _databaseService.getUserScanLogs(user.uid),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

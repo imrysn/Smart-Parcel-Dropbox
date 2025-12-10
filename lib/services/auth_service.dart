@@ -52,12 +52,26 @@ class AuthService {
         'phoneNumber': phoneNumber,
         'address': address,
         'createdAt': FieldValue.serverTimestamp(),
-        'role': 'user', // user or courier
+        'role': 'user', // user, courier, admin
+        'disabled': false,
+        'canRemoteUnlock': false,
       });
 
       return userCredential;
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
+    }
+  }
+
+  /// Get role for a user
+  Future<String?> getUserRole(String userId) async {
+    try {
+      final doc = await _firestore.collection('users').doc(userId).get();
+      if (!doc.exists) return null;
+      final data = doc.data() as Map<String, dynamic>;
+      return data['role'] as String?;
+    } catch (_) {
+      return null;
     }
   }
 
