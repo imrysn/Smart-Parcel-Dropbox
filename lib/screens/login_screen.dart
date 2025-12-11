@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/google_auth_service.dart';
+import '../services/database_service.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
+import 'admin/admin_dashboard_screen.dart';
 
 /// Login Screen - User authentication with Email/Password and Google Sign-In
 class LoginScreen extends StatefulWidget {
@@ -18,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
   final GoogleAuthService _googleAuthService = GoogleAuthService();
+  final DatabaseService _databaseService = DatabaseService();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -40,11 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
 
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
-      }
+      await _navigateAfterLogin();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -68,9 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final userCredential = await _googleAuthService.signInWithGoogle();
 
       if (userCredential != null && mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
+        await _navigateAfterLogin();
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -92,6 +89,33 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<void> _navigateAfterLogin() async {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    try {
+      final userData = await _databaseService.getUserData(user.uid);
+      final role = userData?['role'];
+
+      if (!mounted) return;
+
+      if (role == 'admin') {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
     }
   }
 

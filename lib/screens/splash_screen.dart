@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:math' as math;
+
 import 'login_screen.dart';
 import 'home_screen.dart';
+import '../services/database_service.dart';
+import 'admin/admin_dashboard_screen.dart';
 
 /// Splash Screen - Professional delivery animation with offline support
 class SplashScreen extends StatefulWidget {
@@ -17,6 +19,7 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _mainController;
   late AnimationController _fadeController;
   late AnimationController _pulseController;
+  final DatabaseService _databaseService = DatabaseService();
 
   late Animation<double> _fadeAnimation;
   late Animation<double> _deliveryAnimation;
@@ -52,9 +55,10 @@ class _SplashScreenState extends State<SplashScreen>
     )..repeat(reverse: true);
 
     // Animations
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeIn),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeIn));
 
     _deliveryAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
@@ -94,9 +98,27 @@ class _SplashScreenState extends State<SplashScreen>
     User? user = FirebaseAuth.instance.currentUser;
 
     if (user != null) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
+      try {
+        final data = await _databaseService.getUserData(user.uid);
+        final role = data?['role'];
+
+        if (!mounted) return;
+
+        if (role == 'admin') {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const HomeScreen()),
+          );
+        }
+      } catch (_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      }
     } else {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -291,10 +313,7 @@ class _SplashScreenState extends State<SplashScreen>
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.2),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.3),
-          width: 1,
-        ),
+        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -450,8 +469,7 @@ class DeliveryAnimationPainter extends CustomPainter {
     canvas.drawPath(bikePath, bikePaint);
 
     // Top box (delivery box)
-    final topBoxPaint = Paint()
-      ..color = Colors.orange[700]!;
+    final topBoxPaint = Paint()..color = Colors.orange[700]!;
     final topBoxRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(x, y + 10, 35, 25),
       const Radius.circular(6),
@@ -464,7 +482,11 @@ class DeliveryAnimationPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawRect(
-      Rect.fromCenter(center: Offset(x + 17.5, y + 22.5), width: 15, height: 12),
+      Rect.fromCenter(
+        center: Offset(x + 17.5, y + 22.5),
+        width: 15,
+        height: 12,
+      ),
       packageIconPaint,
     );
 
@@ -483,7 +505,10 @@ class DeliveryAnimationPainter extends CustomPainter {
 
     canvas.drawPath(
       bodyPath,
-      bodyPaint..style = PaintingStyle.stroke..strokeWidth = 8..strokeCap = StrokeCap.round,
+      bodyPaint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 8
+        ..strokeCap = StrokeCap.round,
     );
 
     // Speed lines
@@ -503,8 +528,7 @@ class DeliveryAnimationPainter extends CustomPainter {
   }
 
   void _drawPackage(Canvas canvas, double x, double y, double progress) {
-    final packagePaint = Paint()
-      ..color = Colors.brown[400]!;
+    final packagePaint = Paint()..color = Colors.brown[400]!;
 
     final packageRect = RRect.fromRectAndRadius(
       Rect.fromCenter(
@@ -528,16 +552,8 @@ class DeliveryAnimationPainter extends CustomPainter {
     final tapePaint = Paint()
       ..color = Colors.brown[200]!
       ..strokeWidth = 4;
-    canvas.drawLine(
-      Offset(x - 18, y),
-      Offset(x + 18, y),
-      tapePaint,
-    );
-    canvas.drawLine(
-      Offset(x, y - 18),
-      Offset(x, y + 18),
-      tapePaint,
-    );
+    canvas.drawLine(Offset(x - 18, y), Offset(x + 18, y), tapePaint);
+    canvas.drawLine(Offset(x, y - 18), Offset(x, y + 18), tapePaint);
 
     // Barcode
     final barcodePaint = Paint()..color = Colors.white;

@@ -16,7 +16,6 @@ class DatabaseService {
   final String _usersCollection = 'users';
   final String _scanLogsCollection = 'scan_logs';
   final String _notificationsCollection = 'notifications';
-  final String _delegatesCollection = 'delegates';
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -164,16 +163,6 @@ class DatabaseService {
     }
   }
 
-  /// Get all users (admin)
-  Stream<List<UserModel>> getAllUsers() {
-    return _firestore.collection(_usersCollection).snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return UserModel.fromMap(data);
-      }).toList();
-    });
-  }
-
   /// Update user profile
   Future<void> updateUserProfile({
     required String userId,
@@ -194,126 +183,6 @@ class DatabaseService {
     } catch (e) {
       throw 'Failed to update user profile: $e';
     }
-  }
-
-  /// Set user role (admin)
-  Future<void> setUserRole({
-    required String userId,
-    required String role,
-  }) async {
-    try {
-      await _firestore.collection(_usersCollection).doc(userId).update({
-        'role': role,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      throw 'Failed to update user role: $e';
-    }
-  }
-
-  /// Disable/enable user (admin)
-  Future<void> setUserDisabled({
-    required String userId,
-    required bool disabled,
-  }) async {
-    try {
-      await _firestore.collection(_usersCollection).doc(userId).update({
-        'disabled': disabled,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      throw 'Failed to update user status: $e';
-    }
-  }
-
-  /// Set remote unlock permission for a user
-  Future<void> setUserRemoteUnlock({
-    required String userId,
-    required bool canRemoteUnlock,
-  }) async {
-    try {
-      await _firestore.collection(_usersCollection).doc(userId).update({
-        'canRemoteUnlock': canRemoteUnlock,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      throw 'Failed to update remote unlock permission: $e';
-    }
-  }
-
-  /// Add delegate (secondary user) for admin/owner
-  Future<void> addDelegate({
-    required String ownerUserId,
-    required String delegateUserId,
-    required bool canUnlock,
-  }) async {
-    try {
-      await _firestore
-          .collection(_usersCollection)
-          .doc(ownerUserId)
-          .collection(_delegatesCollection)
-          .doc(delegateUserId)
-          .set({
-        'userId': delegateUserId,
-        'canUnlock': canUnlock,
-        'disabled': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      throw 'Failed to add delegate: $e';
-    }
-  }
-
-  /// Update delegate
-  Future<void> updateDelegate({
-    required String ownerUserId,
-    required String delegateUserId,
-    bool? canUnlock,
-    bool? disabled,
-  }) async {
-    try {
-      Map<String, dynamic> update = {
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      if (canUnlock != null) update['canUnlock'] = canUnlock;
-      if (disabled != null) update['disabled'] = disabled;
-      await _firestore
-          .collection(_usersCollection)
-          .doc(ownerUserId)
-          .collection(_delegatesCollection)
-          .doc(delegateUserId)
-          .update(update);
-    } catch (e) {
-      throw 'Failed to update delegate: $e';
-    }
-  }
-
-  /// Remove delegate
-  Future<void> removeDelegate({
-    required String ownerUserId,
-    required String delegateUserId,
-  }) async {
-    try {
-      await _firestore
-          .collection(_usersCollection)
-          .doc(ownerUserId)
-          .collection(_delegatesCollection)
-          .doc(delegateUserId)
-          .delete();
-    } catch (e) {
-      throw 'Failed to remove delegate: $e';
-    }
-  }
-
-  /// Get delegates
-  Stream<List<Map<String, dynamic>>> getDelegates(String ownerUserId) {
-    return _firestore
-        .collection(_usersCollection)
-        .doc(ownerUserId)
-        .collection(_delegatesCollection)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((d) => d.data()).toList());
   }
 
   /// Log a scan attempt (QR code or barcode scan)
@@ -374,19 +243,6 @@ class DatabaseService {
     return _firestore
         .collection(_scanLogsCollection)
         .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => ScanLogModel.fromFirestore(doc))
-          .toList();
-    });
-  }
-
-  /// Get all scan logs (admin)
-  Stream<List<ScanLogModel>> getAllScanLogs() {
-    return _firestore
-        .collection(_scanLogsCollection)
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
@@ -571,22 +427,51 @@ class DatabaseService {
     }
   }
 
-  /// Get all delivery logs (admin)
-  Stream<List<Map<String, dynamic>>> getAllDeliveryLogs() {
+  /// ADMIN: Get all users
+  Stream<List<UserModel>> getAllUsers() {
     return _firestore
-        .collection(_deliveryLogsCollection)
-        .orderBy('timestamp', descending: true)
+        .collection(_usersCollection)
+        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
       return snapshot.docs.map((doc) {
-        Map<String, dynamic> data = doc.data();
-        data['id'] = doc.id;
-        return data;
+        final data = doc.data();
+        // Ensure uid is present even if missing in stored data
+        data['uid'] = data['uid'] ?? doc.id;
+        return UserModel.fromMap(data);
       }).toList();
     });
   }
 
-  /// Get all tracking ids (admin)
+  /// ADMIN: Update a user's role
+  Future<void> updateUserRole({
+    required String userId,
+    required String role,
+  }) async {
+    try {
+      await _firestore.collection(_usersCollection).doc(userId).update({
+        'role': role,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      throw 'Failed to update user role: $e';
+    }
+  }
+
+  /// ADMIN/ROUTING: Get a user's role quickly
+  Future<String?> getUserRole(String userId) async {
+    try {
+      final doc = await _firestore.collection(_usersCollection).doc(userId).get();
+      if (doc.exists) {
+        return (doc.data() as Map<String, dynamic>?)?['role'] as String?;
+      }
+      return null;
+    } catch (e) {
+      throw 'Failed to fetch user role: $e';
+    }
+  }
+
+  /// ADMIN: Get all tracking IDs
   Stream<List<TrackingModel>> getAllTrackingIds() {
     return _firestore
         .collection(_trackingCollection)
@@ -596,6 +481,21 @@ class DatabaseService {
       return snapshot.docs
           .map((doc) => TrackingModel.fromFirestore(doc))
           .toList();
+    });
+  }
+
+  /// ADMIN: Get all delivery logs
+  Stream<List<Map<String, dynamic>>> getAllDeliveryLogs() {
+    return _firestore
+        .collection(_deliveryLogsCollection)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
     });
   }
 }

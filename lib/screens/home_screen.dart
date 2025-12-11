@@ -8,7 +8,7 @@ import 'add_tracking_screen.dart';
 import 'tracking_details_screen.dart';
 import 'logs_screen.dart';
 import 'notifications_screen.dart';
-import 'admin_screen.dart';
+import 'admin/admin_dashboard_screen.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -22,39 +22,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
   int _selectedIndex = 0;
-  String _role = 'user';
-  bool _userMetaLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUserMeta();
-  }
-
-  Future<void> _loadUserMeta() async {
-    final user = _authService.currentUser;
-    if (user == null) {
-      setState(() {
-        _role = 'user';
-        _userMetaLoading = false;
-      });
-      return;
-    }
-    try {
-      final data = await _databaseService.getUserData(user.uid);
-      if (!mounted) return;
-      setState(() {
-        _role = (data?['role'] as String?) ?? 'user';
-        _userMetaLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _role = 'user';
-        _userMetaLoading = false;
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -117,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => LogsScreen(isAdmin: _role == 'admin'),
+                  builder: (context) => const LogsScreen(),
                 ),
               );
             },
@@ -148,24 +115,18 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (index) {
           setState(() => _selectedIndex = index);
         },
-        destinations: [
-          const NavigationDestination(
+        destinations: const [
+          NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.history_outlined),
             selectedIcon: Icon(Icons.history),
             label: 'Logs',
           ),
-          if (_role == 'admin')
-            const NavigationDestination(
-              icon: Icon(Icons.admin_panel_settings_outlined),
-              selectedIcon: Icon(Icons.admin_panel_settings),
-              label: 'Admin',
-            ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
             label: 'Profile',
@@ -325,34 +286,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _getSelectedTab() {
-    if (_userMetaLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_role == 'admin') {
-      switch (_selectedIndex) {
-        case 0:
-          return _buildActiveOrdersTab();
-        case 1:
-          return LogsScreen(isAdmin: true);
-        case 2:
-          return const AdminScreen();
-        case 3:
-          return _buildProfileTab();
-        default:
-          return _buildActiveOrdersTab();
-      }
-    } else {
-      switch (_selectedIndex) {
-        case 0:
-          return _buildActiveOrdersTab();
-        case 1:
-          return const LogsScreen();
-        case 2:
-          return _buildProfileTab();
-        default:
-          return _buildActiveOrdersTab();
-      }
+    switch (_selectedIndex) {
+      case 0:
+        return _buildActiveOrdersTab();
+      case 1:
+        return const LogsScreen();
+      case 2:
+        return _buildProfileTab();
+      default:
+        return _buildActiveOrdersTab();
     }
   }
 
@@ -557,6 +499,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Divider(height: 1),
                           _buildInfoTile(
                             context,
+                            icon: Icons.admin_panel_settings_outlined,
+                            title: 'Role',
+                            value: userData?['role'] ?? 'user',
+                            isEmpty: false,
+                          ),
+                          const Divider(height: 1),
+                          _buildInfoTile(
+                            context,
                             icon: Icons.verified_user_outlined,
                             title: 'Account Status',
                             value: 'Verified',
@@ -567,6 +517,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
+                    if (userData?['role'] == 'admin') ...[
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => const AdminDashboardScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.admin_panel_settings),
+                          label: const Text('Open Admin Dashboard'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

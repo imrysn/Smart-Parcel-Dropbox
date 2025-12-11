@@ -5,9 +5,7 @@ class UserModel {
   final String fullName;
   final String phoneNumber;
   final String address;
-  final String role; // user, courier, admin
-  final bool disabled;
-  final bool canRemoteUnlock;
+  final String role; // user, courier, or admin
   final DateTime? createdAt;
 
   UserModel({
@@ -17,8 +15,6 @@ class UserModel {
     required this.phoneNumber,
     required this.address,
     required this.role,
-    required this.disabled,
-    required this.canRemoteUnlock,
     this.createdAt,
   });
 
@@ -31,8 +27,6 @@ class UserModel {
       phoneNumber: data['phoneNumber'] ?? '',
       address: data['address'] ?? '',
       role: data['role'] ?? 'user',
-      disabled: data['disabled'] ?? false,
-      canRemoteUnlock: data['canRemoteUnlock'] ?? false,
       createdAt: data['createdAt']?.toDate(),
     );
   }
@@ -46,8 +40,6 @@ class UserModel {
       'phoneNumber': phoneNumber,
       'address': address,
       'role': role,
-      'disabled': disabled,
-      'canRemoteUnlock': canRemoteUnlock,
       'createdAt': createdAt,
     };
   }

@@ -69,7 +69,9 @@ class _UsersTab extends StatelessWidget {
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               elevation: 3, // Enhanced elevation
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16), // Increased padding
                 child: Column(
@@ -79,9 +81,13 @@ class _UsersTab extends StatelessWidget {
                       children: [
                         CircleAvatar(
                           radius: 24, // Slightly larger avatar
-                          backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primary.withOpacity(0.15),
                           child: Text(
-                            user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : 'U',
+                            user.fullName.isNotEmpty
+                                ? user.fullName[0].toUpperCase()
+                                : 'U',
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.bold,
@@ -95,7 +101,9 @@ class _UsersTab extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                user.fullName.isNotEmpty ? user.fullName : 'User',
+                                user.fullName.isNotEmpty
+                                    ? user.fullName
+                                    : 'User',
                                 style: const TextStyle(
                                   fontSize: 18, // Larger name
                                   fontWeight: FontWeight.w700,
@@ -103,7 +111,10 @@ class _UsersTab extends StatelessWidget {
                               ),
                               Text(
                                 user.email,
-                                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 13,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ],
@@ -113,7 +124,6 @@ class _UsersTab extends StatelessWidget {
                       ],
                     ),
                     const Divider(height: 24), // Separator
-                    
                     // User Management Toggles
                     Wrap(
                       spacing: 16,
@@ -124,7 +134,10 @@ class _UsersTab extends StatelessWidget {
                           value: user.role == 'admin',
                           onChanged: (val) async {
                             final newRole = val ? 'admin' : 'user';
-                            await db.setUserRole(userId: user.uid, role: newRole);
+                            await db.setUserRole(
+                              userId: user.uid,
+                              role: newRole,
+                            );
                           },
                         ),
                         _ActionToggle(
@@ -141,10 +154,15 @@ class _UsersTab extends StatelessWidget {
                           label: user.disabled ? 'Enable User' : 'Disable User',
                           value: !user.disabled,
                           onChanged: (val) async {
-                            await db.setUserDisabled(userId: user.uid, disabled: !val);
+                            await db.setUserDisabled(
+                              userId: user.uid,
+                              disabled: !val,
+                            );
                           },
                           // Highlight Disable/Enable action
-                          activeColor: user.disabled ? Colors.green : Colors.red,
+                          activeColor: user.disabled
+                              ? Colors.green
+                              : Colors.red,
                         ),
                       ],
                     ),
@@ -160,19 +178,13 @@ class _UsersTab extends StatelessWidget {
 
   Widget _empty(String message) {
     return Center(
-      child: Text(
-        message,
-        style: TextStyle(color: Colors.grey[600]),
-      ),
+      child: Text(message, style: TextStyle(color: Colors.grey[600])),
     );
   }
 
   Widget _error(Object? error) {
     return Center(
-      child: Text(
-        'Error: $error',
-        style: TextStyle(color: Colors.red[400]),
-      ),
+      child: Text('Error: $error', style: TextStyle(color: Colors.red[400])),
     );
   }
 }
@@ -209,13 +221,18 @@ class _TrackingTab extends StatelessWidget {
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: ListTile(
                 leading: Icon(
                   Icons.local_shipping,
                   color: Theme.of(context).colorScheme.secondary,
                 ),
-                title: Text(t.trackingId, style: const TextStyle(fontWeight: FontWeight.bold)),
+                title: Text(
+                  t.trackingId,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
                 subtitle: Text('${t.shopName} • ${t.getStatusText()}'),
                 trailing: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -227,7 +244,10 @@ class _TrackingTab extends StatelessWidget {
                     ),
                     Text(
                       t.userId.substring(0, 6), // Truncate user ID for display
-                      style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
                     ),
                   ],
                 ),
@@ -303,7 +323,9 @@ class _ActionToggle extends StatelessWidget {
       children: [
         Icon(
           value ? Icons.check_circle_outline : Icons.cancel_outlined,
-          color: value ? (activeColor ?? Theme.of(context).colorScheme.primary) : Colors.grey,
+          color: value
+              ? (activeColor ?? Theme.of(context).colorScheme.primary)
+              : Colors.grey,
           size: 20,
         ),
         const SizedBox(width: 8),
