@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Model class for scan log entries
-/// Records every QR/barcode scan attempt at the drop box
+/// Records every QR/barcode scan attempt at the drop box.
 class ScanLogModel {
   final String id;
   final String scannedCode; // QR code or barcode that was scanned
@@ -24,7 +24,7 @@ class ScanLogModel {
   /// Create ScanLogModel from Firestore document
   factory ScanLogModel.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-    
+
     return ScanLogModel(
       id: doc.id,
       scannedCode: data['scannedCode'] ?? '',
@@ -42,13 +42,14 @@ class ScanLogModel {
       'scannedCode': scannedCode,
       'accessGranted': accessGranted,
       'timestamp': Timestamp.fromDate(timestamp),
+      // Only include optional fields if they are not null
       if (trackingId != null) 'trackingId': trackingId,
       if (userId != null) 'userId': userId,
       if (reason != null) 'reason': reason,
     };
   }
 
-  /// Get formatted date and time string
+  /// Get formatted date and time string (Relative time display)
   String getFormattedDateTime() {
     final date = timestamp;
     final now = DateTime.now();
@@ -64,8 +65,10 @@ class ScanLogModel {
     } else if (difference.inDays == 1) {
       return 'Yesterday at ${_formatTime(date)}';
     } else if (difference.inDays < 7) {
+      // For anything within the last week
       return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
     } else {
+      // For older entries
       return '${_formatDate(date)} at ${_formatTime(date)}';
     }
   }
