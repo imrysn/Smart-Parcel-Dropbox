@@ -1,37 +1,70 @@
-# Miscellaneous
+# ===== MISCELLANEOUS =====
 *.class
 *.log
 *.pyc
 *.swp
 .DS_Store
 .atom/
-.build/
 .buildlog/
 .history
 .svn/
 .swiftpm/
 migrate_working_dir/
+*.lock
 
-# IntelliJ related
+# ===== IDE & EDITORS =====
+
+# IntelliJ IDEA / Android Studio
 *.iml
 *.ipr
 *.iws
 .idea/
+*.hprof
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code
+.vscode/
+*.code-workspace
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# Emacs
+*~
+\#*\#
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ===== FLUTTER / DART / PUB =====
 
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
+.packages
 .pub-cache/
 .pub/
-/build/
-/coverage/
+build/
+.fvm/
+flutter_*.log
+
+# Generated files
+*.g.dart
+*.freezed.dart
+*.mocks.dart
+*.gr.dart
+*.config.dart
+
+# Coverage
+coverage/
+.test_coverage.dart
+lcov.info
 
 # Symbolication related
 app.*.symbols
@@ -39,89 +72,150 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# ===== ANDROID =====
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/.gradle/
+/android/captures/
+/android/gradlew
+/android/gradlew.bat
+/android/local.properties
+/android/.gradle
+/android/gradle/
+/android/*.iml
+/android/.cxx/
+/android/app/*.iml
 
-# ===== SECURITY: Sensitive Files =====
-# Firebase Configuration Files (CRITICAL - Contains API Keys)
-android/app/google-services.json
-ios/Runner/GoogleService-Info.plist
-lib/config/firebase_options.dart
-web/index.html
-
-# Local Configuration (Contains SDK paths and local settings)
-android/local.properties
-ios/Flutter/flutter_export_environment.sh
-
-# Environment Variables (If you add .env files)
-.env
-.env.local
-.env.*.local
-
-# Private Keys and Certificates
+# Signing keys & certificates
 *.jks
 *.keystore
+key.properties
+keystore.properties
+
+# NDK
+obj/
+.externalNativeBuild
+
+# ===== iOS =====
+
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/*sync/
+**/ios/**/.sconsign.dblite
+**/ios/**/.tags*
+**/ios/**/.vagrant/
+**/ios/**/DerivedData/
+**/ios/**/Icon?
+**/ios/**/Pods/
+**/ios/**/.symlinks/
+**/ios/**/profile
+**/ios/**/xcuserdata
+**/ios/.generated/
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/ios/Podfile.lock
+
+# Exceptions
+!**/ios/**/default.mode1v3
+!**/ios/**/default.mode2v3
+!**/ios/**/default.pbxuser
+!**/ios/**/default.perspectivev3
+
+# ===== WEB =====
+
+/web/*.js
+/web/*.js.map
+/web/*.part.js
+
+# ===== WINDOWS =====
+
+windows/flutter/generated_plugin_registrant.cc
+windows/flutter/generated_plugin_registrant.h
+windows/flutter/generated_plugins.cmake
+windows/CMakeFiles/
+windows/CMakeCache.txt
+windows/cmake_install.cmake
+
+# ===== MACOS =====
+
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+**/macos/*.xcworkspace/xcuserdata/
+**/macos/*.xcodeproj/xcuserdata/
+**/macos/*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# ===== LINUX =====
+
+linux/flutter/generated_plugin_registrant.cc
+linux/flutter/generated_plugin_registrant.h
+linux/flutter/generated_plugins.cmake
+
+# ===== SECURITY: SENSITIVE FILES (NEVER COMMIT) =====
+
+# Firebase Configuration Files - Contains API Keys and Project IDs
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
+web/firebase-config.js
+
+# API Keys and Secrets
+.env
+.env.*
+!.env.example
+**/secrets.dart
+**/api_keys.dart
+**/config/secrets.dart
+**/config/api_keys.dart
+
+# Signing Keys and Certificates
 *.p12
 *.key
 *.pem
 *.crt
 *.cer
 
-# API Keys and Secrets (If stored separately)
-api_keys.dart
-secrets.dart
-config/secrets.dart
-
-# Build Outputs that may contain sensitive data
-/android/.gradle/
-/android/build/
-/android/app/build/
-/build/
-/ios/Pods/
-/ios/.symlinks/
-/ios/Flutter/App.framework
-/ios/Flutter/Flutter.framework
-/ios/Flutter/Flutter.podspec
-/ios/Flutter/Generated.xcconfig
-/ios/Flutter/ephemeral/
-/ios/Runner/GeneratedPluginRegistrant.*
-
-# Firebase CLI Cache
+# Firebase
 .firebase/
 .firebaserc
 firebase-debug.log
 firebase-debug.*.log
+firestore.indexes.json
+firestore.rules
+storage.rules
+firebase.json
 
-# Database Files (If using local SQLite)
+# Database Files
 *.db
 *.sqlite
 *.sqlite3
+*.realm
 
-# Temporary and Cache Files
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-.pub/
-pubspec.lock
+# ===== DOCUMENTATION & RESEARCH FILES =====
 
-# IDE Specific (May contain project-specific settings)
-.vscode/
-.idea/
-*.iml
-*.ipr
-*.iws
+# Thesis/Research Documents
+*.pdf
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.xls
+*.xlsx
 
-# Log Files
-*.log
-
-# OS Generated Files
-.DS_Store
-Thumbs.db
-
-# ===== DOCUMENTATION FILES (Project Specific) =====
-# Documentation that should not be in public repository
+# Project Documentation (Keep only essential docs)
 SECURITY_GUIDE.md
 SECURITY_FIX_SUMMARY.md
 FIREBASE_SETUP_DETAILED.md
@@ -131,23 +225,90 @@ PROJECT_SUMMARY.md
 SETUP_GUIDE.md
 TODO.md
 APP_FLOW_DIAGRAM.md
-
-# Thesis/Research Documents (Contains sensitive project information)
-SMART-PARCEL-DROP-BOX-SYSTEM-WITH-MOBILE-APP-FOR-SECURE-CONTACTLESS-DELIVERIES.pdf
 REVISIONS.pdf
-Hardware & Software Requirements.docx
-*.docx
-*.pdf
+Hardware*.docx
+NOTES.md
+CHANGELOG_DETAILED.md
 
-# Keep only README.md for public repo
-# README.md should be the only documentation in public repo
+# Keep important docs in version control
+!README.md
+!LICENSE
+!CONTRIBUTING.md
+!CHANGELOG.md
+!CODE_OF_CONDUCT.md
 
-# ===== IMPORTANT NOTES =====
-# NEVER commit:
-# 1. google-services.json - Contains Firebase project credentials
-# 2. firebase_options.dart - Contains API keys and project IDs
-# 3. local.properties - Contains local SDK paths
-# 4. Any .keystore or .jks files - Used for app signing
-# 5. Any files with "secret", "key", or "password" in the name
-# 6. Project documentation with sensitive information
-# 7. Thesis documents or research papers
+# ===== TEMPORARY & CACHE FILES =====
+
+# OS Generated Files
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+._*
+
+# Editor backup files
+*~
+*.bak
+*.tmp
+*.temp
+*.orig
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# ===== TESTING & DEBUGGING =====
+
+# Test files
+test/fixtures/
+*.test.local
+
+# Debug files
+debug.log
+*.dmp
+
+# ===== BUILD ARTIFACTS =====
+
+# APK & AAB files (if you want to keep them, remove these lines)
+*.apk
+*.aab
+*.ipa
+
+# Archive files
+*.zip
+*.tar.gz
+*.rar
+
+# ===== NOTES =====
+# 
+# CRITICAL - NEVER commit these files:
+# 1. google-services.json (Android Firebase config)
+# 2. GoogleService-Info.plist (iOS Firebase config)
+# 3. firebase_options.dart (Generated Firebase config)
+# 4. *.keystore or *.jks (App signing keys)
+# 5. local.properties (Local SDK paths)
+# 6. Any file containing "secret", "key", "password"
+# 7. Thesis documents or research papers with sensitive info
+# 8. Large binary files (APKs, IPAs) - use GitHub Releases instead
+#
+# SAFE to commit:
+# - Source code (.dart files)
+# - pubspec.yaml and pubspec.lock
+# - README.md and essential documentation
+# - Asset files (images, fonts) - but be mindful of size
+# - Configuration templates (.env.example)
+#
+# TIP: Before committing, always run:
+#   git status
+#   git diff
+# to verify what you're about to commit
