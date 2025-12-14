@@ -39,7 +39,8 @@ class AuthService {
   }) async {
     try {
       // Create user account
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      UserCredential userCredential =
+          await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -90,6 +91,8 @@ class AuthService {
         return 'Password is too weak. Use at least 6 characters.';
       case 'user-disabled':
         return 'This account has been disabled.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
       default:
         return 'Authentication error: ${e.message}';
     }
