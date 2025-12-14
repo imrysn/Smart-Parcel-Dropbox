@@ -74,6 +74,10 @@ class GoogleAuthService {
         'provider': 'google',
         'createdAt': FieldValue.serverTimestamp(),
         'trackingNumbers': [], // Empty array for tracking numbers
+        'role': 'user',
+        'fullName': user.displayName ?? '',
+        'phoneNumber': '',
+        'address': '',
       });
 
     } catch (e) {

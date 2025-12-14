@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/database_service.dart';
-import '../models/scan_log_model.dart';
+import '../models/scan_log_model.dart'; // FIX: Added missing model import
+// The following imports are not used in this specific file but retained
+// for context if the file structure requires them.
+// import 'admin/admin_dashboard_screen.dart';
+// import 'login_screen.dart';
+// import 'home_screen.dart';
 
 /// Logs Screen - Displays scan access logs
 class LogsScreen extends StatefulWidget {
@@ -13,19 +18,18 @@ class LogsScreen extends StatefulWidget {
 
 class _LogsScreenState extends State<LogsScreen> {
   final DatabaseService _databaseService = DatabaseService();
-  
+
   // Filter state
   String _filter = 'all'; // 'all', 'granted', 'denied'
 
   @override
   Widget build(BuildContext context) {
+    // Use standard FirebaseAuth check
     final User? currentUser = FirebaseAuth.instance.currentUser;
-    
+
     if (currentUser == null) {
       return const Scaffold(
-        body: Center(
-          child: Text('Please log in to view logs'),
-        ),
+        body: Center(child: Text('Please log in to view logs')),
       );
     }
 
@@ -34,29 +38,25 @@ class _LogsScreenState extends State<LogsScreen> {
         title: const Text('Scan Logs'),
         elevation: 0,
         actions: [
+          // Filter button
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),
             onSelected: (value) {
               setState(() => _filter = value);
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'all',
-                child: Text('All Logs'),
-              ),
+              const PopupMenuItem(value: 'all', child: Text('All Logs')),
               const PopupMenuItem(
                 value: 'granted',
                 child: Text('Granted Only'),
               ),
-              const PopupMenuItem(
-                value: 'denied',
-                child: Text('Denied Only'),
-              ),
+              const PopupMenuItem(value: 'denied', child: Text('Denied Only')),
             ],
           ),
         ],
       ),
       body: StreamBuilder<List<ScanLogModel>>(
+        // Use currentUser.uid and DatabaseService
         stream: _databaseService.getUserScanLogs(currentUser.uid),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -68,26 +68,16 @@ class _LogsScreenState extends State<LogsScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red[300],
-                  ),
+                  Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
                   const SizedBox(height: 16),
                   Text(
                     'Error loading logs',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[700],
-                    ),
+                    style: TextStyle(fontSize: 18, color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     snapshot.error.toString(),
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[500],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -96,7 +86,7 @@ class _LogsScreenState extends State<LogsScreen> {
           }
 
           List<ScanLogModel> allLogs = snapshot.data ?? [];
-          
+
           // Apply filter
           List<ScanLogModel> filteredLogs = allLogs.where((log) {
             if (_filter == 'granted') {
@@ -119,22 +109,18 @@ class _LogsScreenState extends State<LogsScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
+                    // Custom message based on filter
                     _filter == 'all'
                         ? 'No scan logs yet'
                         : _filter == 'granted'
-                            ? 'No granted access logs'
-                            : 'No denied access logs',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[600],
-                    ),
+                        ? 'No granted access logs'
+                        : 'No denied access logs',
+                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Scan logs will appear here when the dropbox is used',
-                    style: TextStyle(
-                      color: Colors.grey[500],
-                    ),
+                    style: TextStyle(color: Colors.grey[500]),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -144,7 +130,7 @@ class _LogsScreenState extends State<LogsScreen> {
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: filteredLogs.length,
+            itemCount: filteredLogs.length, // Use filtered logs
             itemBuilder: (context, index) {
               ScanLogModel log = filteredLogs[index];
               return _buildLogCard(log);
@@ -163,10 +149,9 @@ class _LogsScreenState extends State<LogsScreen> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      // Adopted styling details and combined with structure
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -187,14 +172,10 @@ class _LogsScreenState extends State<LogsScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        statusIcon,
-                        size: 18,
-                        color: statusColor,
-                      ),
+                      Icon(statusIcon, size: 18, color: statusColor),
                       const SizedBox(width: 6),
                       Text(
-                        statusText,
+                        statusText, // Using local statusText
                         style: TextStyle(
                           color: statusColor,
                           fontWeight: FontWeight.w600,
@@ -207,24 +188,17 @@ class _LogsScreenState extends State<LogsScreen> {
                 const Spacer(),
                 Text(
                   log.getFormattedDateTime(),
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ],
             ),
-            
+
             const SizedBox(height: 12),
-            
+
             // Scanned code
             Row(
               children: [
-                Icon(
-                  Icons.qr_code_scanner,
-                  size: 20,
-                  color: Colors.grey[600],
-                ),
+                Icon(Icons.qr_code_scanner, size: 20, color: Colors.grey[600]),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -232,10 +206,7 @@ class _LogsScreenState extends State<LogsScreen> {
                     children: [
                       Text(
                         'Scanned Code',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -251,7 +222,7 @@ class _LogsScreenState extends State<LogsScreen> {
                 ),
               ],
             ),
-            
+
             // Tracking ID if available
             if (log.trackingId != null) ...[
               const SizedBox(height: 12),
@@ -288,7 +259,7 @@ class _LogsScreenState extends State<LogsScreen> {
                 ],
               ),
             ],
-            
+
             // Reason if denied
             if (!log.accessGranted && log.reason != null) ...[
               const SizedBox(height: 12),
@@ -301,26 +272,19 @@ class _LogsScreenState extends State<LogsScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 18,
-                      color: Colors.red[700],
-                    ),
+                    Icon(Icons.info_outline, size: 18, color: Colors.red[700]),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         log.reason!,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.red[700],
-                        ),
+                        style: TextStyle(fontSize: 13, color: Colors.red[700]),
                       ),
                     ),
                   ],
                 ),
               ),
             ],
-            
+
             // Full date/time and Details button
             const SizedBox(height: 8),
             InkWell(
@@ -331,18 +295,11 @@ class _LogsScreenState extends State<LogsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 16,
-                      color: Colors.grey[500],
-                    ),
+                    Icon(Icons.access_time, size: 16, color: Colors.grey[500]),
                     const SizedBox(width: 4),
                     Text(
                       log.getFullFormattedDateTime(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[500],
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                     ),
                     const Spacer(),
                     Icon(
@@ -360,6 +317,7 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
+  // Dialog method
   void _showLogDetails(BuildContext context, ScanLogModel log) {
     showDialog(
       context: context,
@@ -370,15 +328,16 @@ class _LogsScreenState extends State<LogsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDetailRow('Status', log.accessGranted ? 'Granted' : 'Denied'),
+              _buildDetailRow(
+                'Status',
+                log.accessGranted ? 'Granted' : 'Denied',
+              ),
               _buildDetailRow('Date & Time', log.getFullFormattedDateTime()),
               _buildDetailRow('Scanned Code', log.scannedCode),
               if (log.trackingId != null)
                 _buildDetailRow('Tracking ID', log.trackingId!),
-              if (log.userId != null)
-                _buildDetailRow('User ID', log.userId!),
-              if (log.reason != null)
-                _buildDetailRow('Reason', log.reason!),
+              if (log.userId != null) _buildDetailRow('User ID', log.userId!),
+              if (log.reason != null) _buildDetailRow('Reason', log.reason!),
             ],
           ),
         ),
@@ -392,6 +351,7 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
+  // Detail row utility
   Widget _buildDetailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -407,12 +367,7 @@ class _LogsScreenState extends State<LogsScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-            ),
-          ),
+          Text(value, style: const TextStyle(fontSize: 14)),
         ],
       ),
     );
