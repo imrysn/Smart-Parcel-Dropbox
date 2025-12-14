@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/error_handler.dart';
+import '../services/input_validator.dart';
 import 'home_screen.dart';
 
 /// Register Screen - New user registration
@@ -92,12 +94,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     labelText: 'Full Name',
                     prefixIcon: Icon(Icons.person_outline),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your full name';
-                    }
-                    return null;
-                  },
+                  validator: InputValidator.validateFullName,
                 ),
                 const SizedBox(height: 16),
 
@@ -109,15 +106,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     labelText: 'Email',
                     prefixIcon: Icon(Icons.email_outlined),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-                    if (!value.contains('@')) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
+                  validator: InputValidator.validateEmail,
                 ),
                 const SizedBox(height: 16),
 
@@ -129,12 +118,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     labelText: 'Phone Number',
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your phone number';
-                    }
-                    return null;
-                  },
+                  validator: InputValidator.validatePhone,
                 ),
                 const SizedBox(height: 16),
 
@@ -146,12 +130,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     labelText: 'Address',
                     prefixIcon: Icon(Icons.home_outlined),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your address';
-                    }
-                    return null;
-                  },
+                  validator: InputValidator.validateAddress,
                 ),
                 const SizedBox(height: 16),
 
@@ -173,15 +152,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       },
                     ),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter a password';
-                    }
-                    if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
-                    }
-                    return null;
-                  },
+                  validator: ErrorHandler.validatePassword,
                 ),
                 const SizedBox(height: 16),
 
@@ -199,8 +170,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             : Icons.visibility_off_outlined,
                       ),
                       onPressed: () {
-                        setState(
-                            () => _obscureConfirmPassword = !_obscureConfirmPassword);
+                        setState(() =>
+                            _obscureConfirmPassword = !_obscureConfirmPassword);
                       },
                     ),
                   ),
