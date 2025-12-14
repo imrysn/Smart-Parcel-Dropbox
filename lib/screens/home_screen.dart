@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
-import '../services/error_handler.dart';
 import '../models/tracking_model.dart';
 import 'login_screen.dart';
 import 'add_tracking_screen.dart';
 import 'tracking_details_screen.dart';
 import 'logs_screen.dart';
 import 'notifications_screen.dart';
+import 'admin/admin_dashboard_screen.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -23,13 +23,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final DatabaseService _databaseService = DatabaseService();
   int _selectedIndex = 0;
 
-  // Stream subscriptions for cleanup
-  Stream<List<TrackingModel>>? _activeOrdersStream;
-  Stream<int>? _notificationsCountStream;
-
-  // Current user
-  User? _currentUser;
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -38,7 +31,9 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           // Notifications button with badge
           StreamBuilder<int>(
-            stream: _notificationsCountStream ?? Stream.value(0),
+            stream: _authService.currentUser != null
+                ? _databaseService.getUnreadNotificationsCount(_authService.currentUser!.uid)
+                : Stream.value(0),
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return Stack(
@@ -103,16 +98,122 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: _getSelectedTab(),
       floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const AddTrackingScreen(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('Add Tracking ID'),
+          ? Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Drop Box Control Button
+                StreamBuilder<Map<String, dynamic>?>(
+                  stream: _databaseService.getDropBoxDoorState(),
+                  builder: (context, snapshot) {
+                    final doorState = snapshot.data;
+                    final command = doorState?['command'] as String?;
+                    final isOpen = command == 'open';
+                    final isProcessing = doorState?['status'] == 'processing';
+                    final userId = _authService.currentUser?.uid;
+
+                    if (userId == null) return const SizedBox.shrink();
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      child: FloatingActionButton.extended(
+                        onPressed: isProcessing
+                            ? null
+                            : () async {
+                                try {
+                                  await _databaseService.controlDropBoxDoor(
+                                    userId: userId,
+                                    open: !isOpen,
+                                  );
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          isOpen
+                                              ? 'Closing drop box...'
+                                              : 'Opening drop box...',
+                                        ),
+                                        duration: const Duration(seconds: 2),
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Error: $e'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        icon: Stack(
+                          children: [
+                            Icon(
+                              isOpen ? Icons.lock_open : Icons.lock,
+                            ),
+                            // Status indicator dot
+                            Positioned(
+                              right: 0,
+                              top: 0,
+                              child: Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                  color: isOpen ? Colors.green : Colors.red,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        label: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              isProcessing
+                                  ? 'Processing...'
+                                  : isOpen
+                                      ? 'Close Drop Box'
+                                      : 'Open Drop Box',
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isOpen ? Colors.green : Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ),
+                        backgroundColor: isOpen
+                            ? Colors.green
+                            : Theme.of(context).colorScheme.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                    );
+                  },
+                ),
+                // Add Tracking ID Button
+                FloatingActionButton.extended(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const AddTrackingScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add Tracking ID'),
+                ),
+              ],
             )
           : null,
       bottomNavigationBar: NavigationBar(
@@ -146,39 +247,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (user == null) return const Center(child: Text('Not logged in'));
 
     return StreamBuilder<List<TrackingModel>>(
-      stream: _activeOrdersStream,
+      stream: _databaseService.getActiveOrders(user.uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
         if (snapshot.hasError) {
-          ErrorHandler.handleError(snapshot.error ?? 'Unknown error', null,
-              'HomeScreen active orders');
           return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  size: 80,
-                  color: Colors.red,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Unable to load orders',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => setState(() {}),
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
+            child: Text('Error: ${snapshot.error}'),
           );
         }
 
@@ -382,9 +459,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             radius: 50,
                             backgroundColor: Colors.white,
                             child: Text(
-                              (userData?['fullName']?[0]?.toUpperCase() ??
-                                  user.email?[0].toUpperCase() ??
-                                  'U'),
+                              (userData?['fullName']?[0]?.toUpperCase() ?? 
+                               user.email?[0].toUpperCase() ?? 'U'),
                               style: TextStyle(
                                 fontSize: 40,
                                 fontWeight: FontWeight.bold,
@@ -529,6 +605,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Divider(height: 1),
                           _buildInfoTile(
                             context,
+                            icon: Icons.admin_panel_settings_outlined,
+                            title: 'Role',
+                            value: userData?['role'] ?? 'user',
+                            isEmpty: false,
+                          ),
+                          const Divider(height: 1),
+                          _buildInfoTile(
+                            context,
                             icon: Icons.verified_user_outlined,
                             title: 'Account Status',
                             value: 'Verified',
@@ -539,6 +623,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
+                    if (userData?['role'] == 'admin') ...[
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => const AdminDashboardScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.admin_panel_settings),
+                          label: const Text('Open Admin Dashboard'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -596,8 +697,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(
                           fontSize: 16,
                           color: isEmpty ? Colors.grey[400] : Colors.grey[900],
-                          fontWeight:
-                              isEmpty ? FontWeight.normal : FontWeight.w500,
+                          fontWeight: isEmpty ? FontWeight.normal : FontWeight.w500,
                         ),
                       ),
                     ),
@@ -615,30 +715,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _currentUser = _authService.currentUser;
-    _setupStreams();
-  }
-
-  @override
-  void dispose() {
-    // Clean up streams to prevent memory leaks
-    _activeOrdersStream = null;
-    _notificationsCountStream = null;
-    super.dispose();
-  }
-
-  void _setupStreams() {
-    // Initialize streams lazily only when needed
-    if (_currentUser != null) {
-      _activeOrdersStream = _databaseService.getActiveOrders(_currentUser!.uid);
-      _notificationsCountStream =
-          _databaseService.getUnreadNotificationsCount(_currentUser!.uid);
-    }
   }
 
   Future<void> _logout() async {
