@@ -25,7 +25,7 @@ if (flutterVersionName == null) {
 
 android {
     namespace "com.example.smart_parcel_dropbox"
-    compileSdk = 36
+    compileSdk 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
@@ -33,13 +33,13 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = '11'
     }
 
     defaultConfig {
         applicationId "com.example.smart_parcel_dropbox"
-        minSdkVersion flutter.minSdkVersion
-        targetSdk 34
+        minSdkVersion flutter.minSdkVersion // Explicitly setting reasonable minSdk for Flutter
+        targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }
@@ -56,8 +56,8 @@ flutter {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.10"  // Updated version
-    implementation platform('com.google.firebase:firebase-bom:33.2.0')
+    // Removed manual kotlin-stdlib-jdk7 to prevent conflicts
+    implementation platform('com.google.firebase:firebase-bom:33.1.0') // Updated to stable BOM
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
     implementation 'com.google.firebase:firebase-messaging'
