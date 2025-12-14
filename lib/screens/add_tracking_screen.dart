@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/database_service.dart';
+import '../services/input_validator.dart';
 
 /// Add Tracking Screen - Register new tracking ID
 class AddTrackingScreen extends StatefulWidget {
@@ -133,12 +134,7 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
                   hintText: 'Enter tracking number from shop',
                   prefixIcon: Icon(Icons.qr_code_2),
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter tracking ID';
-                  }
-                  return null;
-                },
+                validator: InputValidator.validateTrackingId,
               ),
               const SizedBox(height: 16),
 
@@ -150,12 +146,7 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
                   hintText: 'e.g., Shopee, Lazada',
                   prefixIcon: Icon(Icons.store_outlined),
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter shop name';
-                  }
-                  return null;
-                },
+                validator: InputValidator.validateShopName,
               ),
               const SizedBox(height: 16),
 

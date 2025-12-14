@@ -327,14 +327,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       side: BorderSide(color: Colors.grey[300]!),
                     ),
-                    icon: Image.network(
-                      'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
-                      height: 24,
-                      width: 24,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.login, color: Colors.blue);
-                      },
-                    ),
+                    icon: const Icon(Icons.g_mobiledata,
+                        color: Colors.red), // Google logo alternative
                     label: const Text(
                       'Continue with Google',
                       style: TextStyle(

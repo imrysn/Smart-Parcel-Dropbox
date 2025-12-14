@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
 
-/// Splash Screen - Professional delivery animation with offline support
+/// Splash Screen - Optimized delivery animation with performance improvements
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -14,38 +14,36 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  late AnimationController _fadeController;
-
-  late Animation<double> _fadeAnimation;
+  late AnimationController _progressController;
+  late Animation<double> _progressAnimation;
 
   @override
   void initState() {
     super.initState();
-    _initAnimations();
-    _startAnimations();
+    _initializeAnimations();
     _checkAuthState();
   }
 
-  void _initAnimations() {
-    // Simple fade controller only
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+  void _initializeAnimations() {
+    // Single, simple progress animation - no complex custom painting
+    _progressController = AnimationController(
+      duration: const Duration(seconds: 2),
       vsync: this,
     );
 
-    _fadeAnimation = Tween<double>(
+    _progressAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
-    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeIn));
-  }
+    ).animate(CurvedAnimation(
+      parent: _progressController,
+      curve: Curves.easeInOut,
+    ));
 
-  void _startAnimations() {
-    _fadeController.forward();
+    _progressController.forward();
   }
 
   Future<void> _checkAuthState() async {
-    // Reduced splash duration for better performance
-    await Future.delayed(const Duration(milliseconds: 2000));
+    await Future.delayed(const Duration(milliseconds: 2500));
 
     if (!mounted) return;
 
@@ -64,7 +62,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _fadeController.dispose();
+    _progressController.dispose();
     super.dispose();
   }
 
@@ -72,8 +70,6 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        width: double.infinity,
-        height: double.infinity,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -86,121 +82,165 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ),
         child: SafeArea(
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Spacer(),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Spacer(),
 
-                // Simple delivery icon
-                Icon(
-                  Icons.local_shipping,
-                  size: 120,
-                  color: Colors.white,
+              // Simplified delivery illustration - static icons instead of animation
+              Container(
+                width: 200,
+                height: 120,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
                 ),
-
-                const SizedBox(height: 30),
-
-                // App title with elegant styling
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 32,
-                    vertical: 16,
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Smart Parcel Drop Box',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                          shadows: [
-                            Shadow(
-                              blurRadius: 20,
-                              color: Colors.black.withOpacity(0.3),
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Motorcycle
+                    const Icon(
+                      Icons.two_wheeler,
+                      color: Colors.white,
+                      size: 48,
+                    ),
+                    const SizedBox(width: 16),
+                    // Delivery person
+                    const Icon(
+                      Icons.delivery_dining,
+                      color: Colors.white,
+                      size: 48,
+                    ),
+                    const SizedBox(width: 16),
+                    // Package
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Secure Contactless Deliveries',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.white.withOpacity(0.95),
-                          letterSpacing: 1.5,
-                          fontWeight: FontWeight.w300,
-                        ),
+                      child: const Icon(
+                        Icons.inventory_2,
+                        color: Colors.white,
+                        size: 32,
                       ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        spacing: 12,
-                        children: [
-                          _buildFeatureBadge(Icons.lock_outline, 'Secure'),
-                          _buildFeatureBadge(Icons.speed, 'Fast'),
-                          _buildFeatureBadge(Icons.contactless, 'Contactless'),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // App title with elegant styling
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Smart Parcel Drop Box',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 0.5,
+                        shadows: [
+                          Shadow(
+                            blurRadius: 15,
+                            color: Colors.black.withOpacity(0.3),
+                            offset: const Offset(0, 3),
+                          ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 40),
-
-                // Simple loading indicator
-                const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    Colors.white,
-                  ),
-                  strokeWidth: 3,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Loading...',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 14,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-
-                const Spacer(),
-
-                // Footer
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 24.0),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Cavite State University',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 12,
-                          letterSpacing: 1.0,
-                        ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Secure Contactless Deliveries',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white.withOpacity(0.95),
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w300,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Bacoor Campus',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.6),
-                          fontSize: 11,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Feature badges
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      spacing: 12,
+                      children: [
+                        _buildFeatureBadge(Icons.lock_outline, 'Secure'),
+                        _buildFeatureBadge(Icons.speed, 'Fast'),
+                        _buildFeatureBadge(Icons.contactless, 'Contactless'),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Optimized progress indicator - single smooth animation
+              Container(
+                width: 200,
+                child: AnimatedBuilder(
+                  animation: _progressAnimation,
+                  builder: (context, child) {
+                    return LinearProgressIndicator(
+                      value: _progressAnimation.value,
+                      backgroundColor: Colors.white.withOpacity(0.2),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Colors.white.withOpacity(0.9),
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              Text(
+                'Loading your experience...',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  fontSize: 14,
+                  letterSpacing: 1,
+                ),
+              ),
+
+              const Spacer(),
+
+              // University footer
+              Padding(
+                padding: const EdgeInsets.only(bottom: 24.0),
+                child: Column(
+                  children: [
+                    Text(
+                      'Cavite State University',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 12,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Bacoor Campus',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.6),
+                        fontSize: 11,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../services/error_handler.dart';
 import '../models/tracking_model.dart';
 import 'login_screen.dart';
 import 'add_tracking_screen.dart';
@@ -22,6 +23,13 @@ class _HomeScreenState extends State<HomeScreen> {
   final DatabaseService _databaseService = DatabaseService();
   int _selectedIndex = 0;
 
+  // Stream subscriptions for cleanup
+  Stream<List<TrackingModel>>? _activeOrdersStream;
+  Stream<int>? _notificationsCountStream;
+
+  // Current user
+  User? _currentUser;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -30,9 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           // Notifications button with badge
           StreamBuilder<int>(
-            stream: _authService.currentUser != null
-                ? _databaseService.getUnreadNotificationsCount(_authService.currentUser!.uid)
-                : Stream.value(0),
+            stream: _notificationsCountStream ?? Stream.value(0),
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return Stack(
@@ -140,15 +146,39 @@ class _HomeScreenState extends State<HomeScreen> {
     if (user == null) return const Center(child: Text('Not logged in'));
 
     return StreamBuilder<List<TrackingModel>>(
-      stream: _databaseService.getActiveOrders(user.uid),
+      stream: _activeOrdersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
         if (snapshot.hasError) {
+          ErrorHandler.handleError(snapshot.error ?? 'Unknown error', null,
+              'HomeScreen active orders');
           return Center(
-            child: Text('Error: ${snapshot.error}'),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 80,
+                  color: Colors.red,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Unable to load orders',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => setState(() {}),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
           );
         }
 
@@ -352,8 +382,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             radius: 50,
                             backgroundColor: Colors.white,
                             child: Text(
-                              (userData?['fullName']?[0]?.toUpperCase() ?? 
-                               user.email?[0].toUpperCase() ?? 'U'),
+                              (userData?['fullName']?[0]?.toUpperCase() ??
+                                  user.email?[0].toUpperCase() ??
+                                  'U'),
                               style: TextStyle(
                                 fontSize: 40,
                                 fontWeight: FontWeight.bold,
@@ -565,7 +596,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(
                           fontSize: 16,
                           color: isEmpty ? Colors.grey[400] : Colors.grey[900],
-                          fontWeight: isEmpty ? FontWeight.normal : FontWeight.w500,
+                          fontWeight:
+                              isEmpty ? FontWeight.normal : FontWeight.w500,
                         ),
                       ),
                     ),
@@ -583,6 +615,30 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _currentUser = _authService.currentUser;
+    _setupStreams();
+  }
+
+  @override
+  void dispose() {
+    // Clean up streams to prevent memory leaks
+    _activeOrdersStream = null;
+    _notificationsCountStream = null;
+    super.dispose();
+  }
+
+  void _setupStreams() {
+    // Initialize streams lazily only when needed
+    if (_currentUser != null) {
+      _activeOrdersStream = _databaseService.getActiveOrders(_currentUser!.uid);
+      _notificationsCountStream =
+          _databaseService.getUnreadNotificationsCount(_currentUser!.uid);
+    }
   }
 
   Future<void> _logout() async {

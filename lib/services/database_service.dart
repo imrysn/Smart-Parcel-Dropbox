@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/tracking_model.dart';
 import '../models/scan_log_model.dart';
 import '../models/notification_model.dart';
+import 'error_handler.dart';
 
 /// Database Service for Smart Parcel Drop Box System
 /// Handles all Firestore operations for tracking IDs and delivery logs
@@ -62,10 +63,10 @@ class DatabaseService {
         .orderBy('registeredAt', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => TrackingModel.fromFirestore(doc))
-          .toList();
-    });
+          return snapshot.docs
+              .map((doc) => TrackingModel.fromFirestore(doc))
+              .toList();
+        });
   }
 
   /// Verify tracking ID (used by courier/drop box system)
@@ -115,7 +116,8 @@ class DatabaseService {
   Future<void> logDeliveryEvent({
     required String trackingId,
     required String userId,
-    required String eventType, // scanned, door_opened, parcel_inserted, door_closed
+    required String
+        eventType, // scanned, door_opened, parcel_inserted, door_closed
     String? details,
   }) async {
     try {
@@ -178,7 +180,10 @@ class DatabaseService {
       if (phoneNumber != null) updateData['phoneNumber'] = phoneNumber;
       if (address != null) updateData['address'] = address;
 
-      await _firestore.collection(_usersCollection).doc(userId).update(updateData);
+      await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .update(updateData);
     } catch (e) {
       throw 'Failed to update user profile: $e';
     }
@@ -396,7 +401,8 @@ class DatabaseService {
     required String shopName,
   }) async {
     String title = 'Status Updated';
-    String message = 'Your order from $shopName is now ${_getStatusText(status)}.';
+    String message =
+        'Your order from $shopName is now ${_getStatusText(status)}.';
 
     await createNotification(
       userId: userId,
