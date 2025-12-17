@@ -16,6 +16,10 @@ class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
   late AnimationController _progressController;
   late Animation<double> _progressAnimation;
+  
+  // Configurable splash screen duration
+  static const Duration _splashDuration = Duration(milliseconds: 2500);
+  static const Duration _animationDuration = Duration(seconds: 2);
 
   @override
   void initState() {
@@ -27,7 +31,7 @@ class _SplashScreenState extends State<SplashScreen>
   void _initializeAnimations() {
     // Single, simple progress animation - no complex custom painting
     _progressController = AnimationController(
-      duration: const Duration(seconds: 2),
+      duration: _animationDuration,
       vsync: this,
     );
 
@@ -43,7 +47,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkAuthState() async {
-    await Future.delayed(const Duration(milliseconds: 2500));
+    await Future.delayed(_splashDuration);
 
     if (!mounted) return;
 
