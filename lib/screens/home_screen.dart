@@ -142,11 +142,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActiveOrdersTab() {
-    User? user = _authService.currentUser;
-    if (user == null) return const Center(child: Text('Not logged in'));
+    return StreamBuilder<User?>(
+      stream: _authService.authStateChanges,
+      builder: (context, authSnapshot) {
+        User? user = authSnapshot.data;
+        if (user == null) return const Center(child: Text('Not logged in'));
 
-    return StreamBuilder<List<TrackingModel>>(
-      stream: _activeOrdersStream,
+        return StreamBuilder<List<TrackingModel>>(
+          stream: _databaseService.getActiveOrders(user.uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -221,6 +224,8 @@ class _HomeScreenState extends State<HomeScreen> {
             TrackingModel order = orders[index];
             return _buildOrderCard(order);
           },
+        );
+      },
         );
       },
     );
@@ -328,11 +333,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildProfileTab() {
-    User? user = _authService.currentUser;
-    if (user == null) return const Center(child: Text('Not logged in'));
+    return StreamBuilder<User?>(
+      stream: _authService.authStateChanges,
+      builder: (context, authSnapshot) {
+        User? user = authSnapshot.data;
+        if (user == null) return const Center(child: Text('Not logged in'));
 
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: _databaseService.getUserData(user.uid),
+        return FutureBuilder<Map<String, dynamic>?>(
+          future: _databaseService.getUserData(user.uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -544,6 +552,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+        );
+      },
         );
       },
     );
