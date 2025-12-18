@@ -55,43 +55,6 @@ class ErrorHandler {
     debugPrint('$operation took ${duration.inMilliseconds}ms');
   }
 
-  /// Validate required fields
-  static String? validateRequired(String? value, String fieldName) {
-    if (value == null || value.trim().isEmpty) {
-      return '$fieldName is required';
-    }
-    return null;
-  }
-
-  /// Validate email format
-  static String? validateEmail(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Email is required';
-    }
-
-    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
-    if (!emailRegex.hasMatch(value)) {
-      return 'Please enter a valid email address';
-    }
-
-    return null;
-  }
-
-  /// Validate phone number (basic validation)
-  static String? validatePhone(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Phone number is required';
-    }
-
-    // Remove spaces, dashes, etc.
-    final cleanPhone = value.replaceAll(RegExp(r'[^\d]'), '');
-    if (cleanPhone.length < 10) {
-      return 'Please enter a valid phone number';
-    }
-
-    return null;
-  }
-
   /// Validate password strength
   static String? validatePassword(String? value) {
     if (value == null || value.isEmpty) {
