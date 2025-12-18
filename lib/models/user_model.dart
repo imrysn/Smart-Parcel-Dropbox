@@ -5,7 +5,7 @@ class UserModel {
   final String fullName;
   final String phoneNumber;
   final String address;
-  final String role; // user or courier
+  final String role; // user, courier, or admin
   final DateTime? createdAt;
 
   UserModel({

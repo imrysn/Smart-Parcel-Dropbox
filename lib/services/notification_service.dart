@@ -8,59 +8,31 @@ class NotificationService {
 
   /// Initialize notification service
   Future<void> initialize() async {
-    try {
-      // Request permission for iOS
-      NotificationSettings settings = await _messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
+    // Request permission for iOS
+    NotificationSettings settings = await _messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
 
-      if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-        debugPrint('User granted notification permission');
-      } else if (settings.authorizationStatus ==
-          AuthorizationStatus.provisional) {
-        debugPrint('User granted provisional notification permission');
-      } else {
-        debugPrint('User declined or has not accepted notification permission');
-      }
-
-      // Get FCM token (optimized)
-      final token = await _getTokenSafely();
-      if (token != null && token.isNotEmpty) {
-        debugPrint(
-            'FCM Token: ${token.substring(0, 20)}...'); // Truncate for privacy
-      }
-
-      // Set up listeners only when needed
-      _setupMessageHandlers();
-    } catch (e) {
-      debugPrint('Failed to initialize notifications: $e');
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      debugPrint('User granted notification permission');
+    } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+      debugPrint('User granted provisional notification permission');
+    } else {
+      debugPrint('User declined or has not accepted notification permission');
     }
-  }
 
-  /// Safely get FCM token
-  Future<String?> _getTokenSafely() async {
-    try {
-      return await _messaging.getToken();
-    } catch (e) {
-      debugPrint('Error getting FCM token: $e');
-      return null;
-    }
-  }
+    // Get FCM token
+    String? token = await _messaging.getToken();
+    debugPrint('FCM Token: $token');
 
-  /// Setup message handlers with error handling
-  void _setupMessageHandlers() {
-    try {
-      // Handle foreground messages
-      FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+    // Handle foreground messages
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
 
-      // Handle background messages
-      FirebaseMessaging.onMessageOpenedApp.listen(_handleBackgroundMessage);
-    } catch (e) {
-      debugPrint('Error setting up message handlers: $e');
-    }
+    // Handle background messages
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleBackgroundMessage);
   }
 
   /// Get FCM token for the device
