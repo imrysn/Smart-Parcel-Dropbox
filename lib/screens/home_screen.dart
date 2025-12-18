@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../services/error_handler.dart';
 import '../models/tracking_model.dart';
 import 'login_screen.dart';
 import 'add_tracking_screen.dart';
@@ -23,6 +24,37 @@ class _HomeScreenState extends State<HomeScreen> {
   final DatabaseService _databaseService = DatabaseService();
   int _selectedIndex = 0;
 
+  // Stream subscriptions for cleanup
+  Stream<List<TrackingModel>>? _activeOrdersStream;
+  Stream<int>? _notificationsCountStream;
+
+  // Current user
+  User? _currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentUser = _authService.currentUser;
+    _setupStreams();
+  }
+
+  @override
+  void dispose() {
+    // Clean up streams to prevent memory leaks
+    _activeOrdersStream = null;
+    _notificationsCountStream = null;
+    super.dispose();
+  }
+
+  void _setupStreams() {
+    // Initialize streams lazily only when needed
+    if (_currentUser != null) {
+      _activeOrdersStream = _databaseService.getActiveOrders(_currentUser!.uid);
+      _notificationsCountStream =
+          _databaseService.getUnreadNotificationsCount(_currentUser!.uid);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -31,9 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           // Notifications button with badge
           StreamBuilder<int>(
-            stream: _authService.currentUser != null
-                ? _databaseService.getUnreadNotificationsCount(_authService.currentUser!.uid)
-                : Stream.value(0),
+            stream: _notificationsCountStream ?? Stream.value(0),
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return Stack(
@@ -243,60 +273,89 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActiveOrdersTab() {
-    User? user = _authService.currentUser;
-    if (user == null) return const Center(child: Text('Not logged in'));
+    return StreamBuilder<User?>(
+      stream: _authService.authStateChanges,
+      builder: (context, authSnapshot) {
+        User? user = authSnapshot.data;
+        if (user == null) return const Center(child: Text('Not logged in'));
 
-    return StreamBuilder<List<TrackingModel>>(
-      stream: _databaseService.getActiveOrders(user.uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        return StreamBuilder<List<TrackingModel>>(
+          stream: _databaseService.getActiveOrders(user.uid),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-        if (snapshot.hasError) {
-          return Center(
-            child: Text('Error: ${snapshot.error}'),
-          );
-        }
-
-        List<TrackingModel> orders = snapshot.data ?? [];
-
-        if (orders.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.inbox_outlined,
-                  size: 80,
-                  color: Colors.grey[400],
+            if (snapshot.hasError) {
+              ErrorHandler.handleError(snapshot.error ?? 'Unknown error', null,
+                  'HomeScreen active orders');
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 80,
+                      color: Colors.red,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Unable to load orders',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => setState(() {}),
+                      child: const Text('Retry'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'No active orders',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Tap the button below to add a tracking ID',
-                  style: TextStyle(
-                    color: Colors.grey[500],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
+              );
+            }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: orders.length,
-          itemBuilder: (context, index) {
-            TrackingModel order = orders[index];
-            return _buildOrderCard(order);
+            List<TrackingModel> orders = snapshot.data ?? [];
+
+            if (orders.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.inbox_outlined,
+                      size: 80,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No active orders',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tap the button below to add a tracking ID',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: orders.length,
+              itemBuilder: (context, index) {
+                TrackingModel order = orders[index];
+                return _buildOrderCard(order);
+              },
+            );
           },
         );
       },
@@ -405,246 +464,252 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildProfileTab() {
-    User? user = _authService.currentUser;
-    if (user == null) return const Center(child: Text('Not logged in'));
+    return StreamBuilder<User?>(
+      stream: _authService.authStateChanges,
+      builder: (context, authSnapshot) {
+        User? user = authSnapshot.data;
+        if (user == null) return const Center(child: Text('Not logged in'));
 
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: _databaseService.getUserData(user.uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+        return FutureBuilder<Map<String, dynamic>?>(
+          future: _databaseService.getUserData(user.uid),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-        Map<String, dynamic>? userData = snapshot.data;
+            Map<String, dynamic>? userData = snapshot.data;
 
-        return SingleChildScrollView(
-          child: Column(
-            children: [
-              // Profile Header with Gradient
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Theme.of(context).colorScheme.primary,
-                      Theme.of(context).colorScheme.primary.withOpacity(0.7),
-                    ],
-                  ),
-                ),
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
-                    child: Column(
-                      children: [
-                        // Profile Avatar
-                        Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white,
-                              width: 4,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: CircleAvatar(
-                            radius: 50,
-                            backgroundColor: Colors.white,
-                            child: Text(
-                              (userData?['fullName']?[0]?.toUpperCase() ?? 
-                               user.email?[0].toUpperCase() ?? 'U'),
-                              style: TextStyle(
-                                fontSize: 40,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        // Name
-                        Text(
-                          userData?['fullName'] ?? 'User',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // Email
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+            return SingleChildScrollView(
+              child: Column(
+                children: [
+                  // Profile Header with Gradient
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Theme.of(context).colorScheme.primary,
+                          Theme.of(context).colorScheme.primary.withOpacity(0.7),
+                        ],
+                      ),
+                    ),
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+                        child: Column(
                           children: [
-                            Icon(
-                              Icons.email_outlined,
-                              size: 16,
-                              color: Colors.white.withOpacity(0.9),
+                            // Profile Avatar
+                            Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 4,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: CircleAvatar(
+                                radius: 50,
+                                backgroundColor: Colors.white,
+                                child: Text(
+                                  (userData?['fullName']?[0]?.toUpperCase() ??
+                                      user.email?[0].toUpperCase() ??
+                                      'U'),
+                                  style: TextStyle(
+                                    fontSize: 40,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                              ),
                             ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                user.email ?? '',
-                                style: TextStyle(
-                                  fontSize: 15,
+                            const SizedBox(height: 20),
+                            // Name
+                            Text(
+                              userData?['fullName'] ?? 'User',
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            // Email
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.email_outlined,
+                                  size: 16,
                                   color: Colors.white.withOpacity(0.9),
                                 ),
-                                textAlign: TextAlign.center,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    user.email ?? '',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      color: Colors.white.withOpacity(0.9),
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
+                      ),
+                    ),
+                  ),
+                  // Profile Information Cards
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        // Contact Information Card
+                        Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.contact_phone_outlined,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Contact Information',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey[800],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Divider(height: 1),
+                              _buildInfoTile(
+                                context,
+                                icon: Icons.phone_outlined,
+                                title: 'Phone Number',
+                                value: userData?['phoneNumber'] ?? 'Not set',
+                                isEmpty: userData?['phoneNumber'] == null ||
+                                    (userData?['phoneNumber'] as String).isEmpty,
+                              ),
+                              const Divider(height: 1),
+                              _buildInfoTile(
+                                context,
+                                icon: Icons.home_outlined,
+                                title: 'Address',
+                                value: userData?['address'] ?? 'Not set',
+                                isEmpty: userData?['address'] == null ||
+                                    (userData?['address'] as String).isEmpty,
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        // Account Information Card
+                        Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.account_circle_outlined,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Account Information',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey[800],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Divider(height: 1),
+                              _buildInfoTile(
+                                context,
+                                icon: Icons.email_outlined,
+                                title: 'Email Address',
+                                value: user.email ?? 'Not available',
+                                isEmpty: false,
+                              ),
+                              const Divider(height: 1),
+                              _buildInfoTile(
+                                context,
+                                icon: Icons.admin_panel_settings_outlined,
+                                title: 'Role',
+                                value: userData?['role'] ?? 'user',
+                                isEmpty: false,
+                              ),
+                              const Divider(height: 1),
+                              _buildInfoTile(
+                                context,
+                                icon: Icons.verified_user_outlined,
+                                title: 'Account Status',
+                                value: 'Verified',
+                                isEmpty: false,
+                                showValueIcon: true,
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                          ),
+                        ),
+                        if (userData?['role'] == 'admin') ...[
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const AdminDashboardScreen(),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.admin_panel_settings),
+                              label: const Text('Open Admin Dashboard'),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                ),
+                ],
               ),
-              // Profile Information Cards
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    // Contact Information Card
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.contact_phone_outlined,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Contact Information',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey[800],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Divider(height: 1),
-                          _buildInfoTile(
-                            context,
-                            icon: Icons.phone_outlined,
-                            title: 'Phone Number',
-                            value: userData?['phoneNumber'] ?? 'Not set',
-                            isEmpty: userData?['phoneNumber'] == null ||
-                                (userData?['phoneNumber'] as String).isEmpty,
-                          ),
-                          const Divider(height: 1),
-                          _buildInfoTile(
-                            context,
-                            icon: Icons.home_outlined,
-                            title: 'Address',
-                            value: userData?['address'] ?? 'Not set',
-                            isEmpty: userData?['address'] == null ||
-                                (userData?['address'] as String).isEmpty,
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    // Account Information Card
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.account_circle_outlined,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Account Information',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey[800],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Divider(height: 1),
-                          _buildInfoTile(
-                            context,
-                            icon: Icons.email_outlined,
-                            title: 'Email Address',
-                            value: user.email ?? 'Not available',
-                            isEmpty: false,
-                          ),
-                          const Divider(height: 1),
-                          _buildInfoTile(
-                            context,
-                            icon: Icons.admin_panel_settings_outlined,
-                            title: 'Role',
-                            value: userData?['role'] ?? 'user',
-                            isEmpty: false,
-                          ),
-                          const Divider(height: 1),
-                          _buildInfoTile(
-                            context,
-                            icon: Icons.verified_user_outlined,
-                            title: 'Account Status',
-                            value: 'Verified',
-                            isEmpty: false,
-                            showValueIcon: true,
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      ),
-                    ),
-                    if (userData?['role'] == 'admin') ...[
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const AdminDashboardScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.admin_panel_settings),
-                          label: const Text('Open Admin Dashboard'),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -697,7 +762,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(
                           fontSize: 16,
                           color: isEmpty ? Colors.grey[400] : Colors.grey[900],
-                          fontWeight: isEmpty ? FontWeight.normal : FontWeight.w500,
+                          fontWeight:
+                              isEmpty ? FontWeight.normal : FontWeight.w500,
                         ),
                       ),
                     ),

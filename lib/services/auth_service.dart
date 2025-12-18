@@ -39,7 +39,8 @@ class AuthService {
   }) async {
     try {
       // Create user account
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      UserCredential userCredential =
+          await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -53,6 +54,7 @@ class AuthService {
         'address': address,
         'createdAt': FieldValue.serverTimestamp(),
         'role': 'user', // user, courier, or admin
+        'trackingNumbers': [], // Empty array for tracking numbers
       });
 
       return userCredential;

@@ -87,11 +87,3 @@ class NotificationService {
     // This will be handled in the main app
   }
 }
-
-/// Handle background messages (must be top-level function)
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('Background message received:');
-  debugPrint('Title: ${message.notification?.title}');
-  debugPrint('Body: ${message.notification?.body}');
-}
