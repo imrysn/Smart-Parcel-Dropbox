@@ -53,7 +53,7 @@ class AuthService {
         'phoneNumber': phoneNumber,
         'address': address,
         'createdAt': FieldValue.serverTimestamp(),
-        'role': 'user', // user or courier
+        'role': 'user', // user, courier, or admin
         'trackingNumbers': [], // Empty array for tracking numbers
       });
 

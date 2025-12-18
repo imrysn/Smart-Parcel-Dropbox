@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Model class for scan log entries
-/// Records every QR/barcode scan attempt at the drop box.
+/// Records every QR/barcode scan attempt at the drop box
 class ScanLogModel {
   final String id;
   final String scannedCode; // QR code or barcode that was scanned
@@ -65,10 +65,8 @@ class ScanLogModel {
     } else if (difference.inDays == 1) {
       return 'Yesterday at ${_formatTime(date)}';
     } else if (difference.inDays < 7) {
-      // For anything within the last week
       return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
     } else {
-      // For older entries
       return '${_formatDate(date)} at ${_formatTime(date)}';
     }
   }

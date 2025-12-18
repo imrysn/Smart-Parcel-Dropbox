@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/tracking_model.dart';
 import '../models/scan_log_model.dart';
 import '../models/notification_model.dart';
-import 'error_handler.dart';
+import '../models/user_model.dart';
 
 /// Database Service for Smart Parcel Drop Box System
 /// Handles all Firestore operations for tracking IDs and delivery logs
@@ -16,6 +16,7 @@ class DatabaseService {
   final String _usersCollection = 'users';
   final String _scanLogsCollection = 'scan_logs';
   final String _notificationsCollection = 'notifications';
+  final String _deviceControlCollection = 'device_control';
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -63,10 +64,10 @@ class DatabaseService {
         .orderBy('registeredAt', descending: true)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => TrackingModel.fromFirestore(doc))
-              .toList();
-        });
+      return snapshot.docs
+          .map((doc) => TrackingModel.fromFirestore(doc))
+          .toList();
+    });
   }
 
   /// Verify tracking ID (used by courier/drop box system)
@@ -116,8 +117,7 @@ class DatabaseService {
   Future<void> logDeliveryEvent({
     required String trackingId,
     required String userId,
-    required String
-        eventType, // scanned, door_opened, parcel_inserted, door_closed
+    required String eventType, // scanned, door_opened, parcel_inserted, door_closed
     String? details,
   }) async {
     try {
@@ -180,10 +180,7 @@ class DatabaseService {
       if (phoneNumber != null) updateData['phoneNumber'] = phoneNumber;
       if (address != null) updateData['address'] = address;
 
-      await _firestore
-          .collection(_usersCollection)
-          .doc(userId)
-          .update(updateData);
+      await _firestore.collection(_usersCollection).doc(userId).update(updateData);
     } catch (e) {
       throw 'Failed to update user profile: $e';
     }
@@ -401,8 +398,7 @@ class DatabaseService {
     required String shopName,
   }) async {
     String title = 'Status Updated';
-    String message =
-        'Your order from $shopName is now ${_getStatusText(status)}.';
+    String message = 'Your order from $shopName is now ${_getStatusText(status)}.';
 
     await createNotification(
       userId: userId,
@@ -430,5 +426,118 @@ class DatabaseService {
       default:
         return status;
     }
+  }
+
+  /// ADMIN: Get all users
+  Stream<List<UserModel>> getAllUsers() {
+    return _firestore
+        .collection(_usersCollection)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        // Ensure uid is present even if missing in stored data
+        data['uid'] = data['uid'] ?? doc.id;
+        return UserModel.fromMap(data);
+      }).toList();
+    });
+  }
+
+  /// ADMIN: Update a user's role
+  Future<void> updateUserRole({
+    required String userId,
+    required String role,
+  }) async {
+    try {
+      await _firestore.collection(_usersCollection).doc(userId).update({
+        'role': role,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      throw 'Failed to update user role: $e';
+    }
+  }
+
+  /// ADMIN/ROUTING: Get a user's role quickly
+  Future<String?> getUserRole(String userId) async {
+    try {
+      final doc = await _firestore.collection(_usersCollection).doc(userId).get();
+      if (doc.exists) {
+        return (doc.data() as Map<String, dynamic>?)?['role'] as String?;
+      }
+      return null;
+    } catch (e) {
+      throw 'Failed to fetch user role: $e';
+    }
+  }
+
+  /// ADMIN: Get all tracking IDs
+  Stream<List<TrackingModel>> getAllTrackingIds() {
+    return _firestore
+        .collection(_trackingCollection)
+        .orderBy('registeredAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => TrackingModel.fromFirestore(doc))
+          .toList();
+    });
+  }
+
+  /// ADMIN: Get all delivery logs
+  Stream<List<Map<String, dynamic>>> getAllDeliveryLogs() {
+    return _firestore
+        .collection(_deliveryLogsCollection)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    });
+  }
+
+  /// Control drop box door (open/close)
+  /// This sends a command to the IoT device via Firestore
+  Future<void> controlDropBoxDoor({
+    required String userId,
+    required bool open,
+  }) async {
+    try {
+      // Create or update the device control document
+      await _firestore.collection(_deviceControlCollection).doc('door_control').set({
+        'command': open ? 'open' : 'close',
+        'userId': userId,
+        'timestamp': FieldValue.serverTimestamp(),
+        'status': 'pending', // pending, processing, completed
+      }, SetOptions(merge: true));
+
+      // Log the manual control event
+      await logDeliveryEvent(
+        trackingId: 'manual_control',
+        userId: userId,
+        eventType: open ? 'door_opened' : 'door_closed',
+        details: 'Manual control by user',
+      );
+    } catch (e) {
+      throw 'Failed to control drop box door: $e';
+    }
+  }
+
+  /// Get current drop box door state
+  Stream<Map<String, dynamic>?> getDropBoxDoorState() {
+    return _firestore
+        .collection(_deviceControlCollection)
+        .doc('door_control')
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.exists) {
+        return snapshot.data();
+      }
+      return null;
+    });
   }
 }
