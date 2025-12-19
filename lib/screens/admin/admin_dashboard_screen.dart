@@ -427,6 +427,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 },
               ),
             ),
+            const SizedBox(width: 8),
+            
+            // Delete Button
+            IconButton(
+              icon: Icon(
+                Icons.delete_outline,
+                color: _authService.currentUser?.uid == user.uid
+                    ? AdminTheme.textMuted.withOpacity(0.3)
+                    : AdminTheme.statusError,
+              ),
+              tooltip: _authService.currentUser?.uid == user.uid
+                  ? 'Cannot delete yourself'
+                  : 'Delete user',
+              onPressed: _authService.currentUser?.uid == user.uid
+                  ? null
+                  : () => _confirmDeleteUser(user),
+            ),
           ],
         ),
       ),
@@ -1143,6 +1160,156 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
         (route) => false,
+      );
+    }
+  }
+
+  Future<void> _confirmDeleteUser(UserModel user) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AdminTheme.backgroundCard,
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AdminTheme.statusError),
+            const SizedBox(width: 12),
+            Text(
+              'Delete User',
+              style: TextStyle(color: AdminTheme.textPrimary),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to permanently delete this user?',
+              style: TextStyle(
+                color: AdminTheme.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AdminTheme.backgroundSurface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AdminTheme.statusError.withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDialogInfoRow('Name', user.fullName.isNotEmpty ? user.fullName : 'N/A'),
+                  const SizedBox(height: 8),
+                  _buildDialogInfoRow('Email', user.email),
+                  const SizedBox(height: 8),
+                  _buildDialogInfoRow('Role', user.role.toUpperCase()),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AdminTheme.statusError.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AdminTheme.statusError.withOpacity(0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: AdminTheme.statusError,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This will permanently delete all user data including tracking IDs, notifications, and logs.',
+                      style: TextStyle(
+                        color: AdminTheme.statusError,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AdminTheme.statusError,
+            ),
+            child: const Text('Delete User'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _deleteUser(user.uid);
+    }
+  }
+
+  Widget _buildDialogInfoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 60,
+          child: Text(
+            '$label:',
+            style: TextStyle(
+              color: AdminTheme.textMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              color: AdminTheme.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _deleteUser(String userId) async {
+    try {
+      await _databaseService.deleteUser(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('User deleted successfully'),
+          backgroundColor: AdminTheme.statusSuccess,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete user: $e'),
+          backgroundColor: AdminTheme.statusError,
+        ),
       );
     }
   }
