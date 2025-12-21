@@ -540,4 +540,61 @@ class DatabaseService {
       return null;
     });
   }
+
+  /// ADMIN: Delete a user and all associated data
+  /// This will permanently delete:
+  /// - User document
+  /// - All tracking IDs
+  /// - All notifications
+  /// - All scan logs
+  /// - All delivery logs
+  Future<void> deleteUser(String userId) async {
+    try {
+      final batch = _firestore.batch();
+
+      // Delete user's tracking IDs
+      final trackingSnapshot = await _firestore
+          .collection(_trackingCollection)
+          .where('userId', isEqualTo: userId)
+          .get();
+      for (var doc in trackingSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Delete user's notifications
+      final notificationsSnapshot = await _firestore
+          .collection(_notificationsCollection)
+          .where('userId', isEqualTo: userId)
+          .get();
+      for (var doc in notificationsSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Delete user's scan logs
+      final scanLogsSnapshot = await _firestore
+          .collection(_scanLogsCollection)
+          .where('userId', isEqualTo: userId)
+          .get();
+      for (var doc in scanLogsSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Delete user's delivery logs
+      final deliveryLogsSnapshot = await _firestore
+          .collection(_deliveryLogsCollection)
+          .where('userId', isEqualTo: userId)
+          .get();
+      for (var doc in deliveryLogsSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Delete user document
+      batch.delete(_firestore.collection(_usersCollection).doc(userId));
+
+      // Commit all deletions atomically
+      await batch.commit();
+    } catch (e) {
+      throw 'Failed to delete user: $e';
+    }
+  }
 }
