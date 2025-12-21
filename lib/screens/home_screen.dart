@@ -412,7 +412,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -491,7 +491,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         end: Alignment.bottomRight,
                         colors: [
                           Theme.of(context).colorScheme.primary,
-                          Theme.of(context).colorScheme.primary.withOpacity(0.7),
+                          Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.7),
                         ],
                       ),
                     ),
@@ -511,7 +514,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
+                                    color: Colors.black.withValues(alpha: 0.2),
                                     blurRadius: 10,
                                     offset: const Offset(0, 4),
                                   ),
@@ -527,7 +530,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   style: TextStyle(
                                     fontSize: 40,
                                     fontWeight: FontWeight.bold,
-                                    color: Theme.of(context).colorScheme.primary,
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
                                   ),
                                 ),
                               ),
@@ -550,7 +554,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon(
                                   Icons.email_outlined,
                                   size: 16,
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                 ),
                                 const SizedBox(width: 6),
                                 Flexible(
@@ -558,7 +562,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     user.email ?? '',
                                     style: TextStyle(
                                       fontSize: 15,
-                                      color: Colors.white.withOpacity(0.9),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.9),
                                     ),
                                     textAlign: TextAlign.center,
                                     overflow: TextOverflow.ellipsis,
@@ -586,12 +591,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 20, 20, 12),
                                 child: Row(
                                   children: [
                                     Icon(
                                       Icons.contact_phone_outlined,
-                                      color: Theme.of(context).colorScheme.primary,
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
                                     ),
                                     const SizedBox(width: 12),
                                     Text(
@@ -612,7 +619,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 title: 'Phone Number',
                                 value: userData?['phoneNumber'] ?? 'Not set',
                                 isEmpty: userData?['phoneNumber'] == null ||
-                                    (userData?['phoneNumber'] as String).isEmpty,
+                                    (userData?['phoneNumber'] as String)
+                                        .isEmpty,
                               ),
                               const Divider(height: 1),
                               _buildInfoTile(
@@ -638,12 +646,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 20, 20, 12),
                                 child: Row(
                                   children: [
                                     Icon(
                                       Icons.account_circle_outlined,
-                                      color: Theme.of(context).colorScheme.primary,
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
                                     ),
                                     const SizedBox(width: 12),
                                     Text(
@@ -694,7 +704,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               onPressed: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    builder: (context) => const AdminDashboardScreen(),
+                                    builder: (context) =>
+                                        const AdminDashboardScreen(),
                                   ),
                                 );
                               },
@@ -731,7 +742,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
