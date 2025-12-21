@@ -99,7 +99,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final userData = await _databaseService.getUserData(user.uid);
-      final role = userData?['role'];
+      
+      if (userData == null) {
+        // User exists in Auth but not in Firestore - account was likely deleted
+        await _authService.signOut();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('This account has been deleted or deactivated.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      final role = userData['role'];
 
       if (!mounted) return;
 
@@ -112,11 +127,16 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(builder: (context) => const HomeScreen()),
         );
       }
-    } catch (_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      await _authService.signOut();
     }
   }
 

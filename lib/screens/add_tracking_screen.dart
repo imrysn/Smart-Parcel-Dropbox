@@ -101,21 +101,21 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
             children: [
               // Info card
               Card(
-                color: Colors.blue[50],
+                color: const Color(0xFFFFF3E0), // Orange 50 - warm tint
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.info_outline,
-                        color: Colors.blue[700],
+                        color: Color(0xFFF4511E), // Deep Orange 600
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           'Register your tracking ID to receive notifications when your parcel is delivered.',
                           style: TextStyle(
-                            color: Colors.blue[700],
+                            color: Colors.grey[800],
                           ),
                         ),
                       ),

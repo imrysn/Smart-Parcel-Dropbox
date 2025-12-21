@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'config/firebase_options.dart';
+import 'config/user_theme.dart';
 import 'services/notification_service.dart';
 import 'services/service_locator.dart';
 import 'services/connectivity_service.dart';
@@ -72,57 +73,7 @@ class _SmartParcelDropBoxAppState extends State<SmartParcelDropBoxApp> {
     return MaterialApp(
       title: 'Smart Parcel Drop Box',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF2196F3),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          elevation: 0,
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          filled: true,
-          fillColor: Colors.grey[50],
-        ),
-      ),
-      builder: (context, child) {
-        return StreamBuilder<bool>(
-          stream: _connectivityService.isConnected,
-          builder: (context, snapshot) {
-            final isConnected = snapshot.data ?? true;
-            
-            return Column(
-              children: [
-                if (!isConnected)
-                  Container(
-                    width: double.infinity,
-                    color: Colors.red,
-                    padding: const EdgeInsets.all(8),
-                    child: const Text(
-                      'No Internet Connection',
-                      style: TextStyle(color: Colors.white),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                Expanded(child: child!),
-              ],
-            );
-          },
-        );
-      },
+      theme: UserTheme.theme,
       home: const SplashScreen(),
     );
   }

@@ -1,67 +1,131 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper function to check if user is authenticated
-    function isAuthenticated() {
+    // --- Helper Functions ---
+    
+    // Check if user is authenticated (signed in)
+    function isSignedIn() {
       return request.auth != null;
     }
-    
-    // Helper function to check if user owns the resource
+
+    // Check if user has the 'admin' role
+    function isAdmin() {
+      // Allows an admin to manage all data
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Check if user is the owner of the resource/data
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isSignedIn() && request.auth.uid == userId;
     }
-    
-    // Users collection - users can read/write their own data
+
+    // --- Collections ---
+
+    // 1. Users Collection
+    // Admin can read/write all user data. Owner can read/write their own data.
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      // Merged logic: Owner can manage their own data, Admin can manage all.
+      allow read, write: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
     }
     
-    // Tracking IDs collection
+    // 2. Tracking IDs Collection
+    // Owner can manage their own IDs. Admin can manage all. IoT/system can create/update.
     match /tracking_ids/{trackingId} {
-      // Users can read their own tracking IDs
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      // Users can create tracking IDs for themselves
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      // Users can update their own tracking IDs
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      // System/IoT can update any tracking ID (for delivery status)
-      allow update: if isAuthenticated();
+      // Check if the authenticated user is the owner of the specific tracking ID
+      function isTrackingOwner() {
+        return isOwner(resource.data.userId);
+      }
+      
+      // Check if the user is attempting to set themselves as the owner on creation
+      function isRequestingOwner() {
+        return isOwner(request.resource.data.userId);
+      }
+      // Read: Owner or Admin
+      allow read: if isTrackingOwner() || isAdmin();
+      
+      // Create: Owner or Admin (ensuring they set the correct userId)
+      allow create: if isRequestingOwner() || isAdmin();
+      
+      // Update: Owner or Admin (for management), OR any signed-in user (for IoT/delivery status updates)
+      allow update: if isTrackingOwner() || isAdmin() || isSignedIn();
+      
+      // Delete: Admin only
+      allow delete: if isAdmin();
     }
     
-    // Delivery logs collection
+    // 3. Delivery Logs Collection
+    // Owner can read their logs. Admin can read all. IoT/system can create.
     match /delivery_logs/{logId} {
-      // Users can read logs for their tracking IDs
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      // System/IoT can create delivery logs
-      allow create: if isAuthenticated();
+      // Check if the log belongs to the authenticated user
+      function isLogOwner() {
+        return isOwner(resource.data.userId);
+      }
+      // Read: Log owner or Admin
+      allow read: if isLogOwner() || isAdmin();
+      
+      // Create: Any signed-in user (for IoT/system write)
+      allow create: if isSignedIn();
+      
+      // Delete: Admin only
+      allow delete: if isAdmin();
     }
     
-    // Scan logs collection
+    // 4. Scan Logs Collection
+    // Owner can read their logs. Admin can read all. IoT/system can create.
     match /scan_logs/{logId} {
-      // Users can read their own scan logs
-      allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || 
-        resource.data.userId == null
-      );
-      // System/IoT can create scan logs
-      allow create: if isAuthenticated();
-      // Users can read all scan logs if needed (for admin/logs page)
-      // Uncomment the line below if you want users to see all logs:
-      // allow read: if isAuthenticated();
+      // Check if the log belongs to the authenticated user OR if userId is null/not set
+      function isScanOwner() {
+        return isOwner(resource.data.userId) || resource.data.userId == null;
+      }
+      // Read: Log owner/anonymous scan or Admin
+      allow read: if isScanOwner() || isAdmin();
+      
+      // Create: Any signed-in user (for IoT/system write)
+      allow create: if isSignedIn();
+      
+      // Delete: Admin only
+      allow delete: if isAdmin();
     }
-    
-    // Notifications collection
+
+    // 5. Notifications Collection
+    // Owner can read/update their notifications. Admin can read/update all. System can create.
     match /notifications/{notificationId} {
-      // Users can read their own notifications
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      // Users can update their own notifications (to mark as read)
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      // System/IoT can create notifications for users
-      allow create: if isAuthenticated();
+      // Check if the notification belongs to the authenticated user
+      function isNotificationOwner() {
+        return isOwner(resource.data.userId);
+      }
+      
+      // Read/Update: Notification owner or Admin
+      allow read, update: if isNotificationOwner() || isAdmin();
+      
+      // Create: Any signed-in user (for IoT/system create)
+      allow create: if isSignedIn();
+      
+      // Delete: Admin only
+      allow delete: if isAdmin();
+    }
+
+    // 6. Delegates Subcollection (Under /users/{ownerId}/delegates/{delegateId})
+    // This allows the Admin user (the owner) to manage who else can access the box.
+    match /users/{ownerId}/delegates/{delegateId} {
+      // Read: Owner of the user document or Admin
+      allow read: if isOwner(ownerId) || isAdmin();
+      
+      // Write/Update/Delete: Owner of the user document (for adding/removing delegates) or Admin
+      allow write, update, delete: if isOwner(ownerId) || isAdmin();
+    }
+
+    // 7. Device Control Collection (for IoT drop box control)
+    // Any signed-in user can read door state and send commands. Admin can manage all.
+    match /device_control/{controlId} {
+      // Read: Any signed-in user (to see door state) or Admin
+      allow read: if isSignedIn() || isAdmin();
+      
+      // Write/Update: Any signed-in user (to send open/close commands) or Admin
+      allow write, update: if isSignedIn() || isAdmin();
     }
   }
 }
-
-
-
