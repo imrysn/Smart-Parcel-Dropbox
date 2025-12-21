@@ -35,8 +35,9 @@ class GoogleAuthService {
       final UserCredential userCredential =
           await _auth.signInWithCredential(credential);
 
-      // Create user document in Firestore if it's a new user
-      if (userCredential.additionalUserInfo?.isNewUser ?? false) {
+      // Ensure user document exists in Firestore (handles re-registration of deleted accounts)
+      final userDoc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
+      if (!userDoc.exists) {
         await _createUserDocument(userCredential.user!);
       }
 

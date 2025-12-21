@@ -37,16 +37,46 @@ class AuthService {
     required String phoneNumber,
     required String address,
   }) async {
+    UserCredential? userCredential;
+
     try {
-      // Create user account
-      UserCredential userCredential =
-          await _auth.createUserWithEmailAndPassword(
+      // First, try to create a new user account
+      userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        // If the account already exists in Auth, check if they can log in
+        // This handles cases where an admin deleted the Firestore doc but not the Auth account
+        try {
+          userCredential = await _auth.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
 
-      // Create user document in Firestore
-      await _firestore.collection('users').doc(userCredential.user!.uid).set({
+          // Check if document exists in Firestore
+          final doc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
+          if (doc.exists) {
+            // Account is active and has data, so it really is "already in use"
+            throw _handleAuthException(e);
+          }
+          // If it doesn't exist, we continue to create the document below
+        } catch (signInError) {
+          // If sign-in fails, it means either:
+          // 1. Wrong password for existing account
+          // 2. Some other error
+          // In either case, we should respect the original 'email-already-in-use' error
+          throw _handleAuthException(e);
+        }
+      } else {
+        throw _handleAuthException(e);
+      }
+    }
+
+    try {
+      // Create or re-create user document in Firestore
+      await _firestore.collection('users').doc(userCredential!.user!.uid).set({
         'uid': userCredential.user!.uid,
         'email': email,
         'fullName': fullName,
@@ -58,8 +88,8 @@ class AuthService {
       });
 
       return userCredential;
-    } on FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'Failed to create user profile: $e';
     }
   }
 
