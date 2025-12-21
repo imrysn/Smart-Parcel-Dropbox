@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'config/firebase_options.dart';
 import 'services/notification_service.dart';
+import 'services/service_locator.dart';
+import 'services/connectivity_service.dart';
 import 'screens/splash_screen.dart';
 
 // Background message handler
@@ -13,17 +17,31 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+    // Initialize Firebase
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
 
-  // Set up background message handler
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // Initialize Crashlytics
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
 
-  runApp(const SmartParcelDropBoxApp());
+    // Set up background message handler
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    // Initialize Service Locator (includes Cache Service)
+    await setupServiceLocator();
+
+    // Start connectivity monitoring
+    final connectivityService = getIt<ConnectivityService>();
+    connectivityService.startMonitoring();
+
+    runApp(const SmartParcelDropBoxApp());
+  }, (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  });
 }
 
 class SmartParcelDropBoxApp extends StatefulWidget {
@@ -34,15 +52,18 @@ class SmartParcelDropBoxApp extends StatefulWidget {
 }
 
 class _SmartParcelDropBoxAppState extends State<SmartParcelDropBoxApp> {
-  final NotificationService _notificationService = NotificationService();
+  late final NotificationService _notificationService;
+  late final ConnectivityService _connectivityService;
 
   @override
   void initState() {
     super.initState();
-    _initializeNotifications();
+    _notificationService = getIt<NotificationService>();
+    _connectivityService = getIt<ConnectivityService>();
+    _initializeServices();
   }
 
-  Future<void> _initializeNotifications() async {
+  Future<void> _initializeServices() async {
     await _notificationService.initialize();
   }
 
@@ -53,7 +74,7 @@ class _SmartParcelDropBoxAppState extends State<SmartParcelDropBoxApp> {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF2196F3), // Blue theme
+          seedColor: const Color(0xFF2196F3),
           brightness: Brightness.light,
         ),
         useMaterial3: true,
@@ -77,6 +98,31 @@ class _SmartParcelDropBoxAppState extends State<SmartParcelDropBoxApp> {
           fillColor: Colors.grey[50],
         ),
       ),
+      builder: (context, child) {
+        return StreamBuilder<bool>(
+          stream: _connectivityService.isConnected,
+          builder: (context, snapshot) {
+            final isConnected = snapshot.data ?? true;
+            
+            return Column(
+              children: [
+                if (!isConnected)
+                  Container(
+                    width: double.infinity,
+                    color: Colors.red,
+                    padding: const EdgeInsets.all(8),
+                    child: const Text(
+                      'No Internet Connection',
+                      style: TextStyle(color: Colors.white),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                Expanded(child: child!),
+              ],
+            );
+          },
+        );
+      },
       home: const SplashScreen(),
     );
   }

@@ -8,6 +8,11 @@ class InputValidator {
 
     final email = value.trim();
 
+    // Check for spaces
+    if (email.contains(' ')) {
+      return 'Email address cannot contain spaces';
+    }
+
     // Basic email regex
     final emailRegex =
         RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
