@@ -100,7 +100,18 @@ class _SplashScreenState extends State<SplashScreen>
     if (user != null) {
       try {
         final data = await _databaseService.getUserData(user.uid);
-        final role = data?['role'];
+        
+        // If data is null, the user might have been deleted from Firestore
+        if (data == null) {
+          await FirebaseAuth.instance.signOut();
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+          );
+          return;
+        }
+
+        final role = data['role'];
 
         if (!mounted) return;
 
@@ -113,10 +124,13 @@ class _SplashScreenState extends State<SplashScreen>
             MaterialPageRoute(builder: (context) => const HomeScreen()),
           );
         }
-      } catch (_) {
+      } catch (e) {
+        debugPrint('Error checking auth state: $e');
         if (!mounted) return;
+        // On error, better to go to login than to a potentially broken home screen
+        await FirebaseAuth.instance.signOut();
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
     } else {
@@ -140,14 +154,14 @@ class _SplashScreenState extends State<SplashScreen>
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Theme.of(context).colorScheme.primary,
-              Theme.of(context).colorScheme.primary.withOpacity(0.8),
-              Theme.of(context).colorScheme.secondary,
+              Color(0xFFFF6F00), // Orange 900
+              Color(0xFFF4511E), // Deep Orange 600
+              Color(0xFFE91E63), // Pink 500
             ],
           ),
         ),
