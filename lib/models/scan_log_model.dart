@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+// Firestore removed
 
 /// Model class for scan log entries
 /// Records every QR/barcode scan attempt at the drop box
@@ -21,28 +21,25 @@ class ScanLogModel {
     this.reason,
   });
 
-  /// Create ScanLogModel from Firestore document
-  factory ScanLogModel.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
+  /// Create ScanLogModel from Map (JSON)
+  factory ScanLogModel.fromMap(Map<String, dynamic> data) {
     return ScanLogModel(
-      id: doc.id,
+      id: data['id'] ?? data['_id'] ?? '',
       scannedCode: data['scannedCode'] ?? '',
       accessGranted: data['accessGranted'] ?? false,
-      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      timestamp: data['timestamp'] != null ? DateTime.parse(data['timestamp'].toString()) : DateTime.now(),
       trackingId: data['trackingId'],
       userId: data['userId'],
       reason: data['reason'],
     );
   }
 
-  /// Convert to Map for Firestore
+  /// Convert to Map for API
   Map<String, dynamic> toMap() {
     return {
       'scannedCode': scannedCode,
       'accessGranted': accessGranted,
-      'timestamp': Timestamp.fromDate(timestamp),
-      // Only include optional fields if they are not null
+      'timestamp': timestamp.toIso8601String(),
       if (trackingId != null) 'trackingId': trackingId,
       if (userId != null) 'userId': userId,
       if (reason != null) 'reason': reason,

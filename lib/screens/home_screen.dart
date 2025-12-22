@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/error_handler.dart';
@@ -28,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Stream subscriptions for cleanup
   Stream<List<TrackingModel>>? _activeOrdersStream;
   Stream<int>? _notificationsCountStream;
+  Stream<Map<String, dynamic>?>? _doorStateStream;
 
   // Current user
   User? _currentUser;
@@ -63,9 +63,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _setupStreams() {
     // Initialize streams lazily only when needed
     if (_currentUser != null) {
+      // Establish WebSocket connection
+      _databaseService.initSocket(_currentUser!.uid);
+      
       _activeOrdersStream = _databaseService.getActiveOrders(_currentUser!.uid);
       _notificationsCountStream =
           _databaseService.getUnreadNotificationsCount(_currentUser!.uid);
+      _doorStateStream = _databaseService.getDropBoxDoorState();
 
       // Listen for user document deletion (e.g., by admin)
       FirebaseFirestore.instance
@@ -227,7 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           children: [
             // Drop Box Control Button
             StreamBuilder<Map<String, dynamic>?>(
-              stream: _databaseService.getDropBoxDoorState(),
+              stream: _doorStateStream,
               builder: (context, snapshot) {
                 final doorState = snapshot.data;
                 final command = doorState?['command'] as String?;

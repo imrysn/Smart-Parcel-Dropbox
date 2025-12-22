@@ -1,11 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import '../config/api_config.dart';
 /// Authentication Service for Smart Parcel Drop Box System
 /// Handles user registration, login, and authentication state
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // Get current user
   User? get currentUser => _auth.currentUser;
@@ -47,26 +47,12 @@ class AuthService {
       );
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') {
-        // If the account already exists in Auth, check if they can log in
-        // This handles cases where an admin deleted the Firestore doc but not the Auth account
         try {
           userCredential = await _auth.signInWithEmailAndPassword(
             email: email,
             password: password,
           );
-
-          // Check if document exists in Firestore
-          final doc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
-          if (doc.exists) {
-            // Account is active and has data, so it really is "already in use"
-            throw _handleAuthException(e);
-          }
-          // If it doesn't exist, we continue to create the document below
         } catch (signInError) {
-          // If sign-in fails, it means either:
-          // 1. Wrong password for existing account
-          // 2. Some other error
-          // In either case, we should respect the original 'email-already-in-use' error
           throw _handleAuthException(e);
         }
       } else {
@@ -75,17 +61,27 @@ class AuthService {
     }
 
     try {
-      // Create or re-create user document in Firestore
-      await _firestore.collection('users').doc(userCredential!.user!.uid).set({
-        'uid': userCredential.user!.uid,
-        'email': email,
-        'fullName': fullName,
-        'phoneNumber': phoneNumber,
-        'address': address,
-        'createdAt': FieldValue.serverTimestamp(),
-        'role': 'user', // user, courier, or admin
-        'trackingNumbers': [], // Empty array for tracking numbers
-      });
+      // Create or re-create user document in Node.js Backend
+      print('Attempting to sync user to backend: ${ApiConfig.users}');
+      final response = await http.post(
+        Uri.parse(ApiConfig.users),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'uid': userCredential!.user!.uid,
+          'email': email,
+          'fullName': fullName,
+          'phoneNumber': phoneNumber,
+          'address': address,
+          'role': 'user',
+        }),
+      );
+
+      print('Backend sync response: ${response.statusCode}');
+      print('Backend sync body: ${response.body}');
+
+      if (response.statusCode != 201 && response.statusCode != 400) {
+        throw 'Failed to sync user profile with backend: ${response.body}';
+      }
 
       return userCredential;
     } catch (e) {
