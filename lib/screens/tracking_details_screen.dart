@@ -297,7 +297,7 @@ class TrackingDetailsScreen extends StatelessWidget {
               ],
               const SizedBox(height: 4),
               Text(
-                _formatDateTime(log['timestamp'].toDate()),
+                _formatDateTime(DateTime.parse(log['timestamp'].toString())),
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey[500],

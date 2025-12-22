@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+// Firestore removed
 
 /// Model for in-app notifications
 class NotificationModel {
@@ -24,24 +24,22 @@ class NotificationModel {
     this.data,
   });
 
-  /// Create NotificationModel from Firestore document
-  factory NotificationModel.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
+  /// Create NotificationModel from Map (JSON)
+  factory NotificationModel.fromMap(Map<String, dynamic> data) {
     return NotificationModel(
-      id: doc.id,
+      id: data['id'] ?? data['_id'] ?? '',
       userId: data['userId'] ?? '',
       type: data['type'] ?? '',
       title: data['title'] ?? '',
       message: data['message'] ?? '',
       isRead: data['isRead'] ?? false,
-      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      timestamp: data['timestamp'] != null ? DateTime.parse(data['timestamp'].toString()) : DateTime.now(),
       trackingId: data['trackingId'],
       data: data['data'] != null ? Map<String, dynamic>.from(data['data']) : null,
     );
   }
 
-  /// Convert to Map for Firestore
+  /// Convert to Map for API
   Map<String, dynamic> toMap() {
     return {
       'userId': userId,
@@ -49,7 +47,7 @@ class NotificationModel {
       'title': title,
       'message': message,
       'isRead': isRead,
-      'timestamp': Timestamp.fromDate(timestamp),
+      'timestamp': timestamp.toIso8601String(),
       'trackingId': trackingId,
       'data': data,
     };

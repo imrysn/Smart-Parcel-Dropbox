@@ -1,13 +1,16 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../config/api_config.dart';
+import 'database_service.dart';
 
 /// Google Authentication Service
 /// Handles Google Sign-In with Firebase Authentication
 class GoogleAuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['email']);
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final DatabaseService _databaseService = DatabaseService();
 
   /// Signs in user with Google account
   /// Returns UserCredential if successful, null otherwise
@@ -35,10 +38,10 @@ class GoogleAuthService {
       final UserCredential userCredential =
           await _auth.signInWithCredential(credential);
 
-      // Ensure user document exists in Firestore (handles re-registration of deleted accounts)
-      final userDoc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
-      if (!userDoc.exists) {
-        await _createUserDocument(userCredential.user!);
+      // Ensure user document exists in Backend (handles re-registration of deleted accounts)
+      final userData = await _databaseService.getUserData(userCredential.user!.uid);
+      if (userData == null) {
+        await _createUserInBackend(userCredential.user!);
       }
 
       return userCredential;
@@ -48,24 +51,23 @@ class GoogleAuthService {
     }
   }
 
-  /// Creates user document in Firestore
-  Future<void> _createUserDocument(User user) async {
+  /// Creates user in Node.js backend
+  Future<void> _createUserInBackend(User user) async {
     try {
-      await _firestore.collection('users').doc(user.uid).set({
-        'uid': user.uid,
-        'email': user.email,
-        'displayName': user.displayName,
-        'photoURL': user.photoURL,
-        'provider': 'google',
-        'createdAt': FieldValue.serverTimestamp(),
-        'trackingNumbers': [], // Empty array for tracking numbers
-        'role': 'user',
-        'fullName': user.displayName ?? '',
-        'phoneNumber': '',
-        'address': '',
-      });
+      await http.post(
+        Uri.parse(ApiConfig.users),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'uid': user.uid,
+          'email': user.email,
+          'fullName': user.displayName ?? '',
+          'phoneNumber': '',
+          'address': '',
+          'role': 'user',
+        }),
+      );
     } catch (e) {
-      print('Error creating user document: $e');
+      print('Error creating user in backend: $e');
     }
   }
 
