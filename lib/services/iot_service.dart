@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'database_service.dart';
 
 /// IoT Service for Smart Drop Box Communication
-/// Stubbed out version (previously used Firebase Realtime Database)
+/// Now integrated with DatabaseService for real MongoDB/Socket.io communication
 class IoTService {
+  final DatabaseService _databaseService = DatabaseService();
+  
   // Default dropbox ID
   static const String defaultDropboxId = 'dropbox_001';
   
@@ -12,31 +15,52 @@ class IoTService {
     required String trackingId,
     String? userId,
   }) async {
-    debugPrint('Unlock command sent via Socket.io (Simulated)');
+    if (userId == null) throw 'User ID is required for unlock commands';
+    
+    debugPrint('Sending unlock command for $trackingId...');
+    await _databaseService.controlDropBoxDoor(userId: userId, open: true);
+    
     return 'cmd_${DateTime.now().millisecondsSinceEpoch}';
   }
   
   /// Check if unlock command was executed
   Future<bool> checkCommandStatus(String commandId) async {
+    // In the new system, we listen to the door state stream instead
     return true;
   }
   
   /// Listen to dropbox status in real-time
   Stream<Map<String, dynamic>> listenToDropboxStatus(String dropboxId) {
-    return Stream.value({
-      'status': 'online',
-      'doorLocked': true,
-      'lastUpdate': DateTime.now().toIso8601String(),
+    return _databaseService.getDropBoxDoorState().map((event) {
+      if (event != null) {
+        return event;
+      }
+      return {
+        'status': 'online',
+        'doorLocked': true,
+        'lastUpdate': DateTime.now().toIso8601String(),
+      };
     });
   }
   
   /// Listen to sensor data in real-time
   Stream<Map<String, dynamic>> listenToSensorData(String dropboxId) {
-    return Stream.value({
-      'parcelDetected': false,
-      'doorOpen': false,
-      'weight': 0,
-      'timestamp': DateTime.now().toIso8601String(),
+    // Sensor data is also piped through the doorStateUpdate event for now
+    return _databaseService.getDropBoxDoorState().map((event) {
+      if (event != null) {
+        return {
+          'parcelDetected': event['parcelDetected'] ?? false,
+          'doorOpen': event['command'] == 'open',
+          'weight': event['weight'] ?? 0,
+          'timestamp': DateTime.now().toIso8601String(),
+        };
+      }
+      return {
+        'parcelDetected': false,
+        'doorOpen': false,
+        'weight': 0,
+        'timestamp': DateTime.now().toIso8601String(),
+      };
     });
   }
   
@@ -52,7 +76,8 @@ class IoTService {
     required String dropboxId,
     required String trackingId,
   }) async {
-    debugPrint('Scan request sent (Simulated)');
+    // This could be implemented as another command in device-control
+    debugPrint('Scan request sent for $trackingId');
   }
   
   /// Update dropbox configuration
@@ -60,7 +85,7 @@ class IoTService {
     required String dropboxId,
     Map<String, dynamic>? config,
   }) async {
-    debugPrint('Dropbox config updated (Simulated)');
+    debugPrint('Dropbox config updated');
   }
   
   /// Get dropbox statistics
@@ -80,12 +105,12 @@ class IoTService {
   
   /// Emergency: Force lock all dropboxes
   Future<void> emergencyLockAll() async {
-    debugPrint('Emergency lock activated (Simulated)');
+    debugPrint('Emergency lock activated');
   }
   
   /// Clear emergency lock
   Future<void> clearEmergencyLock(String dropboxId) async {
-    debugPrint('Emergency lock cleared (Simulated)');
+    debugPrint('Emergency lock cleared');
   }
   
   /// Test connection

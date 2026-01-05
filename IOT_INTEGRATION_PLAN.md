@@ -60,87 +60,35 @@ The `IoTService` in `lib/services/iot_service.dart` acts as the interface for th
 
 ### 1.3 ESP32 Connection String
 The ESP32 will connect to:
-`ws://[YOUR_SERVER_IP]:5000`
+`wss://smart-parcel-dropbox.onrender.com` (Note: `wss` is for secure WebSockets)
 
 
-### 1.2 Add Firebase Realtime Database to Flutter App
+## Phase 2: ESP32 Implementation (WebSockets)
 
-#### Add Dependencies
-```yaml
-# pubspec.yaml
-dependencies:
-  firebase_database: ^10.4.0
+### 2.1 ESP32 S3 Setup
+
+#### Required Libraries (Arduino IDE)
+- `SocketIoClient` by Markus Sattler
+- `WebSocketsClient` by Markus Sattler
+- `ArduinoJson` by Benoit Blanchon
+
+#### ESP32 WebSocket Client (Example Code)
+```cpp
+#include <WiFi.h>
+#include <SocketIoClient.h>
+#include <ArduinoJson.h>
+
+// WiFi credentials
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// Server details
+const char* serverHost = "smart-parcel-dropbox.onrender.com"; 
+const int serverPort = 443; // Secure WebSockets use port 443
+
+SocketIoClient socket;
+String userId = "USER_ID_FROM_APP"; // Replace with actual user ID
 ```
-
-#### Create IoT Service
-```dart
-// lib/services/iot_service.dart
-import 'package:firebase_database/firebase_database.dart';
-import 'package:flutter/foundation.dart';
-
-class IoTService {
-  final FirebaseDatabase _database = FirebaseDatabase.instance;
-  
-  /// Send unlock command to dropbox
-  Future<void> sendUnlockCommand({
-    required String dropboxId,
-    required String trackingId,
-  }) async {
-    try {
-      final cmdRef = _database.ref('unlock_commands').push();
-      await cmdRef.set({
-        'dropboxId': dropboxId,
-        'trackingId': trackingId,
-        'timestamp': ServerValue.timestamp,
-        'executed': false,
-      });
-      
-      debugPrint('Unlock command sent: ${cmdRef.key}');
-    } catch (e) {
-      debugPrint('Error sending unlock command: $e');
-      throw 'Failed to send unlock command';
-    }
-  }
-  
-  /// Listen to dropbox status
-  Stream<Map<String, dynamic>> listenToDropboxStatus(String dropboxId) {
-    return _database
-        .ref('dropboxes/$dropboxId')
-        .onValue
-        .map((event) {
-      if (event.snapshot.value != null) {
-        return Map<String, dynamic>.from(event.snapshot.value as Map);
-      }
-      return <String, dynamic>{};
-    });
-  }
-  
-  /// Listen to sensor data
-  Stream<Map<String, dynamic>> listenToSensorData(String dropboxId) {
-    return _database
-        .ref('sensor_data/$dropboxId')
-        .onValue
-        .map((event) {
-      if (event.snapshot.value != null) {
-        return Map<String, dynamic>.from(event.snapshot.value as Map);
-      }
-      return <String, dynamic>{};
-    });
-  }
-  
-  /// Get all dropboxes
-  Future<List<Map<String, dynamic>>> getDropboxes() async {
-    try {
-      final snapshot = await _database.ref('dropboxes').get();
-      
-      if (snapshot.exists) {
-        final data = Map<String, dynamic>.from(snapshot.value as Map);
-        return data.entries.map((entry) {
-          final dropboxData = Map<String, dynamic>.from(entry.value);
-          dropboxData['id'] = entry.key;
-          return dropboxData;
-        }).toList();
-      }
 ---
 
 ## Phase 2: ESP32 Implementation (WebSockets)
