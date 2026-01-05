@@ -1,22 +1,72 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/tracking_model.dart';
 import '../models/scan_log_model.dart';
 import '../models/notification_model.dart';
 import '../models/user_model.dart';
+import '../config/api_config.dart';
+
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'dart:async';
 
 /// Database Service for Smart Parcel Drop Box System
-/// Handles all Firestore operations for tracking IDs and delivery logs
+/// Handles all Node.js API operations via MongoDB and WebSockets
 class DatabaseService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final DatabaseService _instance = DatabaseService._internal();
+  factory DatabaseService() => _instance;
+  DatabaseService._internal();
 
-  // Collections
-  final String _trackingCollection = 'tracking_ids';
-  final String _deliveryLogsCollection = 'delivery_logs';
-  final String _usersCollection = 'users';
-  final String _scanLogsCollection = 'scan_logs';
-  final String _notificationsCollection = 'notifications';
-  final String _deviceControlCollection = 'device_control';
+  IO.Socket? _socket;
+  final _trackingController = StreamController<List<TrackingModel>>.broadcast();
+  final _notificationController = StreamController<List<NotificationModel>>.broadcast();
+  final _doorStateController = StreamController<Map<String, dynamic>?>.broadcast();
+
+  void initSocket(String userId) {
+    if (_socket != null) {
+      if (_socket!.connected) {
+        debugPrint('Socket already connected, joining room for $userId');
+        _socket!.emit('join', userId);
+        return;
+      }
+      _socket!.dispose();
+    }
+
+    _socket = IO.io(ApiConfig.baseUrl.replaceAll('/api', ''), <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': true,
+    });
+
+    _socket!.onConnect((_) {
+      debugPrint('Connected to WebSocket');
+      _socket!.emit('join', userId);
+    });
+
+    _socket!.onDisconnect((_) => debugPrint('Disconnected from WebSocket'));
+    _socket!.onConnectError((data) => debugPrint('WebSocket Connect Error: $data'));
+
+    _socket!.on('trackingUpdate', (_) {
+      debugPrint('Socket: trackingUpdate received');
+      refreshTracking(userId);
+    });
+    
+    _socket!.on('notificationNew', (data) {
+      debugPrint('Socket: notificationNew received');
+      refreshNotifications(userId);
+    });
+    
+    _socket!.on('doorStateUpdate', (data) {
+      debugPrint('Socket: doorStateUpdate received: $data');
+      _doorStateController.add(data);
+    });
+  }
+
+  void dispose() {
+    _socket?.dispose();
+    _trackingController.close();
+    _notificationController.close();
+    _doorStateController.close();
+  }
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -26,60 +76,60 @@ class DatabaseService {
     String? expectedDeliveryDate,
   }) async {
     try {
-      await _firestore.collection(_trackingCollection).doc(trackingId).set({
-        'trackingId': trackingId,
-        'userId': userId,
-        'shopName': shopName,
-        'status': 'pending', // pending, in_transit, delivered, retrieved
-        'registeredAt': FieldValue.serverTimestamp(),
-        'expectedDeliveryDate': expectedDeliveryDate,
-        'deliveredAt': null,
-        'retrievedAt': null,
-      });
+      final response = await http.post(
+        Uri.parse(ApiConfig.tracking),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'trackingId': trackingId,
+          'userId': userId,
+          'shopName': shopName,
+          'expectedDeliveryDate': expectedDeliveryDate,
+        }),
+      );
+
+      if (response.statusCode != 201) {
+        final error = jsonDecode(response.body);
+        throw error['message'] ?? 'Failed to register tracking ID';
+      }
     } catch (e) {
       throw 'Failed to register tracking ID: $e';
     }
   }
 
+  /// Refresh tracking data (called by socket or manually)
+  Future<void> refreshTracking(String userId) async {
+    try {
+      final response = await http.get(Uri.parse('${ApiConfig.tracking}/user/$userId'));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        final list = data.map((json) => TrackingModel.fromMap(json)).toList();
+        _trackingController.add(list);
+      }
+    } catch (e) {
+      debugPrint('Error refreshing tracking: $e');
+    }
+  }
+
   /// Get all tracking IDs for a specific user
   Stream<List<TrackingModel>> getUserTrackingIds(String userId) {
-    return _firestore
-        .collection(_trackingCollection)
-        .where('userId', isEqualTo: userId)
-        .orderBy('registeredAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => TrackingModel.fromFirestore(doc))
-          .toList();
-    });
+    refreshTracking(userId); // Initial fetch
+    return _trackingController.stream;
   }
 
   /// Get active orders (not retrieved yet)
   Stream<List<TrackingModel>> getActiveOrders(String userId) {
-    return _firestore
-        .collection(_trackingCollection)
-        .where('userId', isEqualTo: userId)
-        .where('status', whereIn: ['pending', 'in_transit', 'delivered'])
-        .orderBy('registeredAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => TrackingModel.fromFirestore(doc))
-          .toList();
-    });
+    return getUserTrackingIds(userId).map((list) => 
+      list.where((t) => ['pending', 'in_transit', 'delivered'].contains(t.status)).toList()
+    );
   }
 
   /// Verify tracking ID (used by courier/drop box system)
   Future<Map<String, dynamic>?> verifyTrackingId(String trackingId) async {
     try {
-      DocumentSnapshot doc = await _firestore
-          .collection(_trackingCollection)
-          .doc(trackingId)
-          .get();
+      final response = await http.get(Uri.parse('${ApiConfig.tracking}/$trackingId'));
 
-      if (doc.exists) {
-        return doc.data() as Map<String, dynamic>?;
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
       }
       return null;
     } catch (e) {
@@ -93,21 +143,14 @@ class DatabaseService {
     required String status,
   }) async {
     try {
-      Map<String, dynamic> updateData = {
-        'status': status,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      if (status == 'delivered') {
-        updateData['deliveredAt'] = FieldValue.serverTimestamp();
-      } else if (status == 'retrieved') {
-        updateData['retrievedAt'] = FieldValue.serverTimestamp();
+      final response = await http.patch(
+        Uri.parse('${ApiConfig.tracking}/$trackingId/status'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'status': status}),
+      );
+      if (response.statusCode != 200) {
+        throw 'Failed to update status';
       }
-
-      await _firestore
-          .collection(_trackingCollection)
-          .doc(trackingId)
-          .update(updateData);
     } catch (e) {
       throw 'Failed to update tracking status: $e';
     }
@@ -120,47 +163,140 @@ class DatabaseService {
     required String eventType, // scanned, door_opened, parcel_inserted, door_closed
     String? details,
   }) async {
+    // Implement API call if needed, or simply skip if not critical
+  }
+
+  /// Get all delivery logs (Admin)
+  Stream<List<Map<String, dynamic>>> getAllDeliveryLogs() {
+    return Stream.fromFuture(_fetchAllDeliveryLogs()).asBroadcastStream();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchAllDeliveryLogs() async {
     try {
-      await _firestore.collection(_deliveryLogsCollection).add({
-        'trackingId': trackingId,
-        'userId': userId,
-        'eventType': eventType,
-        'details': details,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
+      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/delivery-logs'));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.cast<Map<String, dynamic>>();
+      }
+      return [];
     } catch (e) {
-      throw 'Failed to log delivery event: $e';
+      debugPrint('Error fetching all delivery logs: $e');
+      return [];
     }
   }
 
   /// Get delivery logs for a tracking ID
   Stream<List<Map<String, dynamic>>> getDeliveryLogs(String trackingId) {
-    return _firestore
-        .collection(_deliveryLogsCollection)
-        .where('trackingId', isEqualTo: trackingId)
-        .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        Map<String, dynamic> data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
-    });
+    return Stream.fromFuture(_fetchDeliveryLogs(trackingId)).asBroadcastStream();
   }
 
-  /// Get user data
+  Future<List<Map<String, dynamic>>> _fetchDeliveryLogs(String trackingId) async {
+    try {
+      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/delivery-logs/$trackingId'));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.cast<Map<String, dynamic>>();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching delivery logs: $e');
+      return [];
+    }
+  }
+
+  /// Check if user exists by email in MongoDB
+  Future<bool> checkEmailExists(String email) async {
+    try {
+      final response = await http.get(Uri.parse('${ApiConfig.users}/check-email/$email'));
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error checking email: $e');
+      return false;
+    }
+  }
+
+  /// Request password reset - sends code to email
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.users}/request-reset'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      );
+      
+      if (response.statusCode != 200) {
+        final error = jsonDecode(response.body);
+        throw error['message'] ?? 'Failed to request password reset';
+      }
+    } catch (e) {
+      throw 'Failed to request password reset: $e';
+    }
+  }
+
+  /// Verify reset code
+  Future<bool> verifyResetCode(String email, String code) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.users}/verify-reset-code'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'code': code}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['valid'] == true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error verifying reset code: $e');
+      return false;
+    }
+  }
+
+  /// Reset password with code
+  Future<void> resetPasswordWithCode({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.users}/reset-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'code': code,
+          'newPassword': newPassword,
+        }),
+      );
+      
+      if (response.statusCode != 200) {
+        final error = jsonDecode(response.body);
+        throw error['message'] ?? 'Failed to reset password';
+      }
+    } catch (e) {
+      throw 'Failed to reset password: $e';
+    }
+  }
+
+  /// Get user data by MongoDB ID
   Future<Map<String, dynamic>?> getUserData(String userId) async {
     try {
-      DocumentSnapshot doc =
-          await _firestore.collection(_usersCollection).doc(userId).get();
+      final response = await http
+          .get(Uri.parse('${ApiConfig.users}/$userId'))
+          .timeout(const Duration(seconds: 10));
 
-      if (doc.exists) {
-        return doc.data() as Map<String, dynamic>?;
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } else if (response.statusCode == 404) {
+        return null;
+      } else {
+        debugPrint('Failed to get user data: HTTP ${response.statusCode}');
+        return null;
       }
-      return null;
     } catch (e) {
-      throw 'Failed to get user data: $e';
+      debugPrint('Error getting user data: $e');
+      return null;
     }
   }
 
@@ -172,22 +308,24 @@ class DatabaseService {
     String? address,
   }) async {
     try {
-      Map<String, dynamic> updateData = {
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      if (fullName != null) updateData['fullName'] = fullName;
-      if (phoneNumber != null) updateData['phoneNumber'] = phoneNumber;
-      if (address != null) updateData['address'] = address;
-
-      await _firestore.collection(_usersCollection).doc(userId).update(updateData);
+      final response = await http.patch(
+        Uri.parse('${ApiConfig.users}/$userId'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          if (fullName != null) 'fullName': fullName,
+          if (phoneNumber != null) 'phoneNumber': phoneNumber,
+          if (address != null) 'address': address,
+        }),
+      );
+      if (response.statusCode != 200) {
+        throw 'Failed to update profile';
+      }
     } catch (e) {
       throw 'Failed to update user profile: $e';
     }
   }
 
-  /// Log a scan attempt (QR code or barcode scan)
-  /// This should be called when the dropbox scans a code
+  /// Log a scan attempt
   Future<void> logScanAttempt({
     required String scannedCode,
     required bool accessGranted,
@@ -196,64 +334,70 @@ class DatabaseService {
     String? reason,
   }) async {
     try {
-      await _firestore.collection(_scanLogsCollection).add({
-        'scannedCode': scannedCode,
-        'accessGranted': accessGranted,
-        'timestamp': FieldValue.serverTimestamp(),
-        'trackingId': trackingId,
-        'userId': userId,
-        'reason': reason,
-      });
-
-      // Create notification for the user if userId is provided
-      if (userId != null) {
-        try {
-          await createScanAttemptNotification(
-            userId: userId,
-            scannedCode: scannedCode,
-            accessGranted: accessGranted,
-            trackingId: trackingId,
-            reason: reason,
-          );
-        } catch (e) {
-          // Don't fail the scan log if notification creation fails
-          debugPrint('Failed to create notification: $e');
-        }
-      }
+      await http.post(
+        Uri.parse(ApiConfig.scanLogs),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'scannedCode': scannedCode,
+          'accessGranted': accessGranted,
+          'trackingId': trackingId,
+          'userId': userId,
+          'reason': reason,
+        }),
+      );
     } catch (e) {
-      throw 'Failed to log scan attempt: $e';
+      debugPrint('Error logging scan: $e');
     }
   }
 
-  /// Get all scan logs (for the logs page)
-  /// Returns logs ordered by timestamp (most recent first)
+  /// Get all scan logs
   Stream<List<ScanLogModel>> getScanLogs() {
-    return _firestore
-        .collection(_scanLogsCollection)
-        .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => ScanLogModel.fromFirestore(doc))
-          .toList();
-    });
+    return Stream.fromFuture(_fetchScanLogs()).asBroadcastStream();
+  }
+
+  Future<List<ScanLogModel>> _fetchScanLogs() async {
+    try {
+      final response = await http.get(Uri.parse(ApiConfig.scanLogs));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.map((e) => ScanLogModel.fromMap(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching scan logs: $e');
+      return [];
+    }
   }
 
   /// Get scan logs for a specific user
   Stream<List<ScanLogModel>> getUserScanLogs(String userId) {
-    return _firestore
-        .collection(_scanLogsCollection)
-        .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => ScanLogModel.fromFirestore(doc))
-          .toList();
-    });
+    return Stream.fromFuture(_fetchUserScanLogs(userId)).asBroadcastStream();
   }
 
-  /// Create a notification for a user
+  Future<List<ScanLogModel>> _fetchUserScanLogs(String userId) async {
+    final response = await http.get(Uri.parse('${ApiConfig.scanLogs}/user/$userId'));
+    if (response.statusCode == 200) {
+      final List data = jsonDecode(response.body);
+      return data.map((e) => ScanLogModel.fromMap(e)).toList();
+    }
+    return [];
+  }
+
+  /// Refresh notifications
+  Future<void> refreshNotifications(String userId) async {
+    try {
+      final response = await http.get(Uri.parse('${ApiConfig.notifications}/user/$userId'));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        final list = data.map((e) => NotificationModel.fromMap(e)).toList();
+        _notificationController.add(list);
+      }
+    } catch (e) {
+      debugPrint('Error refreshing notifications: $e');
+    }
+  }
+
+  /// Create a notification
   Future<void> createNotification({
     required String userId,
     required String type,
@@ -263,74 +407,50 @@ class DatabaseService {
     Map<String, dynamic>? data,
   }) async {
     try {
-      await _firestore.collection(_notificationsCollection).add({
-        'userId': userId,
-        'type': type,
-        'title': title,
-        'message': message,
-        'isRead': false,
-        'timestamp': FieldValue.serverTimestamp(),
-        'trackingId': trackingId,
-        'data': data,
-      });
+      await http.post(
+        Uri.parse(ApiConfig.notifications),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'userId': userId,
+          'type': type,
+          'title': title,
+          'message': message,
+          'trackingId': trackingId,
+          'data': data,
+        }),
+      );
     } catch (e) {
-      throw 'Failed to create notification: $e';
+      debugPrint('Error creating notification: $e');
     }
   }
 
-  /// Get notifications for a specific user
+  /// Get notifications
   Stream<List<NotificationModel>> getUserNotifications(String userId) {
-    return _firestore
-        .collection(_notificationsCollection)
-        .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => NotificationModel.fromFirestore(doc))
-          .toList();
-    });
+    refreshNotifications(userId);
+    return _notificationController.stream;
   }
 
-  /// Get unread notifications count for a user
+  /// Get unread count
   Stream<int> getUnreadNotificationsCount(String userId) {
-    return _firestore
-        .collection(_notificationsCollection)
-        .where('userId', isEqualTo: userId)
-        .where('isRead', isEqualTo: false)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.length);
+    return getUserNotifications(userId).map((list) => list.where((n) => !n.isRead).length);
   }
 
-  /// Mark a notification as read
+  /// Mark as read
   Future<void> markNotificationAsRead(String notificationId) async {
     try {
-      await _firestore
-          .collection(_notificationsCollection)
-          .doc(notificationId)
-          .update({'isRead': true});
+      await http.patch(Uri.parse('${ApiConfig.notifications}/$notificationId/read'));
     } catch (e) {
-      throw 'Failed to mark notification as read: $e';
+      debugPrint('Error marking read: $e');
     }
   }
 
-  /// Mark all notifications as read for a user
+  /// Mark all read
   Future<void> markAllNotificationsAsRead(String userId) async {
     try {
-      final batch = _firestore.batch();
-      final snapshot = await _firestore
-          .collection(_notificationsCollection)
-          .where('userId', isEqualTo: userId)
-          .where('isRead', isEqualTo: false)
-          .get();
-
-      for (var doc in snapshot.docs) {
-        batch.update(doc.reference, {'isRead': true});
-      }
-
-      await batch.commit();
+      await http.patch(Uri.parse('${ApiConfig.notifications}/user/$userId/read'));
+      refreshNotifications(userId);
     } catch (e) {
-      throw 'Failed to mark all notifications as read: $e';
+      debugPrint('Error marking all read: $e');
     }
   }
 
@@ -428,173 +548,105 @@ class DatabaseService {
     }
   }
 
-  /// ADMIN: Get all users
+  /// Get all users
   Stream<List<UserModel>> getAllUsers() {
-    return _firestore
-        .collection(_usersCollection)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        final data = doc.data();
-        // Ensure uid is present even if missing in stored data
-        data['uid'] = data['uid'] ?? doc.id;
-        return UserModel.fromMap(data);
-      }).toList();
-    });
+    return Stream.fromFuture(_fetchAllUsers()).asBroadcastStream();
   }
 
-  /// ADMIN: Update a user's role
+  Future<List<UserModel>> _fetchAllUsers() async {
+    try {
+      final response = await http.get(Uri.parse(ApiConfig.users));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.map((e) => UserModel.fromMap(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching all users: $e');
+      return [];
+    }
+  }
+
+  /// Update role
   Future<void> updateUserRole({
     required String userId,
     required String role,
   }) async {
     try {
-      await _firestore.collection(_usersCollection).doc(userId).update({
-        'role': role,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await http.patch(
+        Uri.parse('${ApiConfig.users}/$userId'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'role': role}),
+      );
     } catch (e) {
-      throw 'Failed to update user role: $e';
+      debugPrint('Error updating role: $e');
     }
   }
 
-  /// ADMIN/ROUTING: Get a user's role quickly
+  /// Get role
   Future<String?> getUserRole(String userId) async {
+    final data = await getUserData(userId);
+    return data?['role'];
+  }
+
+  /// Get all tracking
+  Stream<List<TrackingModel>> getAllTrackingIds() {
+    return Stream.fromFuture(_fetchAllTracking()).asBroadcastStream();
+  }
+
+  Future<List<TrackingModel>> _fetchAllTracking() async {
     try {
-      final doc = await _firestore.collection(_usersCollection).doc(userId).get();
-      if (doc.exists) {
-        return (doc.data() as Map<String, dynamic>?)?['role'] as String?;
+      final response = await http.get(Uri.parse(ApiConfig.tracking));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.map((e) => TrackingModel.fromMap(e)).toList();
       }
-      return null;
+      return [];
     } catch (e) {
-      throw 'Failed to fetch user role: $e';
+      debugPrint('Error fetching all tracking: $e');
+      return [];
     }
   }
 
-  /// ADMIN: Get all tracking IDs
-  Stream<List<TrackingModel>> getAllTrackingIds() {
-    return _firestore
-        .collection(_trackingCollection)
-        .orderBy('registeredAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => TrackingModel.fromFirestore(doc))
-          .toList();
-    });
-  }
-
-  /// ADMIN: Get all delivery logs
-  Stream<List<Map<String, dynamic>>> getAllDeliveryLogs() {
-    return _firestore
-        .collection(_deliveryLogsCollection)
-        .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
-    });
-  }
-
-  /// Control drop box door (open/close)
-  /// This sends a command to the IoT device via Firestore
+  /// Control door
   Future<void> controlDropBoxDoor({
     required String userId,
     required bool open,
   }) async {
     try {
-      // Create or update the device control document
-      await _firestore.collection(_deviceControlCollection).doc('door_control').set({
-        'command': open ? 'open' : 'close',
-        'userId': userId,
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': 'pending', // pending, processing, completed
-      }, SetOptions(merge: true));
-
-      // Log the manual control event
-      await logDeliveryEvent(
-        trackingId: 'manual_control',
-        userId: userId,
-        eventType: open ? 'door_opened' : 'door_closed',
-        details: 'Manual control by user',
+      await http.post(
+        Uri.parse(ApiConfig.deviceControl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'userId': userId,
+          'command': open ? 'open' : 'close',
+        }),
       );
     } catch (e) {
-      throw 'Failed to control drop box door: $e';
+      debugPrint('Error controlling door: $e');
     }
   }
 
-  /// Get current drop box door state
+  /// Get door state
   Stream<Map<String, dynamic>?> getDropBoxDoorState() {
-    return _firestore
-        .collection(_deviceControlCollection)
-        .doc('door_control')
-        .snapshots()
-        .map((snapshot) {
-      if (snapshot.exists) {
-        return snapshot.data();
-      }
-      return null;
-    });
+    _fetchDoorState().then((data) => _doorStateController.add(data));
+    return _doorStateController.stream;
   }
 
-  /// ADMIN: Delete a user and all associated data
-  /// This will permanently delete:
-  /// - User document
-  /// - All tracking IDs
-  /// - All notifications
-  /// - All scan logs
-  /// - All delivery logs
+  Future<Map<String, dynamic>?> _fetchDoorState() async {
+    final response = await http.get(Uri.parse(ApiConfig.deviceControl));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    }
+    return null;
+  }
+
+  /// Delete user
   Future<void> deleteUser(String userId) async {
     try {
-      final batch = _firestore.batch();
-
-      // Delete user's tracking IDs
-      final trackingSnapshot = await _firestore
-          .collection(_trackingCollection)
-          .where('userId', isEqualTo: userId)
-          .get();
-      for (var doc in trackingSnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-
-      // Delete user's notifications
-      final notificationsSnapshot = await _firestore
-          .collection(_notificationsCollection)
-          .where('userId', isEqualTo: userId)
-          .get();
-      for (var doc in notificationsSnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-
-      // Delete user's scan logs
-      final scanLogsSnapshot = await _firestore
-          .collection(_scanLogsCollection)
-          .where('userId', isEqualTo: userId)
-          .get();
-      for (var doc in scanLogsSnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-
-      // Delete user's delivery logs
-      final deliveryLogsSnapshot = await _firestore
-          .collection(_deliveryLogsCollection)
-          .where('userId', isEqualTo: userId)
-          .get();
-      for (var doc in deliveryLogsSnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-
-      // Delete user document
-      batch.delete(_firestore.collection(_usersCollection).doc(userId));
-
-      // Commit all deletions atomically
-      await batch.commit();
+      await http.delete(Uri.parse('${ApiConfig.users}/$userId'));
     } catch (e) {
-      throw 'Failed to delete user: $e';
+      debugPrint('Error deleting user: $e');
     }
   }
 }

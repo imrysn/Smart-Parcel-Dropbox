@@ -188,6 +188,23 @@ class InputValidator {
     return null;
   }
 
+  /// Validate password
+  static String? validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Password is required';
+    }
+
+    if (value.length < 6) {
+      return 'Password must be at least 6 characters long';
+    }
+
+    if (value.length > 128) {
+      return 'Password is too long';
+    }
+
+    return null;
+  }
+
   /// Validate required field
   static String? validateRequired(String? value, String fieldName) {
     if (value == null || value.trim().isEmpty) {

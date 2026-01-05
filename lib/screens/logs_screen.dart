@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/scan_log_model.dart'; // FIX: Added missing model import
 // The following imports are not used in this specific file but retained
@@ -17,19 +17,33 @@ class LogsScreen extends StatefulWidget {
 }
 
 class _LogsScreenState extends State<LogsScreen> {
+  final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
+
+  // User ID state
+  String? _userId;
 
   // Filter state
   String _filter = 'all'; // 'all', 'granted', 'denied'
 
   @override
-  Widget build(BuildContext context) {
-    // Use standard FirebaseAuth check
-    final User? currentUser = FirebaseAuth.instance.currentUser;
+  void initState() {
+    super.initState();
+    _initUser();
+  }
 
-    if (currentUser == null) {
+  Future<void> _initUser() async {
+    _userId = await _authService.currentUserId;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_userId == null) {
       return const Scaffold(
-        body: Center(child: Text('Please log in to view logs')),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -56,8 +70,8 @@ class _LogsScreenState extends State<LogsScreen> {
         ],
       ),
       body: StreamBuilder<List<ScanLogModel>>(
-        // Use currentUser.uid and DatabaseService
-        stream: _databaseService.getUserScanLogs(currentUser.uid),
+        // Use _userId and DatabaseService
+        stream: _databaseService.getUserScanLogs(_userId!),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../models/notification_model.dart';
@@ -16,12 +15,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   final DatabaseService _databaseService = DatabaseService();
   final AuthService _authService = AuthService();
 
+  String? _userId;
+
+  @override
+  void initState() {
+    super.initState();
+    _initUser();
+  }
+
+  Future<void> _initUser() async {
+    _userId = await _authService.currentUserId;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    User? user = _authService.currentUser;
-    if (user == null) {
+    if (_userId == null) {
       return const Scaffold(
-        body: Center(child: Text('Not logged in')),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -30,7 +43,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         title: const Text('Notifications'),
         actions: [
           StreamBuilder<int>(
-            stream: _databaseService.getUnreadNotificationsCount(user.uid),
+            stream: _databaseService.getUnreadNotificationsCount(_userId!),
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               if (unreadCount == 0) {
@@ -61,7 +74,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 onTap: () async {
                   await Future.delayed(const Duration(milliseconds: 100));
                   try {
-                    await _databaseService.markAllNotificationsAsRead(user.uid);
+                    await _databaseService.markAllNotificationsAsRead(_userId!);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('All notifications marked as read')),
@@ -81,7 +94,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ],
       ),
       body: StreamBuilder<List<NotificationModel>>(
-        stream: _databaseService.getUserNotifications(user.uid),
+        stream: _databaseService.getUserNotifications(_userId!),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

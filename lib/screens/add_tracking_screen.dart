@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../services/database_service.dart';
+import '../services/auth_service.dart';
 
 /// Add Tracking Screen - Register new tracking ID
 class AddTrackingScreen extends StatefulWidget {
@@ -16,6 +16,7 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
   final _shopNameController = TextEditingController();
   final _expectedDateController = TextEditingController();
   final DatabaseService _databaseService = DatabaseService();
+  final AuthService _authService = AuthService();
 
   bool _isLoading = false;
 
@@ -30,14 +31,14 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
   Future<void> _addTracking() async {
     if (!_formKey.currentState!.validate()) return;
 
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    final userId = await _authService.currentUserId;
+    if (userId == null) return;
 
     setState(() => _isLoading = true);
 
     try {
       await _databaseService.registerTrackingId(
-        userId: user.uid,
+        userId: userId,
         trackingId: _trackingIdController.text.trim(),
         shopName: _shopNameController.text.trim(),
         expectedDeliveryDate: _expectedDateController.text.isNotEmpty

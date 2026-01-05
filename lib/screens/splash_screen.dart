@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-
 import 'login_screen.dart';
 import 'home_screen.dart';
+import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import 'admin/admin_dashboard_screen.dart';
 
@@ -19,6 +18,7 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _mainController;
   late AnimationController _fadeController;
   late AnimationController _pulseController;
+  final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
 
   late Animation<double> _fadeAnimation;
@@ -91,19 +91,33 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkAuthState() async {
-    await Future.delayed(const Duration(milliseconds: 4000));
+    await Future.delayed(const Duration(milliseconds: 2000));
 
     if (!mounted) return;
 
-    User? user = FirebaseAuth.instance.currentUser;
+    // Check if user is logged in (has JWT token)
+    final isLoggedIn = await _authService.isLoggedIn;
 
-    if (user != null) {
+    if (isLoggedIn) {
       try {
-        final data = await _databaseService.getUserData(user.uid);
+        final userId = await _authService.currentUserId;
         
-        // If data is null, the user might have been deleted from Firestore
+        if (userId == null) {
+          // Token exists but no user ID - corrupted state
+          await _authService.signOut();
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+          );
+          return;
+        }
+
+        // Get user data from MongoDB
+        final data = await _databaseService.getUserData(userId);
+        
         if (data == null) {
-          await FirebaseAuth.instance.signOut();
+          // User not found in MongoDB - sign out
+          await _authService.signOut();
           if (!mounted) return;
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -127,8 +141,7 @@ class _SplashScreenState extends State<SplashScreen>
       } catch (e) {
         debugPrint('Error checking auth state: $e');
         if (!mounted) return;
-        // On error, better to go to login than to a potentially broken home screen
-        await FirebaseAuth.instance.signOut();
+        await _authService.signOut();
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
