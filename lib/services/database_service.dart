@@ -204,7 +204,82 @@ class DatabaseService {
     }
   }
 
-  /// Get user data
+  /// Check if user exists by email in MongoDB
+  Future<bool> checkEmailExists(String email) async {
+    try {
+      final response = await http.get(Uri.parse('${ApiConfig.users}/check-email/$email'));
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error checking email: $e');
+      return false;
+    }
+  }
+
+  /// Request password reset - sends code to email
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.users}/request-reset'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      );
+      
+      if (response.statusCode != 200) {
+        final error = jsonDecode(response.body);
+        throw error['message'] ?? 'Failed to request password reset';
+      }
+    } catch (e) {
+      throw 'Failed to request password reset: $e';
+    }
+  }
+
+  /// Verify reset code
+  Future<bool> verifyResetCode(String email, String code) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.users}/verify-reset-code'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'code': code}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['valid'] == true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error verifying reset code: $e');
+      return false;
+    }
+  }
+
+  /// Reset password with code
+  Future<void> resetPasswordWithCode({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.users}/reset-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'code': code,
+          'newPassword': newPassword,
+        }),
+      );
+      
+      if (response.statusCode != 200) {
+        final error = jsonDecode(response.body);
+        throw error['message'] ?? 'Failed to reset password';
+      }
+    } catch (e) {
+      throw 'Failed to reset password: $e';
+    }
+  }
+
+  /// Get user data by MongoDB ID
   Future<Map<String, dynamic>?> getUserData(String userId) async {
     try {
       final response = await http

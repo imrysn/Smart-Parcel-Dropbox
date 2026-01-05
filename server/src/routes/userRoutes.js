@@ -1,11 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const { registerUser, getUserProfile, getAllUsers, updateUser, deleteUser } = require('../controllers/userController');
+const {
+    registerUser,
+    loginUser,
+    getUserProfile,
+    getAllUsers,
+    updateUser,
+    deleteUser,
+    checkUserByEmail,
+    requestPasswordReset,
+    verifyResetCode,
+    resetPassword
+} = require('../controllers/userController');
 
-router.post('/', registerUser);
+// Authentication routes
+router.post('/register', registerUser);
+router.post('/login', loginUser);
+
+// Password reset routes
+router.post('/request-reset', requestPasswordReset);
+router.post('/verify-reset-code', verifyResetCode);
+router.post('/reset-password', resetPassword);
+
+// User management routes
 router.get('/', getAllUsers);
-router.get('/:uid', getUserProfile);
-router.patch('/:uid', updateUser);
-router.delete('/:uid', deleteUser);
+router.get('/check-email/:email', checkUserByEmail);
+router.get('/:id', getUserProfile);
+router.patch('/:id', updateUser);
+router.delete('/:id', deleteUser);
 
 module.exports = router;

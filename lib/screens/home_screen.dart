@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/error_handler.dart';
@@ -29,8 +28,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Stream<int>? _notificationsCountStream;
   Stream<Map<String, dynamic>?>? _doorStateStream;
 
-  // Current user
-  User? _currentUser;
+  // Current user ID
+  String? _userId;
 
   // Animation controllers for FABs
   late AnimationController _fabController1;
@@ -43,10 +42,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _currentUser = _authService.currentUser;
-    _setupStreams();
+    _initUser();
     _initAnimations();
     _playFabAnimations();
+  }
+
+  Future<void> _initUser() async {
+    _userId = await _authService.currentUserId;
+    if (mounted) {
+      _setupStreams();
+      setState(() {});
+    }
   }
 
   @override
@@ -62,25 +68,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _setupStreams() {
     // Initialize streams lazily only when needed
-    if (_currentUser != null) {
+    if (_userId != null) {
       // Establish WebSocket connection
-      _databaseService.initSocket(_currentUser!.uid);
+      _databaseService.initSocket(_userId!);
       
-      _activeOrdersStream = _databaseService.getActiveOrders(_currentUser!.uid);
+      _activeOrdersStream = _databaseService.getActiveOrders(_userId!);
       _notificationsCountStream =
-          _databaseService.getUnreadNotificationsCount(_currentUser!.uid);
+          _databaseService.getUnreadNotificationsCount(_userId!);
       _doorStateStream = _databaseService.getDropBoxDoorState();
 
-      // Listen for user document deletion (e.g., by admin)
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(_currentUser!.uid)
-          .snapshots()
-          .listen((snapshot) {
-        if (!snapshot.exists && mounted) {
-          _logout(message: 'Your account has been deleted or deactivated.');
-        }
-      });
+      // Note: Account deletion check was removed as it relied on Firestore.
+      // In the MongoDB branch, account status is handled via the Node.js API and WebSockets.
     }
   }
 
@@ -237,7 +235,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 final command = doorState?['command'] as String?;
                 final isOpen = command == 'open';
                 final isProcessing = doorState?['status'] == 'processing';
-                final userId = _authService.currentUser?.uid;
+                final userId = _userId;
 
                 if (userId == null) return const SizedBox.shrink();
 
@@ -387,89 +385,83 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildActiveOrdersTab() {
-    return StreamBuilder<User?>(
-      stream: _authService.authStateChanges,
-      builder: (context, authSnapshot) {
-        User? user = authSnapshot.data;
-        if (user == null) return const Center(child: Text('Not logged in'));
+    if (_userId == null) return const Center(child: Text('Not logged in'));
 
-        return StreamBuilder<List<TrackingModel>>(
-          stream: _databaseService.getActiveOrders(user.uid),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+    return StreamBuilder<List<TrackingModel>>(
+      stream: _databaseService.getActiveOrders(_userId!),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-            if (snapshot.hasError) {
-              ErrorHandler.handleError(snapshot.error ?? 'Unknown error', null,
-                  'HomeScreen active orders');
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 80,
-                      color: Colors.red,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Unable to load orders',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () => setState(() {}),
-                      child: const Text('Retry'),
-                    ),
-                  ],
+        if (snapshot.hasError) {
+          ErrorHandler.handleError(snapshot.error ?? 'Unknown error', null,
+              'HomeScreen active orders');
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 80,
+                  color: Colors.red,
                 ),
-              );
-            }
-
-            List<TrackingModel> orders = snapshot.data ?? [];
-
-            if (orders.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.inbox_outlined,
-                      size: 80,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No active orders',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Tap the button below to add a tracking ID',
-                      style: TextStyle(
-                        color: Colors.grey[500],
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 16),
+                const Text(
+                  'Unable to load orders',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey,
+                  ),
                 ),
-              );
-            }
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => setState(() {}),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
 
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: orders.length,
-              itemBuilder: (context, index) {
-                TrackingModel order = orders[index];
-                return _buildOrderCard(order);
-              },
-            );
+        List<TrackingModel> orders = snapshot.data ?? [];
+
+        if (orders.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.inbox_outlined,
+                  size: 80,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No active orders',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Tap the button below to add a tracking ID',
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: orders.length,
+          itemBuilder: (context, index) {
+            TrackingModel order = orders[index];
+            return _buildOrderCard(order);
           },
         );
       },
@@ -578,28 +570,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildProfileTab() {
-    return StreamBuilder<User?>(
-      stream: _authService.authStateChanges,
-      builder: (context, authSnapshot) {
-        User? user = authSnapshot.data;
-        if (user == null) return const Center(child: Text('Not logged in'));
+    if (_userId == null) return const Center(child: Text('Not logged in'));
 
-        return FutureBuilder<Map<String, dynamic>?>(
-          future: _databaseService.getUserData(user.uid),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _databaseService.getUserData(_userId!),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-            Map<String, dynamic>? userData = snapshot.data;
+        Map<String, dynamic>? userData = snapshot.data;
 
-            return SingleChildScrollView(
-              child: Column(
-                children: [
-                  // Profile Header with Gradient
-                  Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              // Profile Header with Gradient
+              Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -637,7 +625,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 backgroundColor: Colors.white,
                                 child: Text(
                                   (userData?['fullName']?[0]?.toUpperCase() ??
-                                      user.email?[0].toUpperCase() ??
+                                      userData?['email']?[0]?.toUpperCase() ??
                                       'U'),
                                   style: TextStyle(
                                     fontSize: 40,
@@ -671,7 +659,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 const SizedBox(width: 6),
                                 Flexible(
                                   child: Text(
-                                    user.email ?? '',
+                                    userData?['email'] ?? '',
                                     style: TextStyle(
                                       fontSize: 15,
                                       color:
@@ -727,7 +715,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               const Divider(height: 1),
                               _buildInfoTile(
                                 context,
-                                user: user,
                                 userData: userData,
                                 icon: Icons.phone_outlined,
                                 title: 'Phone Number',
@@ -741,7 +728,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               const Divider(height: 1),
                               _buildInfoTile(
                                 context,
-                                user: user,
                                 userData: userData,
                                 icon: Icons.home_outlined,
                                 title: 'Address',
@@ -788,11 +774,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 ),
                               ),
                               const Divider(height: 1),
-                              _buildInfoTile(
+                               _buildInfoTile(
                                 context,
                                 icon: Icons.email_outlined,
                                 title: 'Email Address',
-                                value: user.email ?? 'Not available',
+                                value: userData?['email'] ?? 'Not available',
                                 isEmpty: false,
                               ),
                               const Divider(height: 1),
@@ -842,8 +828,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             );
           },
         );
-      },
-    );
   }
 
   Widget _buildInfoTile(
@@ -855,7 +839,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     bool showValueIcon = false,
     bool isEditable = false,
     String? fieldKey,
-    User? user,
     Map<String, dynamic>? userData,
   }) {
     return Padding(
@@ -909,7 +892,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         size: 18,
                         color: Colors.green[600],
                       ),
-                    if (isEditable && user != null)
+                    if (isEditable && _userId != null)
                       IconButton(
                         icon: Icon(
                           Icons.edit,
@@ -918,7 +901,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                         onPressed: () => _showEditDialog(
                           context,
-                          user,
                           title,
                           fieldKey!,
                           value,
@@ -940,7 +922,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _showEditDialog(
     BuildContext context,
-    User user,
     String title,
     String fieldKey,
     String currentValue,
@@ -974,16 +955,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onPressed: () async {
               final newValue = controller.text.trim();
               if (newValue.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$title cannot be empty')),
-                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('$title cannot be empty')),
+                  );
+                }
                 return;
               }
 
               try {
                 // Update in database
                 await _databaseService.updateUserProfile(
-                  userId: user.uid,
+                  userId: _userId!,
                   phoneNumber: fieldKey == 'phoneNumber' ? newValue : null,
                   address: fieldKey == 'address' ? newValue : null,
                 );

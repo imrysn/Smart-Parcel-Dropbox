@@ -1,125 +1,132 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
+
 /// Authentication Service for Smart Parcel Drop Box System
-/// Handles user registration, login, and authentication state
+/// MongoDB-based authentication with JWT tokens
 class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final _storage = const FlutterSecureStorage();
+  static const String _tokenKey = 'auth_token';
+  static const String _userIdKey = 'user_id';
+  static const String _userEmailKey = 'user_email';
+  static const String _userRoleKey = 'user_role';
 
-  // Get current user
-  User? get currentUser => _auth.currentUser;
+  // Get current user ID
+  Future<String?> get currentUserId async {
+    return await _storage.read(key: _userIdKey);
+  }
 
-  // Auth state changes stream
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  // Get current user email
+  Future<String?> get currentUserEmail async {
+    return await _storage.read(key: _userEmailKey);
+  }
+
+  // Get current user role
+  Future<String?> get currentUserRole async {
+    return await _storage.read(key: _userRoleKey);
+  }
+
+  // Check if user is logged in
+  Future<bool> get isLoggedIn async {
+    final token = await _storage.read(key: _tokenKey);
+    return token != null;
+  }
+
+  // Get auth token
+  Future<String?> getToken() async {
+    return await _storage.read(key: _tokenKey);
+  }
 
   // Sign in with email and password
-  Future<UserCredential?> signInWithEmailAndPassword({
+  Future<Map<String, dynamic>> signInWithEmailAndPassword({
     required String email,
     required String password,
   }) async {
     try {
-      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
+      final response = await http.post(
+        Uri.parse('${ApiConfig.users}/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+        }),
       );
-      return userCredential;
-    } on FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // Store token and user info
+        await _storage.write(key: _tokenKey, value: data['token']);
+        await _storage.write(key: _userIdKey, value: data['user']['id']);
+        await _storage.write(key: _userEmailKey, value: data['user']['email']);
+        await _storage.write(key: _userRoleKey, value: data['user']['role']);
+        
+        return data['user'];
+      } else {
+        final error = jsonDecode(response.body);
+        throw error['message'] ?? 'Login failed';
+      }
+    } catch (e) {
+      throw 'Login failed: $e';
     }
   }
 
   // Register new user
-  Future<UserCredential?> registerWithEmailAndPassword({
+  Future<Map<String, dynamic>> registerWithEmailAndPassword({
     required String email,
     required String password,
     required String fullName,
     required String phoneNumber,
     required String address,
   }) async {
-    UserCredential? userCredential;
-
     try {
-      // First, try to create a new user account
-      userCredential = await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'email-already-in-use') {
-        try {
-          userCredential = await _auth.signInWithEmailAndPassword(
-            email: email,
-            password: password,
-          );
-        } catch (signInError) {
-          throw _handleAuthException(e);
-        }
-      } else {
-        throw _handleAuthException(e);
-      }
-    }
-
-    try {
-      // Create or re-create user document in Node.js Backend
-      print('Attempting to sync user to backend: ${ApiConfig.users}');
       final response = await http.post(
-        Uri.parse(ApiConfig.users),
+        Uri.parse('${ApiConfig.users}/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'uid': userCredential!.user!.uid,
           'email': email,
+          'password': password,
           'fullName': fullName,
           'phoneNumber': phoneNumber,
           'address': address,
-          'role': 'user',
         }),
       );
 
-      print('Backend sync response: ${response.statusCode}');
-      print('Backend sync body: ${response.body}');
-
-      if (response.statusCode != 201 && response.statusCode != 400) {
-        throw 'Failed to sync user profile with backend: ${response.body}';
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        
+        // Store token and user info
+        await _storage.write(key: _tokenKey, value: data['token']);
+        await _storage.write(key: _userIdKey, value: data['user']['id']);
+        await _storage.write(key: _userEmailKey, value: data['user']['email']);
+        await _storage.write(key: _userRoleKey, value: data['user']['role']);
+        
+        return data['user'];
+      } else {
+        final error = jsonDecode(response.body);
+        throw error['message'] ?? 'Registration failed';
       }
-
-      return userCredential;
     } catch (e) {
-      throw 'Failed to create user profile: $e';
+      throw 'Registration failed: $e';
     }
   }
 
   // Sign out
   Future<void> signOut() async {
-    await _auth.signOut();
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _userIdKey);
+    await _storage.delete(key: _userEmailKey);
+    await _storage.delete(key: _userRoleKey);
   }
 
-  // Reset password
-  Future<void> resetPassword(String email) async {
-    try {
-      await _auth.sendPasswordResetEmail(email: email);
-    } on FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
-    }
-  }
-
-  // Handle authentication exceptions
-  String _handleAuthException(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'user-not-found':
-        return 'No user found with this email.';
-      case 'wrong-password':
-        return 'Incorrect password.';
-      case 'email-already-in-use':
-        return 'An account already exists with this email.';
-      case 'invalid-email':
-        return 'Invalid email address.';
-      case 'weak-password':
-        return 'Password is too weak. Use at least 6 characters.';
-      case 'user-disabled':
-        return 'This account has been disabled.';
-      default:
-        return 'Authentication error: ${e.message}';
-    }
+  // Get authorization header
+  Future<Map<String, String>> getAuthHeaders() async {
+    final token = await getToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
   }
 }

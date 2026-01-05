@@ -22,7 +22,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
   late TabController _tabController;
-  late Future<Map<String, dynamic>?> _currentUserFuture;
+  late Future<Map<String, dynamic>?> _currentUserDataFuture;
+  String? _userId;
   
   // Cache streams in state to prevent re-fetching on tab switch
   late Stream<List<UserModel>> _usersStream;
@@ -34,19 +35,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    final uid = _authService.currentUser?.uid;
-    if (uid != null) {
-      _databaseService.initSocket(uid);
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    _userId = await _authService.currentUserId;
+    if (_userId != null) {
+      _databaseService.initSocket(_userId!);
+      _currentUserDataFuture = _databaseService.getUserData(_userId!);
+    } else {
+      _currentUserDataFuture = Future.value(null);
     }
-    _currentUserFuture = uid != null
-        ? _databaseService.getUserData(uid)
-        : Future<Map<String, dynamic>?>.value(null);
 
     // Initialize streams once
     _usersStream = _databaseService.getAllUsers();
     _trackingStream = _databaseService.getAllTrackingIds();
     _scanLogsStream = _databaseService.getScanLogs();
     _deliveryLogsStream = _databaseService.getAllDeliveryLogs();
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -61,7 +70,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Theme(
       data: AdminTheme.theme,
       child: FutureBuilder<Map<String, dynamic>?>(
-        future: _currentUserFuture,
+        future: _currentUserDataFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Scaffold(
@@ -75,9 +84,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           }
 
           final userData = snapshot.data;
-          final user = _authService.currentUser;
 
-          if (user == null || userData == null) {
+          if (_userId == null || userData == null) {
             return Scaffold(
               backgroundColor: AdminTheme.backgroundLight,
               body: Center(
@@ -447,14 +455,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             IconButton(
               icon: Icon(
                 Icons.delete_outline,
-                color: _authService.currentUser?.uid == user.uid
+                color: _userId == user.uid
                     ? AdminTheme.textMuted.withOpacity(0.3)
                     : AdminTheme.statusError,
               ),
-              tooltip: _authService.currentUser?.uid == user.uid
+              tooltip: _userId == user.uid
                   ? 'Cannot delete yourself'
                   : 'Delete user',
-              onPressed: _authService.currentUser?.uid == user.uid
+              onPressed: _userId == user.uid
                   ? null
                   : () => _confirmDeleteUser(user),
             ),
