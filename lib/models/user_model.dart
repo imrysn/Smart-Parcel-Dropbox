@@ -27,7 +27,7 @@ class UserModel {
       phoneNumber: data['phoneNumber'] ?? '',
       address: data['address'] ?? '',
       role: data['role'] ?? 'user',
-      createdAt: data['createdAt']?.toDate(),
+      createdAt: data['createdAt'] != null ? DateTime.tryParse(data['createdAt'].toString()) : null,
     );
   }
 
@@ -40,7 +40,7 @@ class UserModel {
       'phoneNumber': phoneNumber,
       'address': address,
       'role': role,
-      'createdAt': createdAt,
+      'createdAt': createdAt?.toIso8601String(),
     };
   }
 }

@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+// No longer using cloud_firestore
 
 /// Model for tracking ID data
 class TrackingModel {
@@ -22,33 +22,32 @@ class TrackingModel {
     this.retrievedAt,
   });
 
-  /// Create TrackingModel from Firestore document
-  factory TrackingModel.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
+  /// Create TrackingModel from Map (JSON)
+  factory TrackingModel.fromMap(Map<String, dynamic> data) {
     return TrackingModel(
       trackingId: data['trackingId'] ?? '',
       userId: data['userId'] ?? '',
       shopName: data['shopName'] ?? '',
       status: data['status'] ?? 'pending',
-      registeredAt: (data['registeredAt'] as Timestamp?)?.toDate(),
+      registeredAt: data['registeredAt'] != null ? DateTime.parse(data['registeredAt']) : (data['createdAt'] != null ? DateTime.parse(data['createdAt']) : null),
       expectedDeliveryDate: data['expectedDeliveryDate'],
-      deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
-      retrievedAt: (data['retrievedAt'] as Timestamp?)?.toDate(),
+      deliveredAt: data['deliveredAt'] != null ? DateTime.parse(data['deliveredAt']) : null,
+      retrievedAt: data['retrievedAt'] != null ? DateTime.parse(data['retrievedAt']) : null,
     );
   }
 
-  /// Convert to Map for Firestore
+
+  /// Convert to Map for API
   Map<String, dynamic> toMap() {
     return {
       'trackingId': trackingId,
       'userId': userId,
       'shopName': shopName,
       'status': status,
-      'registeredAt': registeredAt != null ? Timestamp.fromDate(registeredAt!) : null,
+      'registeredAt': registeredAt?.toIso8601String(),
       'expectedDeliveryDate': expectedDeliveryDate,
-      'deliveredAt': deliveredAt != null ? Timestamp.fromDate(deliveredAt!) : null,
-      'retrievedAt': retrievedAt != null ? Timestamp.fromDate(retrievedAt!) : null,
+      'deliveredAt': deliveredAt?.toIso8601String(),
+      'retrievedAt': retrievedAt?.toIso8601String(),
     };
   }
 

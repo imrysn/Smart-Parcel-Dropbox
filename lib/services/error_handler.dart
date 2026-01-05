@@ -30,11 +30,11 @@ class ErrorHandler {
     }
   }
 
-  /// Handle Firebase errors specifically
-  static String handleFirebaseError(Object error) {
+  /// Handle Database errors specifically
+  static String handleDatabaseError(Object error) {
     String errorMessage = error.toString().toLowerCase();
 
-    // Check for common Firebase error patterns
+    // Check for common error patterns
     if (errorMessage.contains('permission-denied')) {
       return 'Access denied. Please check your permissions.';
     } else if (errorMessage.contains('not-found')) {

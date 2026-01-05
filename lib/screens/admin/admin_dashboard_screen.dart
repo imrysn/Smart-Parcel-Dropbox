@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../config/admin_theme.dart';
@@ -22,17 +21,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
-  late Future<Map<String, dynamic>?> _currentUserFuture;
   late TabController _tabController;
+  late Future<Map<String, dynamic>?> _currentUserDataFuture;
+  String? _userId;
+  
+  // Cache streams in state to prevent re-fetching on tab switch
+  late Stream<List<UserModel>> _usersStream;
+  late Stream<List<TrackingModel>> _trackingStream;
+  late Stream<List<ScanLogModel>> _scanLogsStream;
+  late Stream<List<Map<String, dynamic>>> _deliveryLogsStream;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    final uid = _authService.currentUser?.uid;
-    _currentUserFuture = uid != null
-        ? _databaseService.getUserData(uid)
-        : Future<Map<String, dynamic>?>.value(null);
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    _userId = await _authService.currentUserId;
+    if (_userId != null) {
+      _databaseService.initSocket(_userId!);
+      _currentUserDataFuture = _databaseService.getUserData(_userId!);
+    } else {
+      _currentUserDataFuture = Future.value(null);
+    }
+
+    // Initialize streams once
+    _usersStream = _databaseService.getAllUsers();
+    _trackingStream = _databaseService.getAllTrackingIds();
+    _scanLogsStream = _databaseService.getScanLogs();
+    _deliveryLogsStream = _databaseService.getAllDeliveryLogs();
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -47,7 +70,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Theme(
       data: AdminTheme.theme,
       child: FutureBuilder<Map<String, dynamic>?>(
-        future: _currentUserFuture,
+        future: _currentUserDataFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Scaffold(
@@ -61,9 +84,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           }
 
           final userData = snapshot.data;
-          final user = _authService.currentUser;
 
-          if (user == null || userData == null) {
+          if (_userId == null || userData == null) {
             return Scaffold(
               backgroundColor: AdminTheme.backgroundLight,
               body: Center(
@@ -215,9 +237,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               body: TabBarView(
                 controller: _tabController,
                 children: [
-                  _buildUsersTab(),
-                  _buildTrackingTab(),
-                  _buildLogsTab(),
+                  _KeepAlivePage(child: _buildUsersTab()),
+                  _KeepAlivePage(child: _buildTrackingTab()),
+                  _KeepAlivePage(child: _buildLogsTab()),
                 ],
               ),
             ),
@@ -229,7 +251,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildUsersTab() {
     return StreamBuilder<List<UserModel>>(
-      stream: _databaseService.getAllUsers(),
+      stream: _usersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
@@ -433,14 +455,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             IconButton(
               icon: Icon(
                 Icons.delete_outline,
-                color: _authService.currentUser?.uid == user.uid
+                color: _userId == user.uid
                     ? AdminTheme.textMuted.withOpacity(0.3)
                     : AdminTheme.statusError,
               ),
-              tooltip: _authService.currentUser?.uid == user.uid
+              tooltip: _userId == user.uid
                   ? 'Cannot delete yourself'
                   : 'Delete user',
-              onPressed: _authService.currentUser?.uid == user.uid
+              onPressed: _userId == user.uid
                   ? null
                   : () => _confirmDeleteUser(user),
             ),
@@ -454,7 +476,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     const statuses = ['pending', 'in_transit', 'delivered', 'retrieved'];
     
     return StreamBuilder<List<TrackingModel>>(
-      stream: _databaseService.getAllTrackingIds(),
+      stream: _trackingStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
@@ -676,7 +698,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           _buildSectionHeader('Scan Logs', Icons.qr_code_scanner),
           const SizedBox(height: 12),
           StreamBuilder<List<ScanLogModel>>(
-            stream: _databaseService.getScanLogs(),
+            stream: _scanLogsStream,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return Center(
@@ -709,7 +731,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           _buildSectionHeader('Delivery Logs', Icons.local_shipping_outlined),
           const SizedBox(height: 12),
           StreamBuilder<List<Map<String, dynamic>>>(
-            stream: _databaseService.getAllDeliveryLogs(),
+            stream: _deliveryLogsStream,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return Center(
@@ -1118,11 +1140,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   String _formatTimestamp(dynamic value) {
-    if (value is Timestamp) {
-      final date = value.toDate().toLocal();
+    if (value == null) return 'N/A';
+    try {
+      final date = DateTime.parse(value.toString()).toLocal();
       return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return value.toString();
     }
-    return value.toString();
   }
 
   Future<void> _logout() async {
@@ -1313,4 +1337,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       );
     }
   }
+}
+
+/// Helper widget to keep tabs alive when switching
+class _KeepAlivePage extends StatefulWidget {
+  final Widget child;
+  const _KeepAlivePage({required this.child});
+
+  @override
+  State<_KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<_KeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+
+  @override
+  bool get wantKeepAlive => true;
 }

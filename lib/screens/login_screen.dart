@@ -6,6 +6,7 @@ import '../services/input_validator.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
+import 'password_reset_screen.dart';
 
 /// Login Screen - User authentication with Email/Password and Google Sign-In
 class LoginScreen extends StatefulWidget {
@@ -39,12 +40,14 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _authService.signInWithEmailAndPassword(
+      final user = await _authService.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
-      await _navigateAfterLogin();
+      if (mounted) {
+        await _navigateAfterLogin(user);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -62,81 +65,30 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signInWithGoogle() async {
-    setState(() => _isLoading = true);
-
-    try {
-      final userCredential = await _googleAuthService.signInWithGoogle();
-
-      if (userCredential != null && mounted) {
-        await _navigateAfterLogin();
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Google Sign-In was cancelled'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+    // Google Sign-In is disabled for MongoDB-only mode
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Google Sign-In is not available in this version'),
+          backgroundColor: Colors.orange,
+        ),
+      );
     }
   }
 
-  Future<void> _navigateAfterLogin() async {
-    final user = _authService.currentUser;
-    if (user == null) return;
+  Future<void> _navigateAfterLogin(Map<String, dynamic> user) async {
+    if (!mounted) return;
 
-    try {
-      final userData = await _databaseService.getUserData(user.uid);
-      
-      if (userData == null) {
-        // User exists in Auth but not in Firestore - account was likely deleted
-        await _authService.signOut();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('This account has been deleted or deactivated.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
+    final role = user['role'];
 
-      final role = userData['role'];
-
-      if (!mounted) return;
-
-      if (role == 'admin') {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
-        );
-      } else {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Login error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      await _authService.signOut();
+    if (role == 'admin') {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+      );
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
     }
   }
 
@@ -147,67 +99,114 @@ class _LoginScreenState extends State<LoginScreen> {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Reset Password'),
-          content: Form(
-            key: resetFormKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Enter your email address and we\'ll send you a link to reset your password.',
-                  style: TextStyle(fontSize: 14),
+        bool isDialogLoading = false;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Reset Password'),
+              content: Form(
+                key: resetFormKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Enter your email address and we\'ll send you a verification code to reset your password.',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: resetEmailController,
+                      keyboardType: TextInputType.emailAddress,
+                      enabled: !isDialogLoading,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        prefixIcon: Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: InputValidator.validateEmail,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: resetEmailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: InputValidator.validateEmail,
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isDialogLoading ? null : () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isDialogLoading
+                      ? null
+                      : () async {
+                          if (!resetFormKey.currentState!.validate()) return;
+
+                          setDialogState(() => isDialogLoading = true);
+
+                          try {
+                            final email = resetEmailController.text.trim();
+
+                            // Verification: Check if user exists in MongoDB first
+                            final exists = await _databaseService.checkEmailExists(email);
+
+                            if (!exists) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('This email is not registered in our system.'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                              setDialogState(() => isDialogLoading = false);
+                              return;
+                            }
+
+                            // Request password reset - sends code to email
+                            await _databaseService.requestPasswordReset(email);
+
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+
+                              // Navigate to password reset screen
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => PasswordResetScreen(email: email),
+                                ),
+                              );
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('A 6-digit reset code has been sent to $email!'),
+                                  backgroundColor: Colors.green,
+                                  duration: const Duration(seconds: 4),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                            setDialogState(() => isDialogLoading = false);
+                          }
+                        },
+                  child: isDialogLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text('Send Code'),
                 ),
               ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (!resetFormKey.currentState!.validate()) return;
-
-                try {
-                  await _authService
-                      .resetPassword(resetEmailController.text.trim());
-                  if (mounted) {
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                            'Password reset email sent! Check your inbox.'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(e.toString()),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-              child: const Text('Send Reset Link'),
-            ),
-          ],
+            );
+          },
         );
       },
     );
