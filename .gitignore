@@ -216,19 +216,7 @@ firebase.json
 *.xlsx
 
 # Project Documentation (Keep only essential docs)
-SECURITY_GUIDE.md
-SECURITY_FIX_SUMMARY.md
-FIREBASE_SETUP_DETAILED.md
-FIX_WHITE_SCREEN.md
-DEVELOPER_GUIDE.md
-PROJECT_SUMMARY.md
-SETUP_GUIDE.md
-TODO.md
-APP_FLOW_DIAGRAM.md
-REVISIONS.pdf
-Hardware*.docx
-NOTES.md
-CHANGELOG_DETAILED.md
+*.md
 
 # Keep important docs in version control
 !README.md
