@@ -279,6 +279,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         onDestinationSelected: (index) {
           setState(() {
             _selectedIndex = index;
+            // Proactively refresh data when switching back to main tabs
+            if (index == 0 && _userId != null) {
+              _databaseService.refreshTracking(_userId!);
+            } else if (index == 1) {
+              // Logs screen handles its own fetch, but we can nudge it if needed
+            } else if (index == 2 && _userId != null) {
+              // Refreshing profile will happen in the FutureBuilder, but we can trigger it
+            }
             _playFabAnimations();
           });
         },
@@ -312,6 +320,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         Expanded(
           child: StreamBuilder<List<TrackingModel>>(
             stream: _activeOrdersStream,
+            initialData: _databaseService.cachedTracking.where((t) => 
+               ['pending', 'in_transit', 'delivered'].contains(t.status)).toList(),
             builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());

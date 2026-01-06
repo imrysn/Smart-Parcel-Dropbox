@@ -20,6 +20,9 @@ const io = new Server(server, {
     }
 });
 
+// Store io in express app
+app.set('io', io);
+
 // Body parser
 app.use(express.json());
 

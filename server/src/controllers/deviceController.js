@@ -20,6 +20,13 @@ exports.sendCommand = async (req, res) => {
             trackingId: 'MANUAL'
         });
 
+        // Manual WebSocket emission as fallback
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('doorStateUpdate', deviceControl);
+            console.log(`[SOCKET] Manual doorStateUpdate emitted: ${command}`);
+        }
+
         res.status(201).json(deviceControl);
     } catch (error) {
         res.status(500).json({ message: error.message });
