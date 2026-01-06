@@ -18,6 +18,13 @@ exports.registerTracking = async (req, res) => {
             expectedDeliveryDate
         });
 
+        // Manual WebSocket emission as fallback
+        const io = req.app.get('io');
+        if (io) {
+            io.to(userId).emit('trackingUpdate', tracking);
+            console.log(`[SOCKET] Manual trackingUpdate emitted for user: ${userId}`);
+        }
+
         res.status(201).json(tracking);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -87,6 +94,13 @@ exports.updateTrackingStatus = async (req, res) => {
             eventType: status === 'delivered' ? 'parcel_delivered' : (status === 'retrieved' ? 'parcel_retrieved' : 'status_update'),
             details: `Status updated to ${status}`
         });
+
+        // Manual WebSocket emission as fallback
+        const io = req.app.get('io');
+        if (io) {
+            io.to(tracking.userId).emit('trackingUpdate', tracking);
+            console.log(`[SOCKET] Manual trackingUpdate (status change) emitted for user: ${tracking.userId}`);
+        }
 
         res.json(tracking);
     } catch (error) {
