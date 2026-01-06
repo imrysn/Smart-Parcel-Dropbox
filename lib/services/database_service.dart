@@ -22,6 +22,16 @@ class DatabaseService {
   final _notificationController = StreamController<List<NotificationModel>>.broadcast();
   final _doorStateController = StreamController<Map<String, dynamic>?>.broadcast();
 
+  // Cache last data to avoid "waiting" connection state on UI
+  List<TrackingModel> _lastTrackingList = [];
+  List<NotificationModel> _lastNotifications = [];
+  Map<String, dynamic>? _lastDoorState;
+
+  // Getters for cached data
+  List<TrackingModel> get cachedTracking => _lastTrackingList;
+  List<NotificationModel> get cachedNotifications => _lastNotifications;
+  Map<String, dynamic>? get cachedDoorState => _lastDoorState;
+
   void initSocket(String userId) {
     if (_socket != null) {
       if (_socket!.connected) {
@@ -57,6 +67,7 @@ class DatabaseService {
     
     _socket!.on('doorStateUpdate', (data) {
       debugPrint('Socket: doorStateUpdate received: $data');
+      _lastDoorState = data;
       _doorStateController.add(data);
     });
   }
@@ -91,6 +102,9 @@ class DatabaseService {
         final error = jsonDecode(response.body);
         throw error['message'] ?? 'Failed to register tracking ID';
       }
+
+      // Success! Manually refresh tracking data immediately
+      await refreshTracking(userId);
     } catch (e) {
       throw 'Failed to register tracking ID: $e';
     }
@@ -103,6 +117,7 @@ class DatabaseService {
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         final list = data.map((json) => TrackingModel.fromMap(json)).toList();
+        _lastTrackingList = list;
         _trackingController.add(list);
       }
     } catch (e) {
@@ -112,7 +127,8 @@ class DatabaseService {
 
   /// Get all tracking IDs for a specific user
   Stream<List<TrackingModel>> getUserTrackingIds(String userId) {
-    refreshTracking(userId); // Initial fetch
+    // Refresh tracking to ensure we get latest
+    refreshTracking(userId);
     return _trackingController.stream;
   }
 
@@ -390,6 +406,7 @@ class DatabaseService {
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         final list = data.map((e) => NotificationModel.fromMap(e)).toList();
+        _lastNotifications = list;
         _notificationController.add(list);
       }
     } catch (e) {
@@ -426,6 +443,9 @@ class DatabaseService {
 
   /// Get notifications
   Stream<List<NotificationModel>> getUserNotifications(String userId) {
+    if (_lastNotifications.isNotEmpty) {
+      Timer.run(() => _notificationController.add(_lastNotifications));
+    }
     refreshNotifications(userId);
     return _notificationController.stream;
   }
@@ -629,7 +649,13 @@ class DatabaseService {
 
   /// Get door state
   Stream<Map<String, dynamic>?> getDropBoxDoorState() {
-    _fetchDoorState().then((data) => _doorStateController.add(data));
+    if (_lastDoorState != null) {
+      Timer.run(() => _doorStateController.add(_lastDoorState));
+    }
+    _fetchDoorState().then((data) {
+      _lastDoorState = data;
+      _doorStateController.add(data);
+    });
     return _doorStateController.stream;
   }
 

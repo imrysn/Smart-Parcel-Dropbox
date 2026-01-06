@@ -5,6 +5,14 @@ const Notification = require('../models/Notification');
 exports.createNotification = async (req, res) => {
     try {
         const notification = await Notification.create(req.body);
+
+        // Manual WebSocket emission as fallback
+        const io = req.app.get('io');
+        if (io) {
+            io.to(notification.userId).emit('notificationNew', notification);
+            console.log(`[SOCKET] Manual notificationNew emitted for user: ${notification.userId}`);
+        }
+
         res.status(201).json(notification);
     } catch (error) {
         res.status(500).json({ message: error.message });
