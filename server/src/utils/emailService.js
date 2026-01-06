@@ -9,7 +9,17 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// Verify connection configuration
+transporter.verify(function (error, success) {
+    if (error) {
+        console.log('[EMAIL_SERVICE] Server is NOT ready to send emails:', error);
+    } else {
+        console.log('[EMAIL_SERVICE] Server is ready to take our messages');
+    }
+});
+
 exports.sendResetCode = async (email, fullName, resetCode) => {
+    console.log(`[EMAIL_SERVICE] Attempting to send reset code to: ${email}`);
     try {
         const mailOptions = {
             from: `"Smart Parcel System" <${process.env.EMAIL_USER}>`,

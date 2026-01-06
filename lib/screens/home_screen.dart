@@ -9,6 +9,7 @@ import 'tracking_details_screen.dart';
 import 'logs_screen.dart';
 import 'notifications_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
+import 'dropbox_control_screen.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -227,111 +228,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           mainAxisAlignment: MainAxisAlignment.end,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // Drop Box Control Button
-            StreamBuilder<Map<String, dynamic>?>(
-              stream: _doorStateStream,
-              builder: (context, snapshot) {
-                final doorState = snapshot.data;
-                final command = doorState?['command'] as String?;
-                final isOpen = command == 'open';
-                final isProcessing = doorState?['status'] == 'processing';
-                final userId = _userId;
-
-                if (userId == null) return const SizedBox.shrink();
-
-                return SlideTransition(
-                  position: _fabSlideAnimation1,
-                  child: FadeTransition(
-                    opacity: _fabFadeAnimation1,
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      child: FloatingActionButton.extended(
-                        onPressed: isProcessing
-                            ? null
-                            : () async {
-                                try {
-                                  await _databaseService.controlDropBoxDoor(
-                                    userId: userId,
-                                    open: !isOpen,
-                                  );
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          isOpen
-                                              ? 'Closing drop box...'
-                                              : 'Opening drop box...',
-                                        ),
-                                        duration: const Duration(seconds: 2),
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Error: $e'),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                        icon: Stack(
-                          children: [
-                            Icon(
-                              isOpen ? Icons.lock_open : Icons.lock,
-                            ),
-                            // Status indicator dot
-                            Positioned(
-                              right: 0,
-                              top: 0,
-                              child: Container(
-                                width: 12,
-                                height: 12,
-                                decoration: BoxDecoration(
-                                  color: isOpen ? Colors.green : Colors.red,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.white,
-                                    width: 2,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
+            // Navigate to Drop Box Control Screen
+            SlideTransition(
+              position: _fabSlideAnimation1,
+              child: FadeTransition(
+                opacity: _fabFadeAnimation1,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: FloatingActionButton.extended(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const DropboxControlScreen(),
                         ),
-                        label: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              isProcessing
-                                  ? 'Processing...'
-                                  : isOpen
-                                      ? 'Close Drop Box'
-                                      : 'Open Drop Box',
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: isOpen ? Colors.green : Colors.red,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                        ),
-                        backgroundColor: isOpen
-                            ? Colors.green
-                            : Theme.of(context).colorScheme.primary,
-                        foregroundColor: Colors.white,
-                        heroTag: 'dropbox_fab',
-                      ),
-                    ),
+                      );
+                    },
+                    icon: const Icon(Icons.settings_remote),
+                    label: const Text('Control Box'),
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    heroTag: 'dropbox_control_fab',
                   ),
-                );
-              },
+                ),
+              ),
             ),
             // Add Tracking ID Button
             SlideTransition(
@@ -387,9 +306,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _buildActiveOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
 
-    return StreamBuilder<List<TrackingModel>>(
-      stream: _databaseService.getActiveOrders(_userId!),
-      builder: (context, snapshot) {
+    return Column(
+      children: [
+        _buildDropboxStatusCard(),
+        Expanded(
+          child: StreamBuilder<List<TrackingModel>>(
+            stream: _activeOrdersStream,
+            builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -463,6 +386,94 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             TrackingModel order = orders[index];
             return _buildOrderCard(order);
           },
+        );
+      },
+    ),
+  ),
+],
+    );
+  }
+
+  Widget _buildDropboxStatusCard() {
+    if (_userId == null) return const SizedBox.shrink();
+
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: _doorStateStream,
+      builder: (context, snapshot) {
+        final doorState = snapshot.data;
+        final command = doorState?['command'] as String?;
+        final isOpen = command == 'open';
+        final isProcessing = doorState?['status'] == 'processing';
+
+        return Card(
+          margin: const EdgeInsets.all(16),
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                colors: isOpen
+                    ? [Colors.green.shade50, Colors.white]
+                    : [Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.1), Colors.white],
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isOpen ? Colors.green.shade100 : Colors.orange.shade100,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isOpen ? Icons.lock_open : Icons.lock,
+                      color: isOpen ? Colors.green.shade700 : Colors.orange.shade700,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Drop Box Status',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          isProcessing ? 'Processing...' : (isOpen ? 'Unlocked & Open' : 'Locked & Secure'),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const DropboxControlScreen(),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Manage'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
       },
     );
