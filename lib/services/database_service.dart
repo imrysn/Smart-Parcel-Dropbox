@@ -14,18 +14,20 @@ import 'dart:async';
 /// Handles all Node.js API operations via MongoDB and WebSockets
 class DatabaseService {
   static DatabaseService? _instance;
-  
+
   factory DatabaseService() {
     _instance ??= DatabaseService._internal();
     return _instance!;
   }
-  
+
   DatabaseService._internal();
 
   IO.Socket? _socket;
   final _trackingController = StreamController<List<TrackingModel>>.broadcast();
-  final _notificationController = StreamController<List<NotificationModel>>.broadcast();
-  final _doorStateController = StreamController<Map<String, dynamic>?>.broadcast();
+  final _notificationController =
+      StreamController<List<NotificationModel>>.broadcast();
+  final _doorStateController =
+      StreamController<Map<String, dynamic>?>.broadcast();
   final _usersController = StreamController<List<UserModel>>.broadcast();
 
   // Cache last data to avoid "waiting" connection state on UI
@@ -34,6 +36,7 @@ class DatabaseService {
   Map<String, dynamic>? _lastDoorState;
   List<UserModel> _lastUsersList = [];
   bool _isFetchingUsers = false;
+  bool _isFetchingTracking = false;
 
   // Getters for cached data
   List<TrackingModel> get cachedTracking => _lastTrackingList;
@@ -61,18 +64,19 @@ class DatabaseService {
     });
 
     _socket!.onDisconnect((_) => debugPrint('Disconnected from WebSocket'));
-    _socket!.onConnectError((data) => debugPrint('WebSocket Connect Error: $data'));
+    _socket!
+        .onConnectError((data) => debugPrint('WebSocket Connect Error: $data'));
 
     _socket!.on('trackingUpdate', (_) {
       debugPrint('Socket: trackingUpdate received');
       refreshTracking(userId);
     });
-    
+
     _socket!.on('notificationNew', (data) {
       debugPrint('Socket: notificationNew received');
       refreshNotifications(userId);
     });
-    
+
     _socket!.on('doorStateUpdate', (data) {
       debugPrint('Socket: doorStateUpdate received: $data');
       _lastDoorState = data;
@@ -87,7 +91,7 @@ class DatabaseService {
     _doorStateController.close();
     _usersController.close();
   }
-  
+
   /// Reset singleton instance (call on logout)
   static void reset() {
     _instance?.dispose();
@@ -128,7 +132,8 @@ class DatabaseService {
   /// Refresh tracking data (called by socket or manually)
   Future<void> refreshTracking(String userId) async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.tracking}/user/$userId'));
+      final response =
+          await http.get(Uri.parse('${ApiConfig.tracking}/user/$userId'));
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         final list = data.map((json) => TrackingModel.fromMap(json)).toList();
@@ -151,15 +156,16 @@ class DatabaseService {
 
   /// Get active orders (not retrieved yet)
   Stream<List<TrackingModel>> getActiveOrders(String userId) {
-    return getUserTrackingIds(userId).map((list) => 
-      list.where((t) => ['pending', 'in_transit', 'delivered'].contains(t.status)).toList()
-    );
+    return getUserTrackingIds(userId).map((list) => list
+        .where((t) => ['pending', 'in_transit', 'delivered'].contains(t.status))
+        .toList());
   }
 
   /// Verify tracking ID (used by courier/drop box system)
   Future<Map<String, dynamic>?> verifyTrackingId(String trackingId) async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.tracking}/$trackingId'));
+      final response =
+          await http.get(Uri.parse('${ApiConfig.tracking}/$trackingId'));
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -193,7 +199,8 @@ class DatabaseService {
   Future<void> logDeliveryEvent({
     required String trackingId,
     required String userId,
-    required String eventType, // scanned, door_opened, parcel_inserted, door_closed
+    required String
+        eventType, // scanned, door_opened, parcel_inserted, door_closed
     String? details,
   }) async {
     // Implement API call if needed, or simply skip if not critical
@@ -206,7 +213,8 @@ class DatabaseService {
 
   Future<List<Map<String, dynamic>>> _fetchAllDeliveryLogs() async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/delivery-logs'));
+      final response =
+          await http.get(Uri.parse('${ApiConfig.baseUrl}/delivery-logs'));
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         return data.cast<Map<String, dynamic>>();
@@ -220,12 +228,15 @@ class DatabaseService {
 
   /// Get delivery logs for a tracking ID
   Stream<List<Map<String, dynamic>>> getDeliveryLogs(String trackingId) {
-    return Stream.fromFuture(_fetchDeliveryLogs(trackingId)).asBroadcastStream();
+    return Stream.fromFuture(_fetchDeliveryLogs(trackingId))
+        .asBroadcastStream();
   }
 
-  Future<List<Map<String, dynamic>>> _fetchDeliveryLogs(String trackingId) async {
+  Future<List<Map<String, dynamic>>> _fetchDeliveryLogs(
+      String trackingId) async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/delivery-logs/$trackingId'));
+      final response = await http
+          .get(Uri.parse('${ApiConfig.baseUrl}/delivery-logs/$trackingId'));
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         return data.cast<Map<String, dynamic>>();
@@ -240,7 +251,8 @@ class DatabaseService {
   /// Check if user exists by email in MongoDB
   Future<bool> checkEmailExists(String email) async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.users}/check-email/$email'));
+      final response =
+          await http.get(Uri.parse('${ApiConfig.users}/check-email/$email'));
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('Error checking email: $e');
@@ -256,7 +268,7 @@ class DatabaseService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email}),
       );
-      
+
       if (response.statusCode != 200) {
         final error = jsonDecode(response.body);
         throw error['message'] ?? 'Failed to request password reset';
@@ -274,7 +286,7 @@ class DatabaseService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'code': code}),
       );
-      
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['valid'] == true;
@@ -302,7 +314,7 @@ class DatabaseService {
           'newPassword': newPassword,
         }),
       );
-      
+
       if (response.statusCode != 200) {
         final error = jsonDecode(response.body);
         throw error['message'] ?? 'Failed to reset password';
@@ -408,7 +420,8 @@ class DatabaseService {
   }
 
   Future<List<ScanLogModel>> _fetchUserScanLogs(String userId) async {
-    final response = await http.get(Uri.parse('${ApiConfig.scanLogs}/user/$userId'));
+    final response =
+        await http.get(Uri.parse('${ApiConfig.scanLogs}/user/$userId'));
     if (response.statusCode == 200) {
       final List data = jsonDecode(response.body);
       return data.map((e) => ScanLogModel.fromMap(e)).toList();
@@ -419,7 +432,8 @@ class DatabaseService {
   /// Refresh notifications
   Future<void> refreshNotifications(String userId) async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.notifications}/user/$userId'));
+      final response =
+          await http.get(Uri.parse('${ApiConfig.notifications}/user/$userId'));
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         final list = data.map((e) => NotificationModel.fromMap(e)).toList();
@@ -469,13 +483,15 @@ class DatabaseService {
 
   /// Get unread count
   Stream<int> getUnreadNotificationsCount(String userId) {
-    return getUserNotifications(userId).map((list) => list.where((n) => !n.isRead).length);
+    return getUserNotifications(userId)
+        .map((list) => list.where((n) => !n.isRead).length);
   }
 
   /// Mark as read
   Future<void> markNotificationAsRead(String notificationId) async {
     try {
-      await http.patch(Uri.parse('${ApiConfig.notifications}/$notificationId/read'));
+      await http
+          .patch(Uri.parse('${ApiConfig.notifications}/$notificationId/read'));
     } catch (e) {
       debugPrint('Error marking read: $e');
     }
@@ -484,7 +500,8 @@ class DatabaseService {
   /// Mark all read
   Future<void> markAllNotificationsAsRead(String userId) async {
     try {
-      await http.patch(Uri.parse('${ApiConfig.notifications}/user/$userId/read'));
+      await http
+          .patch(Uri.parse('${ApiConfig.notifications}/user/$userId/read'));
       refreshNotifications(userId);
     } catch (e) {
       debugPrint('Error marking all read: $e');
@@ -555,7 +572,8 @@ class DatabaseService {
     required String shopName,
   }) async {
     String title = 'Status Updated';
-    String message = 'Your order from $shopName is now ${_getStatusText(status)}.';
+    String message =
+        'Your order from $shopName is now ${_getStatusText(status)}.';
 
     await createNotification(
       userId: userId,
@@ -665,10 +683,24 @@ class DatabaseService {
     }
   }
 
+  /// Refresh all tracking IDs list
+  Future<void> refreshAllTrackingIds() async {
+    if (_isFetchingTracking) return; // Prevent concurrent fetches
+    _isFetchingTracking = true;
+    try {
+      final tracking = await _fetchAllTracking();
+      _lastTrackingList = tracking;
+      _trackingController.add(tracking);
+    } finally {
+      _isFetchingTracking = false;
+    }
+  }
+
   /// Control door
   Future<void> controlDropBoxDoor({
     required String userId,
     required bool open,
+    String doorType = 'user', // 'parcel' or 'user'
   }) async {
     try {
       await http.post(
@@ -677,6 +709,7 @@ class DatabaseService {
         body: jsonEncode({
           'userId': userId,
           'command': open ? 'open' : 'close',
+          'doorType': doorType, // Specify which door to control
         }),
       );
     } catch (e) {
@@ -708,12 +741,14 @@ class DatabaseService {
   Future<void> deleteUser(String userId) async {
     try {
       debugPrint('Deleting user: $userId');
-      final response = await http.delete(Uri.parse('${ApiConfig.users}/$userId'));
+      final response =
+          await http.delete(Uri.parse('${ApiConfig.users}/$userId'));
       debugPrint('Delete user response: ${response.statusCode}');
       debugPrint('Delete user body: ${response.body}');
-      
+
       if (response.statusCode != 200 && response.statusCode != 204) {
-        throw Exception('Failed to delete user: ${response.statusCode} - ${response.body}');
+        throw Exception(
+            'Failed to delete user: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       debugPrint('Error deleting user: $e');
@@ -743,7 +778,7 @@ class DatabaseService {
         Uri.parse('${ApiConfig.approveUser}/$userId'),
         headers: {'Content-Type': 'application/json'},
       );
-      
+
       if (response.statusCode != 200) {
         throw Exception('Failed to approve user: ${response.statusCode}');
       }
@@ -760,7 +795,7 @@ class DatabaseService {
         Uri.parse('${ApiConfig.rejectUser}/$userId'),
         headers: {'Content-Type': 'application/json'},
       );
-      
+
       if (response.statusCode != 200) {
         throw Exception('Failed to reject user: ${response.statusCode}');
       }

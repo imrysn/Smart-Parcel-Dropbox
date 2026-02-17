@@ -24,7 +24,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   late TabController _tabController;
   late Future<Map<String, dynamic>?> _currentUserDataFuture;
   String? _userId;
-  
+
   // Cache streams in state to prevent re-fetching on tab switch
   late Stream<List<UserModel>> _usersStream;
   late Stream<List<TrackingModel>> _trackingStream;
@@ -174,7 +174,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'Admin Dashboard',
@@ -193,7 +194,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                                 .textTheme
                                                 .bodySmall
                                                 ?.copyWith(
-                                                  color: Colors.white.withOpacity(0.9),
+                                                  color: Colors.white
+                                                      .withOpacity(0.9),
                                                   letterSpacing: 0.5,
                                                 ),
                                           ),
@@ -264,7 +266,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         }
 
         final users = snapshot.data ?? [];
-        
+
         if (users.isEmpty) {
           return _buildEmptyState(
             icon: Icons.group_outlined,
@@ -312,11 +314,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ],
             ),
             const SizedBox(height: 24),
-            
+
             // Section Header
             _buildSectionHeader('User Management', Icons.group),
             const SizedBox(height: 12),
-            
+
             // User List
             ...users.map((user) => _buildUserCard(user)).toList(),
           ],
@@ -327,7 +329,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildUserCard(UserModel user) {
     final roleColor = AdminTheme.getRoleColor(user.role);
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -357,7 +359,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
             ),
             const SizedBox(width: 16),
-            
+
             // User Info
             Expanded(
               child: Column(
@@ -415,7 +417,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ],
               ),
             ),
-            
+
             // Role Dropdown
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -430,7 +432,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 value: user.role,
                 underline: const SizedBox(),
                 dropdownColor: AdminTheme.backgroundCard,
-                icon: Icon(Icons.arrow_drop_down, color: AdminTheme.primaryBlue),
+                icon:
+                    Icon(Icons.arrow_drop_down, color: AdminTheme.primaryBlue),
                 style: TextStyle(color: AdminTheme.textPrimary, fontSize: 14),
                 items: const [
                   DropdownMenuItem(
@@ -450,7 +453,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
             ),
             const SizedBox(width: 8),
-            
+
             // Delete Button
             IconButton(
               icon: Icon(
@@ -462,9 +465,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               tooltip: _userId == user.uid
                   ? 'Cannot delete yourself'
                   : 'Delete user',
-              onPressed: _userId == user.uid
-                  ? null
-                  : () => _confirmDeleteUser(user),
+              onPressed:
+                  _userId == user.uid ? null : () => _confirmDeleteUser(user),
             ),
           ],
         ),
@@ -474,7 +476,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildTrackingTab() {
     const statuses = ['pending', 'in_transit', 'delivered', 'retrieved'];
-    
+
     return StreamBuilder<List<TrackingModel>>(
       stream: _trackingStream,
       builder: (context, snapshot) {
@@ -485,11 +487,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         }
 
         if (snapshot.hasError) {
-          return _buildErrorState('Error loading tracking data: ${snapshot.error}');
+          return _buildErrorState(
+              'Error loading tracking data: ${snapshot.error}');
         }
 
         final items = snapshot.data ?? [];
-        
+
         if (items.isEmpty) {
           return _buildEmptyState(
             icon: Icons.inventory_outlined,
@@ -500,8 +503,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
         // Calculate statistics
         final pendingCount = items.where((t) => t.status == 'pending').length;
-        final inTransitCount = items.where((t) => t.status == 'in_transit').length;
-        final deliveredCount = items.where((t) => t.status == 'delivered').length;
+        final inTransitCount =
+            items.where((t) => t.status == 'in_transit').length;
+        final deliveredCount =
+            items.where((t) => t.status == 'delivered').length;
 
         return ListView(
           padding: const EdgeInsets.all(16),
@@ -538,13 +543,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ],
             ),
             const SizedBox(height: 24),
-            
+
             // Section Header
             _buildSectionHeader('Tracking Management', Icons.inventory_2),
             const SizedBox(height: 12),
-            
+
             // Tracking List
-            ...items.map((tracking) => _buildTrackingCard(tracking, statuses)).toList(),
+            ...items
+                .map((tracking) => _buildTrackingCard(tracking, statuses))
+                .toList(),
           ],
         );
       },
@@ -553,7 +560,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildTrackingCard(TrackingModel tracking, List<String> statuses) {
     final statusColor = AdminTheme.getStatusColor(tracking.status);
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -580,7 +587,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                 ),
                 const SizedBox(width: 12),
-                
+
                 // Shop Name
                 Expanded(
                   child: Text(
@@ -590,7 +597,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         ),
                   ),
                 ),
-                
+
                 // Status Dropdown
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -630,7 +637,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ],
             ),
             const SizedBox(height: 12),
-            
+
             // Tracking Details
             _buildInfoRow(
               Icons.qr_code,
@@ -652,7 +659,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
             ],
             const SizedBox(height: 12),
-            
+
             // Status Badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -704,29 +711,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 return Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
-                    child: CircularProgressIndicator(color: AdminTheme.primaryBlue),
+                    child: CircularProgressIndicator(
+                        color: AdminTheme.primaryBlue),
                   ),
                 );
               }
-              
+
               if (snapshot.hasError) {
                 return _buildErrorCard('Error loading scan logs');
               }
-              
+
               final logs = snapshot.data ?? [];
-              
+
               if (logs.isEmpty) {
                 return _buildEmptyCard('No scan logs found');
               }
-              
+
               return Column(
-                children: logs.take(10).map((log) => _buildScanLogCard(log)).toList(),
+                children:
+                    logs.take(10).map((log) => _buildScanLogCard(log)).toList(),
               );
             },
           ),
-          
+
           const SizedBox(height: 24),
-          
+
           // Delivery Logs Section
           _buildSectionHeader('Delivery Logs', Icons.local_shipping_outlined),
           const SizedBox(height: 12),
@@ -737,23 +746,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 return Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
-                    child: CircularProgressIndicator(color: AdminTheme.primaryBlue),
+                    child: CircularProgressIndicator(
+                        color: AdminTheme.primaryBlue),
                   ),
                 );
               }
-              
+
               if (snapshot.hasError) {
                 return _buildErrorCard('Error loading delivery logs');
               }
-              
+
               final logs = snapshot.data ?? [];
-              
+
               if (logs.isEmpty) {
                 return _buildEmptyCard('No delivery logs found');
               }
-              
+
               return Column(
-                children: logs.take(10).map((log) => _buildDeliveryLogCard(log)).toList(),
+                children: logs
+                    .take(10)
+                    .map((log) => _buildDeliveryLogCard(log))
+                    .toList(),
               );
             },
           ),
@@ -764,8 +777,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildScanLogCard(ScanLogModel log) {
     final isGranted = log.accessGranted;
-    final statusColor = isGranted ? AdminTheme.statusSuccess : AdminTheme.statusError;
-    
+    final statusColor =
+        isGranted ? AdminTheme.statusSuccess : AdminTheme.statusError;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
@@ -1097,6 +1111,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Future<void> _updateUserRole(String userId, String role) async {
     try {
       await _databaseService.updateUserRole(userId: userId, role: role);
+      // Refresh user list to update UI
+      _databaseService.refreshAllUsers();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1121,6 +1137,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         trackingId: trackingId,
         status: status,
       );
+      // Refresh tracking list to update UI
+      _databaseService.refreshAllTrackingIds();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1227,7 +1245,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildDialogInfoRow('Name', user.fullName.isNotEmpty ? user.fullName : 'N/A'),
+                  _buildDialogInfoRow(
+                      'Name', user.fullName.isNotEmpty ? user.fullName : 'N/A'),
                   const SizedBox(height: 8),
                   _buildDialogInfoRow('Email', user.email),
                   const SizedBox(height: 8),

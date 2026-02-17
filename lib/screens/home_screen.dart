@@ -78,6 +78,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Refresh user data after profile updates
+  void _refreshUserData() {
+    if (_userId != null) {
+      setState(() {
+        _userDataFuture = _databaseService.getUserData(_userId!);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -110,43 +119,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: _getSelectedTab(),
-      floatingActionButton: _selectedIndex == 0
-          ? Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // Navigate to Drop Box Control Screen
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  child: FloatingActionButton.extended(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const DropboxControlScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.settings_remote),
-                    label: const Text('Control Box'),
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    heroTag: 'dropbox_control_fab',
+      floatingActionButton: _selectedIndex == 1
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const AddTrackingScreen(),
                   ),
-                ),
-                // Add Tracking ID Button
-                FloatingActionButton.extended(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const AddTrackingScreen(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add Tracking ID'),
-                  heroTag: 'add_tracking_fab',
-                ),
-              ],
+                );
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Add Tracking ID'),
+              heroTag: 'add_tracking_fab',
             )
           : null,
       bottomNavigationBar: NavigationBar(
@@ -167,9 +151,9 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: 'Logs',
+            icon: Icon(Icons.inventory_2_outlined),
+            selectedIcon: Icon(Icons.inventory_2),
+            label: 'Orders',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
@@ -184,99 +168,230 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildActiveOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
 
-    return Column(
-      children: [
-        _buildDropboxStatusCard(),
-        Expanded(
-          child: StreamBuilder<List<TrackingModel>>(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Dropbox Status Card (Enhanced)
+          _buildDropboxStatusCard(),
+          const SizedBox(height: 16),
+
+          // Quick Stats Card
+          StreamBuilder<List<TrackingModel>>(
             stream: _activeOrdersStream,
             initialData: _databaseService.cachedTracking
                 .where((t) =>
                     ['pending', 'in_transit', 'delivered'].contains(t.status))
                 .toList(),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+              final activeOrders = snapshot.data ?? [];
+              final deliveredCount =
+                  activeOrders.where((o) => o.status == 'delivered').length;
 
-              if (snapshot.hasError) {
-                ErrorHandler.handleError(snapshot.error ?? 'Unknown error',
-                    null, 'HomeScreen active orders');
-                return Center(
+              return Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.error_outline,
-                        size: 80,
-                        color: Colors.red,
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.inventory_2_outlined,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Quick Stats',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[800],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Unable to load orders',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => setState(() {}),
-                        child: const Text('Retry'),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildStatItem(
+                              'Active Orders',
+                              '${activeOrders.length}',
+                              Icons.local_shipping_outlined,
+                              Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildStatItem(
+                              'In Drop Box',
+                              '$deliveredCount',
+                              Icons.inbox,
+                              Colors.green,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                );
-              }
-
-              List<TrackingModel> orders = snapshot.data ?? [];
-
-              if (orders.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.inbox_outlined,
-                        size: 80,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No active orders',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tap the button below to add a tracking ID',
-                        style: TextStyle(
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: orders.length,
-                itemBuilder: (context, index) {
-                  final order = orders[index];
-                  return Card(
-                    key: ValueKey(order.trackingId),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: _buildOrderCard(order),
-                  );
-                },
+                ),
               );
             },
           ),
+          const SizedBox(height: 16),
+
+          // Quick Actions Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.flash_on_outlined,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Quick Actions',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _buildQuickActionButton(
+                    icon: Icons.notifications_outlined,
+                    label: 'Notifications',
+                    subtitle: 'View delivery updates',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const NotificationsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildQuickActionButton(
+                    icon: Icons.inventory_2_outlined,
+                    label: 'View All Orders',
+                    subtitle: 'See complete order history',
+                    onTap: () {
+                      setState(() {
+                        _selectedIndex = 1; // Switch to Orders tab
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(
+      String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActionButton({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!),
+          borderRadius: BorderRadius.circular(12),
         ),
-      ],
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: Theme.of(context).colorScheme.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              color: Colors.grey[400],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -465,12 +580,91 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildAllOrdersTab() {
+    if (_userId == null) return const Center(child: Text('Not logged in'));
+
+    return StreamBuilder<List<TrackingModel>>(
+      stream: _databaseService.getUserTrackingIds(_userId!),
+      initialData: _databaseService
+          .cachedTracking, // Use cached data to prevent loading state
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Colors.red[300],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Error loading orders',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        List<TrackingModel> allOrders = snapshot.data ?? [];
+
+        if (allOrders.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 80,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No orders yet',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Add a tracking ID to get started',
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: allOrders.length,
+          itemBuilder: (context, index) {
+            final order = allOrders[index];
+            return Card(
+              key: ValueKey(order.trackingId),
+              margin: const EdgeInsets.only(bottom: 12),
+              child: _buildOrderCard(order),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _getSelectedTab() {
     switch (_selectedIndex) {
       case 0:
         return _buildActiveOrdersTab();
       case 1:
-        return const LogsScreen();
+        return _buildAllOrdersTab();
       case 2:
         return _buildProfileTab();
       default:
@@ -881,8 +1075,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       backgroundColor: Colors.green,
                     ),
                   );
-                  // Refresh the profile tab
-                  setState(() {});
+                  // Refresh the profile data to show updated values
+                  _refreshUserData();
                 }
               } catch (e) {
                 if (mounted) {
