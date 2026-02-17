@@ -1320,6 +1320,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Future<void> _deleteUser(String userId) async {
     try {
       await _databaseService.deleteUser(userId);
+      // Refresh user list to update UI
+      _databaseService.refreshAllUsers();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

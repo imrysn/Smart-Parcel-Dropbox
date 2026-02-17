@@ -10,6 +10,7 @@ import 'logs_screen.dart';
 import 'notifications_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'dropbox_control_screen.dart';
+import '../widgets/notification_badge.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -19,7 +20,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
   int _selectedIndex = 0;
@@ -31,27 +32,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // Current user ID
   String? _userId;
-
-  // Animation controllers for FABs
-  late AnimationController _fabController1;
-  late AnimationController _fabController2;
-  late Animation<Offset> _fabSlideAnimation1;
-  late Animation<Offset> _fabSlideAnimation2;
-  late Animation<double> _fabFadeAnimation1;
-  late Animation<double> _fabFadeAnimation2;
+  
+  // Cache FutureBuilder future to prevent recreation on every rebuild
+  Future<Map<String, dynamic>?>? _userDataFuture;
 
   @override
   void initState() {
     super.initState();
     _initUser();
-    _initAnimations();
-    _playFabAnimations();
   }
 
   Future<void> _initUser() async {
     _userId = await _authService.currentUserId;
     if (mounted) {
       _setupStreams();
+      // Cache user data future once
+      if (_userId != null) {
+        _userDataFuture = _databaseService.getUserData(_userId!);
+      }
       setState(() {});
     }
   }
@@ -61,9 +59,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Clean up streams to prevent memory leaks
     _activeOrdersStream = null;
     _notificationsCountStream = null;
-    // Dispose animation controllers
-    _fabController1.dispose();
-    _fabController2.dispose();
     super.dispose();
   }
 
@@ -83,69 +78,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _initAnimations() {
-    // First FAB animation controller
-    _fabController1 = AnimationController(
-      duration: const Duration(milliseconds: 400),
-      vsync: this,
-    );
 
-    // Second FAB animation controller (staggered)
-    _fabController2 = AnimationController(
-      duration: const Duration(milliseconds: 400),
-      vsync: this,
-    );
-
-    // Slide animations (from bottom)
-    _fabSlideAnimation1 = Tween<Offset>(
-      begin: const Offset(0, 2),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _fabController1,
-      curve: Curves.easeOut,
-    ));
-
-    _fabSlideAnimation2 = Tween<Offset>(
-      begin: const Offset(0, 2),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _fabController2,
-      curve: Curves.easeOut,
-    ));
-
-    // Fade animations
-    _fabFadeAnimation1 = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _fabController1,
-      curve: Curves.easeIn,
-    ));
-
-    _fabFadeAnimation2 = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _fabController2,
-      curve: Curves.easeIn,
-    ));
-  }
-
-  void _playFabAnimations() {
-    if (_selectedIndex == 0) {
-      // Play animations with stagger every time we view home
-      _fabController1.forward();
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted) {
-          _fabController2.forward();
-        }
-      });
-    } else {
-      // Reset animations when leaving home tab
-      _fabController1.reset();
-      _fabController2.reset();
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -153,53 +86,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       appBar: AppBar(
         title: const Text('Smart Parcel Drop Box'),
         actions: [
-          // Notifications button with badge
-          StreamBuilder<int>(
-            stream: _notificationsCountStream ?? Stream.value(0),
-            builder: (context, snapshot) {
-              final unreadCount = snapshot.data ?? 0;
-              return Stack(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications_outlined),
-                    tooltip: 'Notifications',
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const NotificationsScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  if (unreadCount > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 16,
-                          minHeight: 16,
-                        ),
-                        child: Text(
-                          unreadCount > 99 ? '99+' : '$unreadCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
+          // Notifications button with badge - isolated widget prevents AppBar rebuilds
+          if (_userId != null)
+            NotificationBadge(
+              userId: _userId!,
+              databaseService: _databaseService,
+            ),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: 'View Logs',
@@ -219,21 +111,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ],
       ),
       body: _getSelectedTab(),
-      floatingActionButton: Visibility(
-        visible: _selectedIndex == 0,
-        maintainState: true,
-        maintainAnimation: true,
-        maintainSize: false,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // Navigate to Drop Box Control Screen
-            SlideTransition(
-              position: _fabSlideAnimation1,
-              child: FadeTransition(
-                opacity: _fabFadeAnimation1,
-                child: Container(
+      floatingActionButton: _selectedIndex == 0
+          ? Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Navigate to Drop Box Control Screen
+                Container(
                   margin: const EdgeInsets.only(bottom: 16),
                   child: FloatingActionButton.extended(
                     onPressed: () {
@@ -250,14 +134,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     heroTag: 'dropbox_control_fab',
                   ),
                 ),
-              ),
-            ),
-            // Add Tracking ID Button
-            SlideTransition(
-              position: _fabSlideAnimation2,
-              child: FadeTransition(
-                opacity: _fabFadeAnimation2,
-                child: FloatingActionButton.extended(
+                // Add Tracking ID Button
+                FloatingActionButton.extended(
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -269,11 +147,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   label: const Text('Add Tracking ID'),
                   heroTag: 'add_tracking_fab',
                 ),
-              ),
-            ),
-          ],
-        ),
-      ),
+              ],
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
@@ -282,12 +158,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             // Proactively refresh data when switching back to main tabs
             if (index == 0 && _userId != null) {
               _databaseService.refreshTracking(_userId!);
-            } else if (index == 1) {
-              // Logs screen handles its own fetch, but we can nudge it if needed
-            } else if (index == 2 && _userId != null) {
-              // Refreshing profile will happen in the FutureBuilder, but we can trigger it
             }
-            _playFabAnimations();
           });
         },
         destinations: const [
@@ -393,8 +264,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           padding: const EdgeInsets.all(16),
           itemCount: orders.length,
           itemBuilder: (context, index) {
-            TrackingModel order = orders[index];
-            return _buildOrderCard(order);
+            final order = orders[index];
+            return Card(
+              key: ValueKey(order.trackingId),
+              margin: const EdgeInsets.only(bottom: 12),
+              child: _buildOrderCard(order),
+            );
           },
         );
       },
@@ -505,9 +380,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         statusColor = Colors.grey;
     }
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
+    return InkWell(
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -515,7 +388,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           );
         },
-        borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -573,8 +445,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _getSelectedTab() {
@@ -594,7 +465,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (_userId == null) return const Center(child: Text('Not logged in'));
 
     return FutureBuilder<Map<String, dynamic>?>(
-      future: _databaseService.getUserData(_userId!),
+      future: _userDataFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());

@@ -44,6 +44,31 @@ io.on('connection', (socket) => {
         console.log(`User ${userId} joined their room`);
     });
 
+    // Handle ESP32 device updates
+    socket.on('deviceUpdate', (data) => {
+        console.log('[ESP32] Device update:', data);
+        // Optionally save to a DeviceStatus collection for monitoring
+        // You can also emit this to admin dashboards
+        io.emit('esp32StatusUpdate', data);
+    });
+
+    // Handle ESP32 sensor data
+    socket.on('sensorData', (data) => {
+        console.log('[ESP32] Sensor data:', data);
+        // Emit to the user's room for real-time UI updates
+        if (data.userId) {
+            io.to(data.userId).emit('sensorUpdate', data);
+        }
+    });
+
+    // Handle QR scan verification (when scanner works)
+    socket.on('verifyScan', async (data) => {
+        console.log('[ESP32] Scan verification requested:', data);
+        // TODO: Query MongoDB trackings collection
+        // If valid, emit doorStateUpdate with command: 'open'
+        // For now, just log it
+    });
+
     socket.on('disconnect', () => {
         console.log('User disconnected');
     });

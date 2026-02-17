@@ -13,19 +13,27 @@ import 'dart:async';
 /// Database Service for Smart Parcel Drop Box System
 /// Handles all Node.js API operations via MongoDB and WebSockets
 class DatabaseService {
-  static final DatabaseService _instance = DatabaseService._internal();
-  factory DatabaseService() => _instance;
+  static DatabaseService? _instance;
+  
+  factory DatabaseService() {
+    _instance ??= DatabaseService._internal();
+    return _instance!;
+  }
+  
   DatabaseService._internal();
 
   IO.Socket? _socket;
   final _trackingController = StreamController<List<TrackingModel>>.broadcast();
   final _notificationController = StreamController<List<NotificationModel>>.broadcast();
   final _doorStateController = StreamController<Map<String, dynamic>?>.broadcast();
+  final _usersController = StreamController<List<UserModel>>.broadcast();
 
   // Cache last data to avoid "waiting" connection state on UI
   List<TrackingModel> _lastTrackingList = [];
   List<NotificationModel> _lastNotifications = [];
   Map<String, dynamic>? _lastDoorState;
+  List<UserModel> _lastUsersList = [];
+  bool _isFetchingUsers = false;
 
   // Getters for cached data
   List<TrackingModel> get cachedTracking => _lastTrackingList;
@@ -77,6 +85,13 @@ class DatabaseService {
     _trackingController.close();
     _notificationController.close();
     _doorStateController.close();
+    _usersController.close();
+  }
+  
+  /// Reset singleton instance (call on logout)
+  static void reset() {
+    _instance?.dispose();
+    _instance = null;
   }
 
   /// Register a new tracking ID for a user
@@ -127,8 +142,10 @@ class DatabaseService {
 
   /// Get all tracking IDs for a specific user
   Stream<List<TrackingModel>> getUserTrackingIds(String userId) {
-    // Refresh tracking to ensure we get latest
-    refreshTracking(userId);
+    // Only fetch if cache is empty, otherwise rely on WebSocket updates
+    if (_lastTrackingList.isEmpty) {
+      refreshTracking(userId);
+    }
     return _trackingController.stream;
   }
 
@@ -570,7 +587,27 @@ class DatabaseService {
 
   /// Get all users
   Stream<List<UserModel>> getAllUsers() {
-    return Stream.fromFuture(_fetchAllUsers()).asBroadcastStream();
+    // Seed stream with cached data immediately to prevent "waiting" state
+    if (_lastUsersList.isNotEmpty) {
+      _usersController.add(_lastUsersList);
+    } else if (!_isFetchingUsers) {
+      // Only fetch if not already fetching and cache is empty
+      refreshAllUsers();
+    }
+    return _usersController.stream;
+  }
+
+  /// Refresh all users list
+  Future<void> refreshAllUsers() async {
+    if (_isFetchingUsers) return; // Prevent concurrent fetches
+    _isFetchingUsers = true;
+    try {
+      final users = await _fetchAllUsers();
+      _lastUsersList = users;
+      _usersController.add(users);
+    } finally {
+      _isFetchingUsers = false;
+    }
   }
 
   Future<List<UserModel>> _fetchAllUsers() async {
@@ -670,9 +707,17 @@ class DatabaseService {
   /// Delete user
   Future<void> deleteUser(String userId) async {
     try {
-      await http.delete(Uri.parse('${ApiConfig.users}/$userId'));
+      debugPrint('Deleting user: $userId');
+      final response = await http.delete(Uri.parse('${ApiConfig.users}/$userId'));
+      debugPrint('Delete user response: ${response.statusCode}');
+      debugPrint('Delete user body: ${response.body}');
+      
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        throw Exception('Failed to delete user: ${response.statusCode} - ${response.body}');
+      }
     } catch (e) {
       debugPrint('Error deleting user: $e');
+      rethrow; // Re-throw to let caller handle the error
     }
   }
 }

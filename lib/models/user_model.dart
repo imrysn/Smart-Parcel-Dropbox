@@ -21,7 +21,7 @@ class UserModel {
   /// Create UserModel from Map
   factory UserModel.fromMap(Map<String, dynamic> data) {
     return UserModel(
-      uid: data['uid'] ?? '',
+      uid: data['_id'] ?? data['uid'] ?? '', // MongoDB uses _id, fallback to uid
       email: data['email'] ?? '',
       fullName: data['fullName'] ?? '',
       phoneNumber: data['phoneNumber'] ?? '',
