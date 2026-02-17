@@ -16,6 +16,7 @@ class TrackingDetailsScreen extends StatelessWidget {
     final DatabaseService databaseService = DatabaseService();
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Tracking Details'),
       ),
@@ -126,9 +127,11 @@ class TrackingDetailsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     StreamBuilder<List<Map<String, dynamic>>>(
-                      stream: databaseService.getDeliveryLogs(tracking.trackingId),
+                      stream:
+                          databaseService.getDeliveryLogs(tracking.trackingId),
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
                           return const Center(
                             child: Padding(
                               padding: EdgeInsets.all(16),

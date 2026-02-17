@@ -90,6 +90,7 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Add Tracking ID'),
       ),

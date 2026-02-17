@@ -43,11 +43,13 @@ class _LogsScreenState extends State<LogsScreen> {
   Widget build(BuildContext context) {
     if (_userId == null) {
       return const Scaffold(
+        backgroundColor: Colors.white,
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Scan Logs'),
         elevation: 0,
@@ -127,8 +129,8 @@ class _LogsScreenState extends State<LogsScreen> {
                     _filter == 'all'
                         ? 'No scan logs yet'
                         : _filter == 'granted'
-                        ? 'No granted access logs'
-                        : 'No denied access logs',
+                            ? 'No granted access logs'
+                            : 'No denied access logs',
                     style: TextStyle(fontSize: 18, color: Colors.grey[600]),
                   ),
                   const SizedBox(height: 8),

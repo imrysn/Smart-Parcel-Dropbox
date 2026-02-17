@@ -34,11 +34,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget build(BuildContext context) {
     if (_userId == null) {
       return const Scaffold(
+        backgroundColor: Colors.white,
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Notifications'),
         actions: [
@@ -77,7 +79,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     await _databaseService.markAllNotificationsAsRead(_userId!);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('All notifications marked as read')),
+                        const SnackBar(
+                            content: Text('All notifications marked as read')),
                       );
                     }
                   } catch (e) {
@@ -348,4 +351,3 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 }
-

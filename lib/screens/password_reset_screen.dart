@@ -47,14 +47,15 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Password reset successfully! Please login with your new password.'),
+            content: Text(
+                'Password reset successfully! Please login with your new password.'),
             backgroundColor: Colors.green,
             duration: Duration(seconds: 3),
           ),
         );
-        // Only pop once to return to Login screen. 
+        // Only pop once to return to Login screen.
         // The dialog was already closed by the push in login_screen.dart
-        Navigator.of(context).pop(); 
+        Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
@@ -75,6 +76,7 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Reset Password'),
         backgroundColor: Theme.of(context).colorScheme.primary,
@@ -172,8 +174,8 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
                             : Icons.visibility_off_outlined,
                       ),
                       onPressed: () {
-                        setState(
-                            () => _obscureConfirmPassword = !_obscureConfirmPassword);
+                        setState(() =>
+                            _obscureConfirmPassword = !_obscureConfirmPassword);
                       },
                     ),
                   ),
