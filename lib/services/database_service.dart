@@ -720,4 +720,53 @@ class DatabaseService {
       rethrow; // Re-throw to let caller handle the error
     }
   }
+
+  /// Get pending users (awaiting admin approval)
+  Future<List<UserModel>> getPendingUsers() async {
+    try {
+      final response = await http.get(Uri.parse(ApiConfig.pendingUsers));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.map((e) => UserModel.fromMap(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching pending users: $e');
+      return [];
+    }
+  }
+
+  /// Approve pending user
+  Future<void> approveUser(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.approveUser}/$userId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (response.statusCode != 200) {
+        throw Exception('Failed to approve user: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error approving user: $e');
+      rethrow;
+    }
+  }
+
+  /// Reject pending user
+  Future<void> rejectUser(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.rejectUser}/$userId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (response.statusCode != 200) {
+        throw Exception('Failed to reject user: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error rejecting user: $e');
+      rethrow;
+    }
+  }
 }

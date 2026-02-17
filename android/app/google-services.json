@@ -1,21 +1,26 @@
 {
   "project_info": {
-    "project_number": "303947093974",
-    "project_id": "smart-parcel-drop-box",
-    "storage_bucket": "smart-parcel-drop-box.firebasestorage.app"
+    "project_number": "946994441160",
+    "project_id": "smart-parcel-dropbox",
+    "storage_bucket": "smart-parcel-dropbox.appspot.com"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:303947093974:android:be24af4f674ea9b4dff677",
+        "mobilesdk_app_id": "1:946994441160:android:default",
         "android_client_info": {
           "package_name": "com.example.smart_parcel_dropbox"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "946994441160-9g4qcf2oabb1lqdmu5mu4n1ki57qc5r0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyDeRQ3dcm-UNTgTc-02iMpWU0pwwAs7snw"
+          "current_key": "AIzaSyDummyKeyForGoogleSignIn"
         }
       ],
       "services": {

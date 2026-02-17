@@ -6,6 +6,7 @@ class UserModel {
   final String phoneNumber;
   final String address;
   final String role; // user, courier, or admin
+  final String status; // active, pending, rejected
   final DateTime? createdAt;
 
   UserModel({
@@ -15,6 +16,7 @@ class UserModel {
     required this.phoneNumber,
     required this.address,
     required this.role,
+    this.status = 'active', // Default to active for existing users
     this.createdAt,
   });
 
@@ -27,6 +29,7 @@ class UserModel {
       phoneNumber: data['phoneNumber'] ?? '',
       address: data['address'] ?? '',
       role: data['role'] ?? 'user',
+      status: data['status'] ?? 'active', // Default to active if not specified
       createdAt: data['createdAt'] != null ? DateTime.tryParse(data['createdAt'].toString()) : null,
     );
   }
@@ -40,6 +43,7 @@ class UserModel {
       'phoneNumber': phoneNumber,
       'address': address,
       'role': role,
+      'status': status,
       'createdAt': createdAt?.toIso8601String(),
     };
   }

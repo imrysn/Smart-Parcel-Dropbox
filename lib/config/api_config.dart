@@ -8,4 +8,10 @@ class ApiConfig {
   static const String scanLogs = '$baseUrl/scan-logs';
   static const String notifications = '$baseUrl/notifications';
   static const String deviceControl = '$baseUrl/device-control';
+  
+  // Google OAuth endpoints
+  static const String googleAuth = '$baseUrl/users/google-auth';
+  static const String approveUser = '$baseUrl/users/approve';
+  static const String rejectUser = '$baseUrl/users/reject';
+  static const String pendingUsers = '$baseUrl/users/pending';
 }
