@@ -12,6 +12,7 @@ const cors = require('cors');
 
 const { router: deviceControlRouter, setSocketIO } = require('./routes/deviceControl');
 const arduinoScanner = require('./hardware/arduinoScanner');
+const Tracking = require('./models/Tracking');
 
 // Initialize Express app
 const app = express();
@@ -63,6 +64,68 @@ app.get('/', (req, res) => {
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
+
+  // Device room join (ESP32 identifies itself)
+  socket.on('join', (roomId) => {
+    socket.join(roomId);
+    console.log(`📡 ${socket.id} joined room: ${roomId}`);
+  });
+
+  // ── Phase 2: Scan Verification ──────────────────────────────────────────
+  // ESP32 emits this when a barcode is scanned at WAITING_FOR_SCAN
+  // Payload: { trackingId: "ABC123", mode: "drop_off" }
+  socket.on('verifyScan', async ({ trackingId, mode }) => {
+    console.log(`🔍 verifyScan → trackingId: ${trackingId}, mode: ${mode}`);
+    try {
+      // Find a tracking record that matches AND is still pending
+      const tracking = await Tracking.findOne({
+        trackingId,
+        mode,
+        status: 'pending'
+      });
+
+      const valid = !!tracking;
+      console.log(`  ${valid ? '✅ VALID' : '❌ INVALID'}: ${trackingId}`);
+
+      // Reply only to the ESP32 socket that sent this
+      socket.emit('scanResult', {
+        valid,
+        trackingId,
+        mode,
+        userId: tracking ? tracking.userId : null
+      });
+
+    } catch (err) {
+      console.error('❌ verifyScan error:', err.message);
+      socket.emit('scanResult', { valid: false, trackingId, mode, userId: null });
+    }
+  });
+
+  // ── Phase 3: Status Update (hardware → backend → mobile app) ────────────
+  // ESP32 emits this after a successful drop-off or pick-up cycle
+  // Payload: { trackingId: "ABC123", status: "delivered", mode: "drop_off" }
+  socket.on('statusUpdate', async ({ trackingId, status, mode }) => {
+    console.log(`📦 statusUpdate → ${trackingId}: ${status}`);
+    try {
+      const update = { status };
+      if (status === 'delivered') update.deliveredAt = new Date();
+      if (status === 'retrieved') update.retrievedAt = new Date();
+
+      await Tracking.updateOne({ trackingId }, { $set: update });
+
+      // Broadcast to all connected mobile app clients
+      io.emit('trackingStatusChanged', {
+        trackingId,
+        status,
+        mode,
+        timestamp: new Date()
+      });
+
+      console.log(`✅ Status broadcasted: ${trackingId} → ${status}`);
+    } catch (err) {
+      console.error('❌ statusUpdate error:', err.message);
+    }
+  });
 
   socket.on('disconnect', () => {
     console.log(`🔌 Client disconnected: ${socket.id}`);

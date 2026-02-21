@@ -6,6 +6,7 @@ import '../models/scan_log_model.dart';
 import '../models/notification_model.dart';
 import '../models/user_model.dart';
 import '../config/api_config.dart';
+import 'notification_service.dart';
 
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:async';
@@ -81,6 +82,25 @@ class DatabaseService {
       debugPrint('Socket: doorStateUpdate received: $data');
       _lastDoorState = data;
       _doorStateController.add(data);
+    });
+
+    // ── Phase 4: Hardware delivery events ──────────────────────────────────
+    // Fired by backend when ESP32 emits statusUpdate after a drop-off/pick-up.
+    // Payload: { trackingId, status, mode, timestamp }
+    _socket!.on('trackingStatusChanged', (data) {
+      debugPrint('Socket: trackingStatusChanged received: $data');
+
+      final trackingId = (data['trackingId'] ?? '').toString();
+      final status     = (data['status']     ?? '').toString();
+
+      // 1. Refresh the tracking list so the home screen updates immediately
+      refreshTracking(userId);
+
+      // 2. Show a local system tray notification
+      NotificationService().showDeliveryNotification(
+        trackingId: trackingId,
+        status: status,
+      );
     });
   }
 
