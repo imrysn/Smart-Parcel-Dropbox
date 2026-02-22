@@ -71,7 +71,34 @@ io.on('connection', (socket) => {
     console.log(`📡 ${socket.id} joined room: ${roomId}`);
   });
 
+  // ── Phase 1: Remote ID Registration (mobile app → ESP32) ──────────────────
+  // Flutter app emits this when a user schedules a delivery/pickup
+  // Payload: { trackingId: "ABC123", mode: "drop_off" | "pick_up" }
+  socket.on('registerTracking', ({ trackingId, mode }) => {
+    console.log(`📋 registerTracking → ${trackingId}, mode: ${mode}`);
+    // Forward directly to the ESP32 hardware device
+    io.to('esp32_device').emit('registerTracking', { trackingId, mode });
+    console.log(`  ✅ Forwarded to ESP32: ${trackingId} (${mode})`);
+  });
+
+  // ── Door Control (mobile app → ESP32) ─────────────────────────────────────
+  // Replaces ESP32_DoorControl.ino's POST /door HTTP endpoint.
+  // Payload: { type: "top"|"pickup"|"received", action: "open"|"close" }
+  socket.on('controlDoor', ({ type, action }) => {
+    console.log(`🚪 controlDoor → ${type} door: ${action}`);
+    io.to('esp32_device').emit('controlDoor', { type, action });
+  });
+
+  // ── Status Poll (mobile app → ESP32) ──────────────────────────────────────
+  // Replaces ESP32_DoorControl.ino's GET /status HTTP endpoint.
+  // ESP32 responds by emitting a 'doorStateUpdate' event back to all clients.
+  socket.on('getStatus', () => {
+    console.log(`📊 getStatus requested`);
+    io.to('esp32_device').emit('getStatus');
+  });
+
   // ── Phase 2: Scan Verification ──────────────────────────────────────────
+
   // ESP32 emits this when a barcode is scanned at WAITING_FOR_SCAN
   // Payload: { trackingId: "ABC123", mode: "drop_off" }
   socket.on('verifyScan', async ({ trackingId, mode }) => {

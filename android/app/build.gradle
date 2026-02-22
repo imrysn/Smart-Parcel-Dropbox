@@ -30,6 +30,7 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -56,6 +57,7 @@ flutter {
 }
 
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
     // Removed manual kotlin-stdlib-jdk7 to prevent conflicts
     implementation platform('com.google.firebase:firebase-bom:33.1.0') // Updated to stable BOM
     implementation 'com.google.firebase:firebase-auth'

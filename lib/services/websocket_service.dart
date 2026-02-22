@@ -25,6 +25,8 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _doorStateController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _trackingStatusController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -32,6 +34,8 @@ class WebSocketService {
       _notificationController.stream;
   Stream<Map<String, dynamic>> get doorStateUpdates =>
       _doorStateController.stream;
+  Stream<Map<String, dynamic>> get trackingStatusChanges =>
+      _trackingStatusController.stream;
 
   bool get isConnected => _socket?.connected ?? false;
 
@@ -92,6 +96,13 @@ class WebSocketService {
       debugPrint('🚪 Door state update: $data');
       _doorStateController.add(data as Map<String, dynamic>);
     });
+
+    // Phase 4: Hardware delivery events (ESP32 drop-off / pick-up)
+    // Payload: { trackingId, status, mode, timestamp }
+    _socket!.on('trackingStatusChanged', (data) {
+      debugPrint('📦 Tracking status changed: $data');
+      _trackingStatusController.add(data as Map<String, dynamic>);
+    });
   }
 
   /// Emit an event to the server
@@ -101,6 +112,45 @@ class WebSocketService {
     } else {
       debugPrint('⚠️ Cannot emit event: WebSocket not connected');
     }
+  }
+
+  /// Register a tracking ID on the ESP32 hardware (relayed via backend).
+  ///
+  /// Call this when a user schedules a delivery or pickup so the hardware
+  /// knows which barcode to accept at the door.
+  ///
+  /// [trackingId] — the parcel tracking ID (matches the barcode)
+  /// [mode]       — "drop_off" (delivery) or "pick_up" (retrieval)
+  void emitRegisterTracking(String trackingId, String mode) {
+    emit('registerTracking', {
+      'trackingId': trackingId,
+      'mode': mode,
+    });
+    debugPrint('📋 Emitted registerTracking: $trackingId ($mode)');
+  }
+
+  /// Manually control a specific door/lock on the hardware.
+  ///
+  /// Replaces ESP32_DoorControl.ino's HTTP POST /door endpoint.
+  /// Use for admin/emergency access — bypasses the normal scan flow.
+  ///
+  /// [type]   — "top" (parcel entry), "pickup" (pickup bin), "received" (received bin)
+  /// [action] — "open" (unlock solenoid) or "close" (lock solenoid)
+  void emitControlDoor(String type, String action) {
+    emit('controlDoor', {
+      'type': type,
+      'action': action,
+    });
+    debugPrint('🚪 Emitted controlDoor: $type → $action');
+  }
+
+  /// Request the current door states and parcel sensor readings from hardware.
+  ///
+  /// Replaces ESP32_DoorControl.ino's HTTP GET /status endpoint.
+  /// The hardware will respond by emitting a [doorStateUpdates] event.
+  void requestDoorStatus() {
+    emit('getStatus', null);
+    debugPrint('📊 Emitted getStatus request');
   }
 
   /// Disconnect and cleanup
@@ -117,6 +167,7 @@ class WebSocketService {
     _trackingUpdateController.close();
     _notificationController.close();
     _doorStateController.close();
+    _trackingStatusController.close();
   }
 
   /// Reset singleton instance

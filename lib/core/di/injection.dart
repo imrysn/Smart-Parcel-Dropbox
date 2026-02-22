@@ -30,7 +30,7 @@ import '../../features/auth/domain/usecases/get_current_user_usecase.dart';
 final getIt = GetIt.instance;
 
 /// Setup dependency injection
-/// 
+///
 /// Call this in main() before runApp()
 Future<void> setupDependencyInjection() async {
   // Core - Network
@@ -48,10 +48,10 @@ Future<void> setupDependencyInjection() async {
   getIt.registerLazySingleton<ConnectivityService>(() => ConnectivityService());
 
   // Initialize cache service
-  await getIt<CacheService>().init();
+  await getIt<CacheService>().initialize();
 
   // ========== Tracking Feature ==========
-  
+
   // Data sources
   getIt.registerLazySingleton<TrackingRemoteDataSource>(
     () => TrackingRemoteDataSourceImpl(
@@ -80,7 +80,7 @@ Future<void> setupDependencyInjection() async {
   );
 
   // ========== Auth Feature ==========
-  
+
   // Data sources
   getIt.registerLazySingleton<AuthRemoteDataSource>(
     () => AuthRemoteDataSourceImpl(
