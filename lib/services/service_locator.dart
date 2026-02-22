@@ -8,6 +8,12 @@ import 'secure_storage_service.dart';
 import 'connectivity_service.dart';
 import 'performance_service.dart';
 import 'iot_service.dart';
+// New SRP-compliant services
+import 'websocket_service.dart';
+import 'tracking_service.dart';
+import 'user_service.dart';
+import 'scan_log_service.dart';
+import 'device_control_service.dart';
 
 /// Service Locator for Dependency Injection
 /// Provides centralized access to all services
@@ -18,29 +24,57 @@ Future<void> setupServiceLocator() async {
   // Core Services
   getIt.registerLazySingleton(() => AuthService());
   getIt.registerLazySingleton(() => GoogleAuthService());
-  getIt.registerLazySingleton(() => DatabaseService());
+
+  // New SRP-compliant services (Phase 1 refactoring)
+  getIt.registerLazySingleton(() => WebSocketService());
+  getIt.registerLazySingleton(() => TrackingService());
+  getIt.registerLazySingleton(() => UserService());
+  getIt.registerLazySingleton(() => ScanLogService());
+  getIt.registerLazySingleton(() => DeviceControlService());
   getIt.registerLazySingleton(() => NotificationService());
-  
-  // New Services
+
+  // Legacy DatabaseService (facade for backward compatibility)
+  // TODO: Remove after all screens are migrated to new services
+  getIt.registerLazySingleton(() => DatabaseService());
+
+  // Utility Services
   getIt.registerLazySingleton(() => CacheService());
   getIt.registerLazySingleton(() => SecureStorageService());
   getIt.registerLazySingleton(() => ConnectivityService());
   getIt.registerLazySingleton(() => PerformanceService());
   getIt.registerLazySingleton(() => IoTService());
-  
+
   // Initialize cache service
   final cacheService = getIt<CacheService>();
   await cacheService.initialize();
-  
+
   // Clear expired cache on startup
   await cacheService.clearExpiredCache();
 }
 
 /// Dispose all services on app close
 Future<void> disposeServices() async {
+  // Dispose new services
+  if (getIt.isRegistered<WebSocketService>()) {
+    getIt<WebSocketService>().dispose();
+  }
+  if (getIt.isRegistered<TrackingService>()) {
+    getIt<TrackingService>().dispose();
+  }
+  if (getIt.isRegistered<UserService>()) {
+    getIt<UserService>().dispose();
+  }
+  if (getIt.isRegistered<DeviceControlService>()) {
+    getIt<DeviceControlService>().dispose();
+  }
+  if (getIt.isRegistered<NotificationService>()) {
+    getIt<NotificationService>().dispose();
+  }
+
+  // Dispose cache service
   if (getIt.isRegistered<CacheService>()) {
     await getIt<CacheService>().close();
   }
-  
+
   await getIt.reset();
 }
