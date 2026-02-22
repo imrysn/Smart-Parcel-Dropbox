@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../models/notification_model.dart';
 import '../config/api_config.dart';
 
@@ -18,6 +19,16 @@ class NotificationService {
 
   NotificationService._internal();
 
+  // ── flutter_local_notifications setup ────────────────────────────────────
+  static final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
+
+  static const _channelId = 'parcel_updates';
+  static const _channelName = 'Parcel Updates';
+  static const _channelDesc =
+      'Real-time notifications when your parcel is delivered or picked up';
+
+  // ── Stream / cache for in-app notifications ───────────────────────────────
   final _notificationController =
       StreamController<List<NotificationModel>>.broadcast();
   List<NotificationModel> _cachedNotifications = [];
@@ -27,26 +38,95 @@ class NotificationService {
   Stream<List<NotificationModel>> get notificationStream =>
       _notificationController.stream;
 
-  /// Initialize notification service (for push notifications)
+  // ── Initialization ────────────────────────────────────────────────────────
+
+  /// Call once on app start (inside _initializeServices in main.dart).
+  /// Sets up both the local-notification plugin AND the in-app stream.
   Future<void> initialize() async {
-    debugPrint('✅ Notification service initialized');
-    // In a real implementation, initialize push notification service here
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings settings =
+        InitializationSettings(android: androidSettings);
+
+    await _notifications.initialize(settings);
+
+    // Create high-importance channel for Android 8.0+
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      _channelId,
+      _channelName,
+      description: _channelDesc,
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    );
+
+    await _notifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
+    debugPrint('✅ Notification service initialized: channel=$_channelId');
   }
 
-  /// Get FCM token for the device
-  Future<String?> getToken() async {
-    return 'custom_mongodb_token';
+  // ── System tray / push notifications ─────────────────────────────────────
+
+  /// Show a system notification when a parcel status changes.
+  /// Called by DatabaseService when 'trackingStatusChanged' socket event fires.
+  Future<void> showDeliveryNotification({
+    required String trackingId,
+    required String status,
+  }) async {
+    String title;
+    String body;
+
+    switch (status) {
+      case 'delivered':
+        title = '📦 Parcel Delivered!';
+        body = 'Your parcel ($trackingId) is now in the dropbox.';
+        break;
+      case 'retrieved':
+        title = '✅ Parcel Picked Up!';
+        body = 'Your parcel ($trackingId) was retrieved successfully.';
+        break;
+      default:
+        title = 'Parcel Update';
+        body = 'Order $trackingId status changed to $status.';
+    }
+
+    try {
+      await _notifications.show(
+        trackingId.hashCode.abs(), // unique id per tracking
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channelId,
+            _channelName,
+            channelDescription: _channelDesc,
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+        ),
+      );
+      debugPrint('[Notifications] Shown: $title');
+    } catch (e) {
+      debugPrint('[Notifications] Error showing notification: $e');
+    }
   }
 
-  /// Subscribe to topic
+  // ── Interface compatibility stubs ─────────────────────────────────────────
+  Future<String?> getToken() async => null;
   Future<void> subscribeToTopic(String topic) async {
     debugPrint('Subscribed to topic: $topic');
   }
 
-  /// Unsubscribe from topic
   Future<void> unsubscribeFromTopic(String topic) async {
     debugPrint('Unsubscribed from topic: $topic');
   }
+
+  // ── In-app notification API (HTTP + streams) ──────────────────────────────
 
   /// Refresh notifications for a user
   Future<void> refreshNotifications(String userId) async {

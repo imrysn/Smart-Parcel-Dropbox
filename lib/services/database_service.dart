@@ -56,6 +56,25 @@ class DatabaseService {
     _ws.notificationUpdates
         .listen((_) => _notification.refreshNotifications(userId));
     _ws.doorStateUpdates.listen((state) => _device.updateDoorState(state));
+
+    // ── Phase 4: Hardware delivery events ──────────────────────────────────
+    // Fired by backend when ESP32 emits statusUpdate after a drop-off/pick-up.
+    // Payload: { trackingId, status, mode, timestamp }
+    _ws.trackingStatusChanges.listen((data) {
+      debugPrint('Socket: trackingStatusChanged received: $data');
+
+      final trackingId = (data['trackingId'] ?? '').toString();
+      final status = (data['status'] ?? '').toString();
+
+      // 1. Refresh the tracking list so the home screen updates immediately
+      _tracking.refreshTracking(userId);
+
+      // 2. Show a local system tray/push notification
+      _notification.showDeliveryNotification(
+        trackingId: trackingId,
+        status: status,
+      );
+    });
   }
 
   void dispose() {
