@@ -112,9 +112,10 @@ io.on('connection', (socket) => {
     console.log(`🔍 verifyScan → trackingId: ${trackingId}, mode: ${mode}`);
     try {
       // Find a tracking record that matches AND is still pending
+      // Note: we match by trackingId + status only. The `mode` from the ESP32
+      // determines which bin to use (routing), not whether the ID is valid.
       const tracking = await Tracking.findOne({
         trackingId,
-        mode,
         status: 'pending'
       });
 

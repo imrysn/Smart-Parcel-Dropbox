@@ -4,7 +4,7 @@ const DeliveryLog = require('../models/DeliveryLog');
 // @desc    Register a tracking ID
 exports.registerTracking = async (req, res) => {
     try {
-        const { trackingId, userId, shopName, expectedDeliveryDate } = req.body;
+        const { trackingId, userId, shopName, expectedDeliveryDate, mode } = req.body;
 
         const exists = await Tracking.findOne({ trackingId });
         if (exists) {
@@ -15,7 +15,8 @@ exports.registerTracking = async (req, res) => {
             trackingId,
             userId,
             shopName,
-            expectedDeliveryDate
+            expectedDeliveryDate,
+            mode: mode || 'drop_off',   // default: user registers to receive a drop-off
         });
 
         // Manual WebSocket emission as fallback
