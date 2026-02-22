@@ -5,9 +5,15 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "port:switch": "node scripts/port-switch.js"
   },
-  "keywords": ["iot", "dropbox", "esp32", "arduino"],
+  "keywords": [
+    "iot",
+    "dropbox",
+    "esp32",
+    "arduino"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {

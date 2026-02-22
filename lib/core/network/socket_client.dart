@@ -22,7 +22,7 @@ class SocketClient {
     }
 
     _socket = IO.io(
-      ApiConfig.baseUrl,
+      ApiConfig.socketUrl,   // root URL — Socket.IO doesn't use /api
       IO.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()

@@ -28,9 +28,10 @@
 const char* WIFI_SSID     = "Android";
 const char* WIFI_PASSWORD = "Perez@543210";
 
-// Backend server — Render.com hosted backend (HTTPS/WSS)
-const char* SERVER_HOST = "smart-parcel-dropbox.onrender.com";
-const uint16_t SERVER_PORT = 443;    // HTTPS/WSS port
+// Backend server — LOCAL (PC must be on the same hotspot network)
+// To switch back to Render.com: change HOST back, PORT to 443, and use beginSSL()
+const char* SERVER_HOST = "192.180.100.130";  // Your PC's IP on the Android hotspot
+const uint16_t SERVER_PORT = 3000;             // Local Node.js server port
 const char* SERVER_PATH = "/socket.io/?EIO=3";
 
 // ============================================================
@@ -462,7 +463,7 @@ void setupSocketIO() {
   // in the background via socketIO.loop() in the main loop — no blocking wait.
   // This is important for Render.com free tier which can take 30-60s to wake up.
   socketIO.onEvent(socketIOEvent);
-  socketIO.beginSSL(SERVER_HOST, SERVER_PORT, SERVER_PATH);
+  socketIO.begin(SERVER_HOST, SERVER_PORT, SERVER_PATH);  // Plain WS (no SSL) for local server
   socketIO.setReconnectInterval(5000);  // Retry every 5 seconds until connected
 
   Serial.println("[WS] Socket.IO initiated — connecting in background...");
