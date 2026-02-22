@@ -31,7 +31,7 @@ const char* WIFI_PASSWORD = "Perez@543210";
 // Backend server — Render.com hosted backend (HTTPS/WSS)
 const char* SERVER_HOST = "smart-parcel-dropbox.onrender.com";
 const uint16_t SERVER_PORT = 443;    // HTTPS/WSS port
-const char* SERVER_PATH = "/socket.io/?EIO=4&transport=websocket";
+const char* SERVER_PATH = "/socket.io/?EIO=3";
 
 // ============================================================
 //  PINOUT
