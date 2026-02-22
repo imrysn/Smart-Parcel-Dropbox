@@ -25,13 +25,13 @@
 // ============================================================
 //  CONFIGURATION — Edit these before flashing
 // ============================================================
-const char* WIFI_SSID     = "PLDTHOMEFIBR";
-const char* WIFI_PASSWORD = "Perez@54321!";
+const char* WIFI_SSID     = "Android";
+const char* WIFI_PASSWORD = "Perez@543210";
 
 // Backend server — Render.com hosted backend (HTTPS/WSS)
 const char* SERVER_HOST = "smart-parcel-dropbox.onrender.com";
 const uint16_t SERVER_PORT = 443;    // HTTPS/WSS port
-const char* SERVER_PATH = "/socket.io/?EIO=4";
+const char* SERVER_PATH = "/socket.io/?EIO=4&transport=websocket";
 
 // ============================================================
 //  PINOUT
@@ -458,22 +458,15 @@ void setupSocketIO() {
   Serial.print("[WS] Connecting to server: ");
   Serial.print(SERVER_HOST); Serial.print(":"); Serial.println(SERVER_PORT);
 
-  // Use beginSSL() because Render.com uses HTTPS (WSS = WebSocket Secure)
-  socketIO.beginSSL(SERVER_HOST, SERVER_PORT, SERVER_PATH);
+  // Use beginSSL() for Render.com (WSS). The library will auto-reconnect
+  // in the background via socketIO.loop() in the main loop — no blocking wait.
+  // This is important for Render.com free tier which can take 30-60s to wake up.
   socketIO.onEvent(socketIOEvent);
+  socketIO.beginSSL(SERVER_HOST, SERVER_PORT, SERVER_PATH);
+  socketIO.setReconnectInterval(5000);  // Retry every 5 seconds until connected
 
-  // Wait up to 5 seconds for connection
-  unsigned long start = millis();
-  while (!socketIO.isConnected() && millis() - start < 5000) {
-    socketIO.loop();
-    delay(100);
-  }
-
-  if (socketIO.isConnected()) {
-    Serial.println("[WS] Connected to server!");
-  } else {
-    Serial.println("[WS] Server not reachable. Running offline.");
-  }
+  Serial.println("[WS] Socket.IO initiated — connecting in background...");
+  Serial.println("[WS] (Render.com may take up to 60s on cold start)");
 }
 
 // ============================================================

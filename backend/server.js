@@ -21,7 +21,13 @@ const io = socketIO(server, {
   cors: {
     origin: process.env.ALLOWED_ORIGINS || '*',
     methods: ['GET', 'POST']
-  }
+  },
+  // Force WebSocket-only: the arduinoWebSockets library cannot handle
+  // Socket.IO v4's default polling→upgrade flow, causing connect/disconnect loops.
+  transports: ['websocket'],
+  // Give the ESP32 (slow MCU) more time to respond to heartbeats
+  pingTimeout: 60000,   // 60s before declaring client dead (default: 20s)
+  pingInterval: 25000,  // Send ping every 25s (default: 25s, keeping same)
 });
 
 // Middleware
