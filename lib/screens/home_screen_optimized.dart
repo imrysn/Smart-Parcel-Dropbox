@@ -60,7 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   IconButton(
                     icon: const Icon(Icons.notifications_outlined),
                     onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const NotificationsScreen()),
                     ),
                   ),
                   if (unreadCount > 0)
@@ -104,7 +105,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -170,7 +172,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey[400]),
+                  Icon(Icons.inventory_2_outlined,
+                      size: 80, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text(
                     'No active orders',
@@ -223,7 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => TrackingDetailsScreen(trackingId: order.trackingId),
+            builder: (_) => TrackingDetailsScreen(tracking: order),
           ),
         ),
       ),
@@ -320,7 +323,7 @@ class _HomeScreenState extends State<HomeScreen> {
           title: const Text('Dropbox Control'),
           trailing: const Icon(Icons.arrow_forward_ios, size: 16),
           onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const DropBoxControlScreen()),
+            MaterialPageRoute(builder: (_) => const DropboxControlScreen()),
           ),
         ),
         ListTile(
