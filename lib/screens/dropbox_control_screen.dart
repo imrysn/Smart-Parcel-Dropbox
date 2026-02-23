@@ -192,7 +192,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                     Text(
                       'Manage both doors independently',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.7),
+                        color: Colors.white.withOpacity(0.7),
                         fontSize: 14,
                       ),
                     ),
@@ -254,7 +254,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.1),
+                        color: Colors.white.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: Colors.white12),
                       ),
@@ -272,7 +272,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                                   ? 'Warning: A parcel is currently inside the box.'
                                   : 'Both doors can be controlled independently for secure parcel management.',
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.7),
+                                color: Colors.white.withOpacity(0.7),
                                 fontSize: 13,
                               ),
                             ),
@@ -305,12 +305,12 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
+        color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isOpen
-              ? accentColor.withValues(alpha: 0.5)
-              : Colors.white.withValues(alpha: 0.2),
+              ? accentColor.withOpacity(0.5)
+              : Colors.white.withOpacity(0.2),
           width: 2,
         ),
       ),
@@ -322,7 +322,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.2),
+                  color: accentColor.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
@@ -361,7 +361,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: (isOpen ? Colors.green : Colors.red)
-                      .withValues(alpha: 0.2),
+                      .withOpacity(0.2),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isOpen ? Colors.green : Colors.red,
@@ -448,7 +448,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
+          color: Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.white12),
         ),

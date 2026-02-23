@@ -61,12 +61,53 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Handle QR scan verification (when scanner works)
+    // Handle QR scan verification
     socket.on('verifyScan', async (data) => {
         console.log('[ESP32] Scan verification requested:', data);
-        // TODO: Query MongoDB trackings collection
-        // If valid, emit doorStateUpdate with command: 'open'
-        // For now, just log it
+        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+        const { trackingId } = parsedData;
+
+        try {
+            const Tracking = require('./models/Tracking');
+            const tracking = await Tracking.findOne({ trackingId });
+
+            if (!tracking) {
+                console.log(`[VERIFY] Invalid tracking ID: ${trackingId}`);
+                socket.emit('scanResult', { success: false, message: 'Invalid ID' });
+                return;
+            }
+
+            // Check if valid matching mode
+            // Drop-off: must be pending (waiting for delivery)
+            // Pickup: must be ready_for_pickup (already deposited by user)
+            const isValid = (tracking.mode === 'drop_off' && tracking.status === 'pending') ||
+                (tracking.mode === 'pickup' && tracking.status === 'ready_for_pickup');
+
+            if (isValid) {
+                console.log(`[VERIFY] Authorized: ${trackingId} (${tracking.mode})`);
+
+                // Trigger door open
+                const DeviceControl = require('./models/DeviceControl');
+                await DeviceControl.findOneAndUpdate(
+                    { deviceId: 'box_1' },
+                    {
+                        command: 'open',
+                        status: 'processing',
+                        triggeredBy: 'scan',
+                        trackingId: trackingId
+                    },
+                    { upsert: true, new: true }
+                );
+
+                socket.emit('scanResult', { success: true, message: 'Authorized' });
+            } else {
+                console.log(`[VERIFY] Unauthorized status: ${tracking.status} for mode ${tracking.mode}`);
+                socket.emit('scanResult', { success: false, message: 'Unauthorized status' });
+            }
+        } catch (error) {
+            console.error('[VERIFY] Error:', error);
+            socket.emit('scanResult', { success: false, message: 'Server Internal Error' });
+        }
     });
 
     socket.on('disconnect', () => {
