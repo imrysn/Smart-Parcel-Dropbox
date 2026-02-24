@@ -5,3 +5,4 @@ dist/
 build/
 *.log
 config.h
+backend/hardware/ESP32SR_UNO/config.h
