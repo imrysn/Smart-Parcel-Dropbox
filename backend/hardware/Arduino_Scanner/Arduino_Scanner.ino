@@ -22,9 +22,6 @@ void setup() {
   
   pinMode(trigPin, OUTPUT); 
   pinMode(echoPin, INPUT);
-  
-  // This will show up on the Uno's monitor AND the ESP32's Serial2
-  Serial.println("UNO_READY"); 
 }
 
 void loop() {
@@ -36,7 +33,6 @@ void loop() {
       isTracking = true;
     } else {
       if (millis() - detectionStartTime >= stableTimeMs) {
-        // Parcel is stable, trigger the scanner
         executeScanningSession();
         isTracking = false; 
       }
@@ -52,17 +48,22 @@ void executeScanningSession() {
   unsigned long sessionStart = millis();
 
   while (!scanned && (millis() - sessionStart < 5000)) {
-    scannerSerial.print("~T."); // Trigger the physical scanner
+    // Try sending with Carriage Return, as some MH-ET versions require it
+    scannerSerial.print("~T.\r"); 
     delay(500); 
     
     if (scannerSerial.available()) {
       String barcode = "";
+      // Read all available bytes first — NO delay(5) inside to prevent lag/overflow
       while (scannerSerial.available()) {
         char c = scannerSerial.read();
-        if (c != '\n' && c != '\r') {
-          barcode += c;
-        }
-        delay(5); 
+        if (c != '\n' && c != '\r') barcode += c;
+      }
+      // Brief pause then drain any trailing bytes to ensure full barcode
+      delay(30);
+      while (scannerSerial.available()) {
+        char c = scannerSerial.read();
+        if (c != '\n' && c != '\r') barcode += c;
       }
 
       // Sanitize
@@ -71,7 +72,6 @@ void executeScanningSession() {
 
       if (barcode.length() > 3) {
         // SEND DATA TO ESP32-S3
-        // Serial.println sends the string + \n, which the ESP32 is looking for
         Serial.println(barcode); 
         
         scanned = true; 
@@ -79,7 +79,11 @@ void executeScanningSession() {
       }
     }
     
-    if (checkDistance() > safetyExitCm) break;
+    // Only check safety exit if NO data is arriving to allow SoftwareSerial 
+    // to focus on timing-sensitive character reception.
+    if (!scannerSerial.available()) {
+      if (checkDistance() > safetyExitCm) break;
+    }
   }
 }
 
@@ -100,6 +104,6 @@ int checkDistance() {
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
   long duration = pulseIn(echoPin, HIGH, 30000);
-  int dist = duration * 0.034 / 2;
-  return (dist == 0) ? 999 : dist;
+  long dist = (long)(duration * 0.034 / 2.0);  // Use long to prevent integer overflow
+  return (dist == 0 || dist > 400) ? 999 : (int)dist;
 }

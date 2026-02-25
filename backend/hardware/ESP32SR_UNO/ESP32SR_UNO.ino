@@ -18,21 +18,17 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include <SPI.h>
+#define DEBUG_WS      false // Toggle for verbose Socket.IO logs
+#define DEBUG_SERIAL  true
+
 #include <WiFi.h>
 #include <SocketIOclient.h>
 #include <ArduinoJson.h>
 
 // ============================================================
-//  CONFIGURATION — Edit these before flashing
+//  CONFIGURATION — Credentials live in config.h (NOT committed)
 // ============================================================
-const char* WIFI_SSID     = "Android";
-const char* WIFI_PASSWORD = "Perez@543210";
-
-// Backend server — LOCAL (PC must be on the same hotspot network)
-// To switch back to Render.com: change HOST back, PORT to 443, and use beginSSL()
-const char* SERVER_HOST = "192.180.100.130";  // Your PC's IP on the Android hotspot
-const uint16_t SERVER_PORT = 3000;             // Local Node.js server port
-const char* SERVER_PATH = "/socket.io/?EIO=3";
+#include "config.h"  // ⚠ Add config.h to .gitignore — contains WiFi password
 
 // ============================================================
 //  PINOUT
@@ -67,9 +63,13 @@ const int US_DROPOFF[2]  = {18,  8};  // TRIG: 18, ECHO: 8
 // ============================================================
 #define COLOR_BG      0x0000
 #define COLOR_TEXT    0xFFFF
-#define COLOR_ACCENT  0xFD20
+#define COLOR_ACCENT  0x3DFF  // Cyan
+#define COLOR_BLUE    0x001F  // Primary Blue
+#define COLOR_PURPLE  0x780F  // Deep Purple
 #define COLOR_GREEN   0x07E0
 #define COLOR_RED     0xF800
+#define COLOR_GREY    0x7BEF
+#define COLOR_GOLD    0xFDE0
 
 // ============================================================
 //  STATE MACHINE
@@ -89,9 +89,13 @@ SystemState currentState = IDLE;
 bool isReceivingMode     = true;
 bool stateInitialized    = false;
 bool doorWasOpened       = false;
-unsigned long stateStartTime    = 0;
+unsigned long stateStartTime     = 0;
 unsigned long stabilityStartTime = 0;
-unsigned long lastDebugTime     = 0;
+unsigned long lastDebugTime      = 0;
+
+// Non-blocking action delay helper (replaces delay() calls inside FSM states)
+unsigned long actionDelayStart  = 0;
+bool          actionDelayActive = false;
 
 // ============================================================
 //  TRACKING IDs
@@ -132,12 +136,15 @@ void handleControlDoor(const String& payload);
 float getDistance(const int pins[]);
 void checkSerialCommands();
 void printSerialMenu();
-void changeState(SystemState newState);
-void moveServoSmoothly(int from, int to);
-void triggerBuzzer(int beeps);
-void displayMessage(const char* title, const char* msg);
-void displayMessageStr(const String& title, const String& msg);
 void showHomeScreen();
+void drawStatusBar();
+void drawScannerBg();
+void drawIconLock(int x, int y, uint16_t color, bool open);
+void drawIconBox(int x, int y, uint16_t color);
+void drawIconCheck(int x, int y, uint16_t color);
+void drawIconX(int x, int y, uint16_t color);
+void drawWiFiSignal(int x, int y, uint16_t color);
+void reinitTFT(); // NEW: manual re-init logic
 
 // ============================================================
 //  SETUP
@@ -172,10 +179,17 @@ void setup() {
   // Scanner serial: Arduino Uno TX → GPIO17 (ESP32 RX). TX=-1 frees GPIO18.
   Serial2.begin(9600, SERIAL_8N1, 17, -1);
 
-  // TFT Display
+  // TFT Display Hardware Reset
+  pinMode(TFT_RST, OUTPUT);
+  digitalWrite(TFT_RST, LOW);
+  delay(100);
+  digitalWrite(TFT_RST, HIGH);
+  delay(150);
+
   SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
   tft.begin();
   tft.setRotation(3);
+  tft.fillScreen(COLOR_BG);
 
   // Servo
   platformServo.attach(SERVO_PIN);
@@ -223,45 +237,65 @@ void loop() {
     // ── WAITING FOR SCAN ──────────────────────────────────
     case WAITING_FOR_SCAN:
       if (!stateInitialized) {
-        displayMessage("SCANNING", isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
+        tft.fillScreen(COLOR_BG);
+        drawStatusBar();
+        drawScannerBg();
+        tft.setCursor(40, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+        tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
         Serial.println("[FLOW] Waiting for scan data on Serial2...");
         stateInitialized = true;
       }
       if (Serial2.available()) {
         String scanned = Serial2.readStringUntil('\n');
         scanned.trim();
-        if (scanned.length() > 2) {
+        // Sanity check: Barcodes should not contain debug symbols like [ or ]
+        if (scanned.length() > 2 && scanned.indexOf('[') == -1 && scanned.indexOf(']') == -1) {
           currentTrackingId = scanned;
           String modeName = isReceivingMode ? "drop_off" : "pick_up";
           Serial.print("[FLOW] Scanned: "); Serial.println(scanned);
-          displayMessage("VERIFYING...", "Please wait");
 
-          // Send to server for verification (replaces local ID check)
-          if (socketIO.isConnected()) {
+          // Phase 9: Hybrid Verification (Local-First)
+          String& localID = isReceivingMode ? registeredDropOff : registeredPickup;
+          
+          if (localID.length() > 0 && scanned == localID) {
+            Serial.println("[FLOW] LOCAL AUTHORIZATION: Match found in manual registry.");
+            displayMessage("VALID ID", "LOCAL AUTH");
+            triggerBuzzer(2);
+            // Notify server if connected for logging, but don't wait for response
+            if (socketIO.isConnected()) {
+              emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
+            }
+            delay(1000); 
+            changeState(UNLOCKING_ENTRY);
+          } 
+          else if (socketIO.isConnected()) {
+            // No local match, but server is available -> Fallback to Online Check
+            Serial.println("[FLOW] No local match. Requesting server verification...");
+            displayMessage("VERIFYING...", "Please wait");
             emitVerifyScan(scanned, modeName);
             scanResultReceived = false;
             scanResultValid    = false;
             changeState(VERIFYING_SCAN);
-          } else {
-            // Offline fallback: check local registered ID
-            Serial.println("[WARN] Server offline — using local ID check.");
-            String& registered = isReceivingMode ? registeredDropOff : registeredPickup;
-            if (registered.length() == 0) {
-              displayMessage("NOT REGISTERED", "Register ID first");
-              triggerBuzzer(3);
-              delay(3000);
-              changeState(RESETTING);
-            } else if (scanned == registered) {
-              triggerBuzzer(2);
-              changeState(UNLOCKING_ENTRY);
-            } else {
-              displayMessage("SCAN FAILED", "Please scan again");
-              triggerBuzzer(3);
-              delay(2000);
-              displayMessage("SCANNING", isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
-            }
+          } 
+          else {
+            // Offline and NO local match
+            Serial.println("[WARN] Offline and No local ID match.");
+            displayMessage("INVALID ID", "RETRY SCAN");
+            triggerBuzzer(3);
+            currentTrackingId = ""; 
+            actionDelayStart  = millis();
+            actionDelayActive = true;
           }
         }
+      }
+      // Non-blocking delay: revert display after 2s on scan-fail (offline)
+      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
+        actionDelayActive = false;
+        tft.fillScreen(COLOR_BG);
+        drawStatusBar();
+        drawScannerBg();
+        tft.setCursor(40, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+        tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
       }
       break;
 
@@ -275,22 +309,32 @@ void loop() {
       if (scanResultReceived) {
         if (scanResultValid) {
           Serial.print("[FLOW] Server APPROVED ID: "); Serial.println(currentTrackingId);
+          displayMessage("VALID ID", "Authorized Access");
           triggerBuzzer(2);
+          delay(1000);
           changeState(UNLOCKING_ENTRY);
         } else {
           Serial.print("[FLOW] Server REJECTED ID: "); Serial.println(currentTrackingId);
-          displayMessage("SCAN FAILED", "Not authorized");
+          displayMessage("REJECTED", "RETRY SCAN");
           triggerBuzzer(3);
-          delay(2000);
-          changeState(RESETTING);
+          currentTrackingId = "";
+          scanResultReceived = false; 
+          actionDelayStart  = millis();
+          actionDelayActive = true;
         }
       } else if (millis() - stateStartTime > 8000) {
         // Timeout: 8 seconds
         Serial.println("[FLOW] Server verification timed out.");
-        displayMessage("TIMEOUT", "Server not responding");
+        displayMessage("TIMEOUT", "RETRY SCAN");
         triggerBuzzer(3);
-        delay(2000);
-        changeState(RESETTING);
+        currentTrackingId = "";
+        actionDelayStart  = millis();
+        actionDelayActive = true;
+      }
+      // Non-blocking 2s pause after reject/timeout before RETRYING
+      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
+        actionDelayActive = false;
+        changeState(WAITING_FOR_SCAN);
       }
       break;
 
@@ -316,11 +360,13 @@ void loop() {
           }
         }
 
-        if (doorWasOpened) {
+        // Wait for door to physically close (reed=0) before engaging solenoid
+        // Prevents the lock pin from driving against an open door frame
+        if (doorWasOpened && digitalRead(REED_TOP) == 0) {
           digitalWrite(LOCK_TOP, HIGH);  // LOCK
           lockTopOpen = false;
           emitDoorState();              // 🔔 notify app: door is now locked
-          Serial.println("[FLOW] Door opened → Lock ENGAGED. Proceeding.");
+          Serial.println("[FLOW] Door closed → Lock ENGAGED. Proceeding.");
           triggerBuzzer(1);
           changeState(WAITING_PLACEMENT_STABLE);
         }
@@ -337,7 +383,7 @@ void loop() {
         }
 
         float d = getDistance(US_PLATFORM);
-        if (d > 1.0 && d < 18.0) {
+        if (d > 1.0 && d <= 20.0) { // Strict 20cm threshold as requested
           Serial.println("[FLOW] Parcel detected. Tilting platform...");
           triggerBuzzer(2);
           changeState(TILTING_PLATFORM);
@@ -347,42 +393,55 @@ void loop() {
 
     // ── TILTING PLATFORM ──────────────────────────────────
     case TILTING_PLATFORM:
-      displayMessage("SORTING", isReceivingMode ? "To DROP OFF Bin" : "To PICK UP Bin");
-      Serial.println("[FLOW] Action: Tilting Tray...");
-      triggerBuzzer(1);
-      moveServoSmoothly(90, isReceivingMode ? 0 : 180);
-      delay(2000);
-      moveServoSmoothly(platformServo.read(), 90);
-      changeState(CONFIRMING_DROP);
+      if (!stateInitialized) {
+        displayMessage("SORTING", isReceivingMode ? "To DROP OFF Bin" : "To PICK UP Bin");
+        Serial.println("[FLOW] Action: Tilting Tray...");
+        triggerBuzzer(1);
+        moveServoSmoothly(90, isReceivingMode ? 0 : 180);
+        actionDelayStart  = millis();   // non-blocking settle wait (2s)
+        actionDelayActive = true;
+        stateInitialized  = true;
+      }
+      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
+        actionDelayActive = false;
+        moveServoSmoothly(platformServo.read(), 90);
+        changeState(CONFIRMING_DROP);
+      }
       break;
-
     // ── CONFIRMING DROP ───────────────────────────────────
     case CONFIRMING_DROP:
       {
-        float binDist = isReceivingMode ? getDistance(US_DROPOFF) : getDistance(US_PICKUP);
-        String binName = isReceivingMode ? "DROP OFF" : "PICKUP";
-        Serial.print("[BIN CHECK] "); Serial.print(binName);
-        Serial.print(" bin dist: ");
-        Serial.println(binDist < 900 ? String(binDist, 1) + "cm" : "OOR");
+        if (!stateInitialized) {
+          float binDist = isReceivingMode ? getDistance(US_DROPOFF) : getDistance(US_PICKUP);
+          String binName = isReceivingMode ? "DROP OFF" : "PICKUP";
+          Serial.print("[BIN CHECK] "); Serial.print(binName);
+          Serial.print(" bin dist: ");
+          Serial.println(binDist < 900 ? String(binDist, 1) + "cm" : "OOR");
 
-        String newStatus = isReceivingMode ? "delivered" : "retrieved";
-        String modeStr   = isReceivingMode ? "drop_off"  : "pick_up";
+          String newStatus = isReceivingMode ? "delivered" : "retrieved";
+          String modeStr   = isReceivingMode ? "drop_off"  : "pick_up";
 
-        if (binDist < 25.0) {
-          displayMessage("SUCCESS", "Stored Safely");
-          Serial.println("[FLOW] Parcel confirmed in bin.");
-          triggerBuzzer(2);
-          // Notify backend → updates DB and pushes to mobile app
-          if (currentTrackingId.length() > 0) {
-            emitStatusUpdate(currentTrackingId, newStatus, modeStr);
+          if (binDist < 25.0) {
+            displayMessage("SUCCESS", "Stored Safely");
+            Serial.println("[FLOW] Parcel confirmed in bin.");
+            triggerBuzzer(2);
+            // Notify backend → updates DB and pushes to mobile app
+            if (currentTrackingId.length() > 0) {
+              emitStatusUpdate(currentTrackingId, newStatus, modeStr);
+            }
+          } else {
+            displayMessage("DONE", "Check Bin");
+            Serial.println("[FLOW] WARNING: Bin sensor did not detect parcel!");
+            triggerBuzzer(3);
           }
-        } else {
-          displayMessage("DONE", "Check Bin");
-          Serial.println("[FLOW] WARNING: Bin sensor did not detect parcel!");
-          triggerBuzzer(3);
+          actionDelayStart  = millis();   // 3s display pause before reset
+          actionDelayActive = true;
+          stateInitialized  = true;
         }
-        delay(3000);
-        changeState(RESETTING);
+        if (actionDelayActive && millis() - actionDelayStart >= 3000) {
+          actionDelayActive = false;
+          changeState(RESETTING);
+        }
       }
       break;
 
@@ -399,10 +458,17 @@ void loop() {
       scanResultReceived = false;
       changeState(IDLE);
       showHomeScreen();
-      printSerialMenu();
       Serial.println("--- [FLOW] SYSTEM RESET TO IDLE ---");
       break;
   }
+}
+
+void drawScannerBg() {
+  tft.drawRect(60, 60, 200, 100, COLOR_GREY);
+  tft.drawRect(58, 58, 204, 104, COLOR_ACCENT);
+  tft.fillRect(70, 110, 180, 2, COLOR_RED); // red scanner line
+  tft.setTextSize(2); tft.setTextColor(COLOR_GREY);
+  tft.setCursor(85, 75); tft.print("SCAN BARCODE");
 }
 
 // ============================================================
@@ -489,9 +555,9 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
     case sIOtype_EVENT: {
       // Parse the incoming event array: ["eventName", { ...data... }]
       String msg = String((char*)payload, length);
-      Serial.print("[WS] Event: "); Serial.println(msg);
+      if (DEBUG_WS) { Serial.print("[WS] Event: "); Serial.println(msg); }
 
-      StaticJsonDocument<512> doc;
+      StaticJsonDocument<1024> doc;
       DeserializationError err = deserializeJson(doc, payload, length);
       if (err) {
         Serial.print("[WS] JSON parse error: "); Serial.println(err.c_str());
@@ -549,7 +615,7 @@ void emitVerifyScan(const String& trackingId, const String& mode) {
   String output;
   serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output.c_str());
-  Serial.print("[WS] Emitted verifyScan: "); Serial.println(output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted verifyScan: "); Serial.println(output); }
 }
 
 // ============================================================
@@ -567,7 +633,7 @@ void emitStatusUpdate(const String& trackingId, const String& status, const Stri
   String output;
   serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output.c_str());
-  Serial.print("[WS] Emitted statusUpdate: "); Serial.println(output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted statusUpdate: "); Serial.println(output); }
 }
 
 // ============================================================
@@ -598,7 +664,7 @@ void emitDoorState() {
   String output;
   serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output.c_str());
-  Serial.print("[WS] Emitted doorStateUpdate: "); Serial.println(output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted doorStateUpdate: "); Serial.println(output); }
 }
 
 // ============================================================
@@ -751,9 +817,56 @@ void checkSerialCommands() {
       Serial.print("  WiFi SSID  : "); Serial.println(WiFi.SSID());
       Serial.print("  WiFi IP    : "); Serial.println(WiFi.localIP());
       Serial.print("  WiFi RSSI  : "); Serial.print(WiFi.RSSI()); Serial.println(" dBm");
-      Serial.print("  Server     : wss://"); Serial.print(SERVER_HOST); Serial.print(":"); Serial.println(SERVER_PORT);
+      Serial.print("  Server     : ws://"); Serial.print(SERVER_HOST); Serial.print(":"); Serial.println(SERVER_PORT);
       Serial.print("  Socket.IO  : "); Serial.println(socketIO.isConnected() ? "Connected" : "Disconnected");
+    } else if (cmd == 'N') {
+      Serial.println("[MANUAL] Bypassing current step...");
+      forceNextStep();
+    } else if (cmd == 'T') {
+      Serial.println("[MANUAL] Re-initializing TFT Display...");
+      reinitTFT();
     }
+  }
+}
+
+void reinitTFT() {
+  digitalWrite(TFT_RST, LOW);
+  delay(100);
+  digitalWrite(TFT_RST, HIGH);
+  delay(150);
+  tft.begin();
+  tft.setRotation(3);
+  showHomeScreen();
+}
+
+void forceNextStep() {
+  switch (currentState) {
+    case WAITING_FOR_SCAN:
+      // Skip scan, unlock top
+      Serial.println("[FLOW] Bypass: Bypassing Scan.");
+      changeState(UNLOCKING_ENTRY);
+      break;
+    case UNLOCKING_ENTRY:
+      // Skip reed switch, proceed to placement
+      Serial.println("[FLOW] Bypass: Bypassing Reed Switch.");
+      changeState(WAITING_PLACEMENT_STABLE);
+      break;
+    case WAITING_PLACEMENT_STABLE:
+      // Skip US Platform, proceed to Tilt
+      Serial.println("[FLOW] Bypass: Bypassing Platform Sensor.");
+      changeState(TILTING_PLATFORM);
+      break;
+    case TILTING_PLATFORM:
+      // Skip Tilt timer, proceed to confirm
+      changeState(CONFIRMING_DROP);
+      break;
+    case CONFIRMING_DROP:
+      // Skip bin sensor, reset
+      changeState(RESETTING);
+      break;
+    default:
+      Serial.println("[FLOW] Bypass: No bypass action for current state.");
+      break;
   }
 }
 
@@ -764,7 +877,7 @@ void printSerialMenu() {
   Serial.println("==========================================");
   Serial.println("  [BTN1] Drop Off     [BTN2] Pick Up");
   Serial.println("------------------------------------------");
-  Serial.println("  S=Reset  | U=Unlock All | D=US Diag");
+  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | N=Next | T=TFT Reset");
   Serial.println("  V=View IDs & Status   | W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");
   Serial.println("  R2:<id> = Register Pick Up ID  (offline)");
@@ -784,6 +897,7 @@ void moveServoSmoothly(int from, int to) {
   int step = (from < to) ? 1 : -1;
   for (int i = from; i != to; i += step) {
     platformServo.write(i);
+    socketIO.loop();  // keep Socket.IO heartbeat alive during slow tilt
     delay(15);
   }
 }
@@ -796,35 +910,108 @@ void triggerBuzzer(int beeps) {
 }
 
 void displayMessage(const char* title, const char* msg) {
-  tft.fillRect(0, 50, 320, 100, COLOR_BG);
-  tft.setCursor(20, 80);  tft.setTextSize(3); tft.setTextColor(COLOR_ACCENT); tft.println(title);
-  tft.setCursor(20, 120); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);   tft.println(msg);
+  uint16_t bgColor = (strstr(title, "Success") || strstr(title, "Valid")) ? COLOR_GREEN : 
+                     (strstr(title, "Error") || strstr(title, "Invalid") || strstr(title, "Reject")) ? COLOR_RED : COLOR_BLUE;
+
+  tft.fillScreen(bgColor);
+  drawStatusBar();
+  
+  if (bgColor == COLOR_GREEN) drawIconCheck(160, 100, COLOR_TEXT);
+  else if (bgColor == COLOR_RED) drawIconX(160, 100, COLOR_TEXT);
+  else drawIconBox(160, 100, COLOR_TEXT);
+
+  tft.setCursor(0, 160);  tft.setTextSize(3); tft.setTextColor(COLOR_TEXT); 
+  tft.setTextWrap(false);
+  
+  // Center alignment logic (approximate for 320px width)
+  int titleX = 160 - (strlen(title) * 9); 
+  tft.setCursor(max(0, titleX), 160);
+  tft.println(title);
+
+  tft.setTextSize(2);
+  int msgX = 160 - (strlen(msg) * 6);
+  tft.setCursor(max(0, msgX), 200);
+  tft.println(msg);
 }
 
-void displayMessageStr(const String& title, const String& msg) {
-  displayMessage(title.c_str(), msg.c_str());
-}
 
 void showHomeScreen() {
   tft.fillScreen(COLOR_BG);
-  tft.setTextColor(COLOR_ACCENT); tft.setTextSize(2);
-  tft.setCursor(40, 40); tft.println("Smart Parcel Dropbox");
-  tft.drawFastHLine(20, 70, 280, COLOR_ACCENT);
-  tft.setTextColor(COLOR_TEXT);
-  tft.setCursor(20, 110); tft.println("1. Drop Off | 2. Pick up");
+  drawStatusBar();
 
-  // WiFi/server status indicator at bottom
-  tft.setTextSize(1);
-  tft.setCursor(10, 210);
-  if (WiFi.status() == WL_CONNECTED) {
-    tft.setTextColor(COLOR_GREEN);
-    tft.print("WiFi: ");
-    tft.print(WiFi.localIP());
-    tft.print(socketIO.isConnected() ? "  ● Online" : "  ○ Server offline");
-  } else {
-    tft.setTextColor(COLOR_RED);
-    tft.print("WiFi: Not connected (offline mode)");
-  }
+  // Draw Mode Selection Tiles
+  // Left: Drop Off (Blue)
+  tft.fillRoundRect(10, 50, 145, 170, 10, COLOR_BLUE);
+  drawIconBox(82, 110, COLOR_TEXT);
+  tft.setCursor(35, 180); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("DROP OFF");
+  tft.setCursor(45, 205); tft.setTextSize(1);
+  tft.print("[Btn Red]");
 
+  // Right: Pick Up (Purple)
+  tft.fillRoundRect(165, 50, 145, 170, 10, COLOR_PURPLE);
+  drawIconLock(237, 110, COLOR_TEXT, true);
+  tft.setCursor(195, 180); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("PICK UP");
+  tft.setCursor(215, 205); tft.setTextSize(1);
+  tft.print("[Btn Blue]");
+  
   printSerialMenu();
+}
+
+void drawStatusBar() {
+  tft.fillRect(0, 0, 320, 32, 0x2104); // Dark grey bar
+  tft.drawFastHLine(0, 32, 320, COLOR_GREY);
+  
+  // WiFi Icon
+  drawWiFiSignal(10, 10, (WiFi.status() == WL_CONNECTED) ? COLOR_GREEN : COLOR_RED);
+  
+  // App/Server Status Dot
+  tft.fillCircle(300, 16, 5, socketIO.isConnected() ? COLOR_GREEN : COLOR_RED);
+  tft.setCursor(240, 12); tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+  tft.print(socketIO.isConnected() ? "ONLINE" : "OFFLINE");
+
+  // Mode Text
+  tft.setCursor(100, 10); tft.setTextSize(1); tft.setTextColor(COLOR_ACCENT);
+  tft.print("SMART PARCEL DROPBOX");
+}
+
+void drawWiFiSignal(int x, int y, uint16_t color) {
+  for(int i=0; i<4; i++) {
+    tft.fillRect(x + (i*4), y + (12 - (i*3)), 3, (i*3) + 3, color);
+  }
+}
+
+void drawIconLock(int x, int y, uint16_t color, bool open) {
+  // Shackle
+  if (open) {
+    tft.drawCircle(x, y-5, 10, color);
+    tft.fillRect(x+5, y-5, 10, 10, COLOR_BG); // break the circle
+  } else {
+    tft.drawCircle(x, y, 10, color);
+  }
+  // Body
+  tft.fillRoundRect(x-12, y+2, 24, 18, 3, color);
+  tft.fillCircle(x, y+11, 3, COLOR_BG); // keyhole
+}
+
+void drawIconBox(int x, int y, uint16_t color) {
+  tft.drawRect(x-15, y-10, 30, 25, color);
+  tft.drawRect(x-16, y-11, 32, 27, color);
+  tft.drawLine(x-15, y-10, x+15, y+15, color); 
+  tft.drawLine(x-15, y+15, x+15, y-10, color);
+}
+
+void drawIconCheck(int x, int y, uint16_t color) {
+  tft.drawLine(x-20, y, x-5, y+15, color);
+  tft.drawLine(x-21, y, x-6, y+15, color);
+  tft.drawLine(x-5, y+15, x+25, y-20, color);
+  tft.drawLine(x-6, y+15, x+24, y-20, color);
+}
+
+void drawIconX(int x, int y, uint16_t color) {
+  tft.drawLine(x-20, y-20, x+20, y+20, color);
+  tft.drawLine(x-21, y-20, x+19, y+20, color);
+  tft.drawLine(x+20, y-20, x-20, y+20, color);
+  tft.drawLine(x+21, y-20, x-19, y+20, color);
 }

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import '../config/api_config.dart';
+import 'service_locator.dart';
+import 'biometric_service.dart';
 
 /// Device Control Service - Handles IoT device control
 ///
@@ -31,7 +33,20 @@ class DeviceControlService {
     required String userId,
     required bool open,
     String doorType = 'user', // 'parcel' or 'user'
+    bool useBiometrics = true,
   }) async {
+    if (useBiometrics) {
+      final bioService = getIt<BiometricService>();
+      if (await bioService.isBiometricAvailable()) {
+        final authenticated = await bioService.authenticate(
+          reason: 'Authenticate to ${open ? 'unlock' : 'lock'} the $doorType door',
+        );
+        if (!authenticated) {
+          throw Exception('Biometric authentication failed or canceled');
+        }
+      }
+    }
+
     try {
       await http.post(
         Uri.parse(ApiConfig.deviceControl),

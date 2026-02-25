@@ -14,6 +14,7 @@ import 'tracking_service.dart';
 import 'user_service.dart';
 import 'scan_log_service.dart';
 import 'device_control_service.dart';
+import 'biometric_service.dart';
 
 /// Service Locator for Dependency Injection
 /// Provides centralized access to all services
@@ -43,6 +44,7 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton(() => ConnectivityService());
   getIt.registerLazySingleton(() => PerformanceService());
   getIt.registerLazySingleton(() => IoTService());
+  getIt.registerLazySingleton(() => BiometricService());
 
   // Initialize cache service
   final cacheService = getIt<CacheService>();

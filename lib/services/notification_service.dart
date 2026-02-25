@@ -49,7 +49,10 @@ class NotificationService {
     const InitializationSettings settings =
         InitializationSettings(android: androidSettings);
 
-    await _notifications.initialize(settings);
+    await _notifications.initialize(
+      settings,
+      onDidReceiveNotificationResponse: _onNotificationResponse,
+    );
 
     // Create high-importance channel for Android 8.0+
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
@@ -61,12 +64,23 @@ class NotificationService {
       enableVibration: true,
     );
 
-    await _notifications
+    final androidPlugin = _notifications
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    await androidPlugin?.createNotificationChannel(channel);
+
+    // Request Android 13+ permission
+    await androidPlugin?.requestNotificationsPermission();
 
     debugPrint('✅ Notification service initialized: channel=$_channelId');
+  }
+
+  void _onNotificationResponse(NotificationResponse response) {
+    if (response.actionId == 'action_unlock') {
+      debugPrint('[Notifications] Unlock action triggered via notification');
+      // Logic for unlocking will be handled if needed (e.g., via background service or navigation)
+    }
   }
 
   // ── System tray / push notifications ─────────────────────────────────────
@@ -99,7 +113,7 @@ class NotificationService {
         trackingId.hashCode.abs(), // unique id per tracking
         title,
         body,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
             _channelId,
             _channelName,
@@ -107,6 +121,14 @@ class NotificationService {
             importance: Importance.high,
             priority: Priority.high,
             icon: '@mipmap/ic_launcher',
+            actions: (status == 'delivered') 
+              ? [
+                  const AndroidNotificationAction(
+                    'action_unlock',
+                    '🔓 UNLOCK NOW',
+                    showsUserInterface: true,
+                  ),
+                ] : null,
           ),
         ),
       );
