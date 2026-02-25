@@ -6,6 +6,7 @@ class TrackingModel {
   final String userId;
   final String shopName;
   final String status; // pending, in_transit, delivered, retrieved
+  final String mode;   // drop_off, pickup
   final DateTime? registeredAt;
   final String? expectedDeliveryDate;
   final DateTime? deliveredAt;
@@ -16,6 +17,7 @@ class TrackingModel {
     required this.userId,
     required this.shopName,
     required this.status,
+    this.mode = 'drop_off',
     this.registeredAt,
     this.expectedDeliveryDate,
     this.deliveredAt,
@@ -29,6 +31,7 @@ class TrackingModel {
       userId: data['userId'] ?? '',
       shopName: data['shopName'] ?? '',
       status: data['status'] ?? 'pending',
+      mode: data['mode'] ?? 'drop_off',
       registeredAt: data['registeredAt'] != null ? DateTime.parse(data['registeredAt']) : (data['createdAt'] != null ? DateTime.parse(data['createdAt']) : null),
       expectedDeliveryDate: data['expectedDeliveryDate'],
       deliveredAt: data['deliveredAt'] != null ? DateTime.parse(data['deliveredAt']) : null,
@@ -44,6 +47,7 @@ class TrackingModel {
       'userId': userId,
       'shopName': shopName,
       'status': status,
+      'mode': mode,
       'registeredAt': registeredAt?.toIso8601String(),
       'expectedDeliveryDate': expectedDeliveryDate,
       'deliveredAt': deliveredAt?.toIso8601String(),
@@ -53,6 +57,18 @@ class TrackingModel {
 
   /// Get status display text
   String getStatusText() {
+    if (mode == 'pickup') {
+      switch (status) {
+        case 'pending':
+          return 'Pending Deposit';
+        case 'ready_for_pickup':
+          return 'Ready for Pickup';
+        case 'retrieved':
+          return 'Picked Up';
+        default:
+          return 'Unknown';
+      }
+    }
     switch (status) {
       case 'pending':
         return 'Pending';
@@ -76,6 +92,8 @@ class TrackingModel {
         return 'blue';
       case 'delivered':
         return 'green';
+      case 'ready_for_pickup':
+        return 'deepPurple';
       case 'retrieved':
         return 'grey';
       default:

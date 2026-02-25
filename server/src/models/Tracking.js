@@ -14,8 +14,13 @@ const trackingSchema = new mongoose.Schema({
     shopName: String,
     status: {
         type: String,
-        enum: ['pending', 'in_transit', 'delivered', 'retrieved'],
+        enum: ['pending', 'in_transit', 'delivered', 'retrieved', 'ready_for_pickup'],
         default: 'pending'
+    },
+    mode: {
+        type: String,
+        enum: ['drop_off', 'pickup'],
+        default: 'drop_off'
     },
     expectedDeliveryDate: String,
     deliveredAt: Date,
