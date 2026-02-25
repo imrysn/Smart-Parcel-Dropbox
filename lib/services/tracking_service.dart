@@ -32,6 +32,7 @@ class TrackingService {
     required String trackingId,
     required String shopName,
     String? expectedDeliveryDate,
+    String mode = 'drop_off',
   }) async {
     try {
       final response = await http.post(
@@ -42,6 +43,7 @@ class TrackingService {
           'userId': userId,
           'shopName': shopName,
           'expectedDeliveryDate': expectedDeliveryDate,
+          'mode': mode,
         }),
       );
 
@@ -82,10 +84,11 @@ class TrackingService {
 
   /// Get all tracking IDs for a specific user
   Stream<List<TrackingModel>> getUserTrackingIds(String userId) {
-    // Seed with cached data if available
+    // If cache is empty, trigger a fetch
     if (_cachedTracking.isEmpty && !_isFetching) {
       refreshTracking(userId);
     }
+    
     return _trackingController.stream;
   }
 
@@ -93,10 +96,22 @@ class TrackingService {
   Stream<List<TrackingModel>> getActiveOrders(String userId) {
     return getUserTrackingIds(userId).map(
       (list) => list
-          .where(
-              (t) => ['pending', 'in_transit', 'delivered'].contains(t.status))
+          .where((t) =>
+              t.mode == 'drop_off' &&
+              ['pending', 'in_transit', 'delivered'].contains(t.status))
           .toList(),
-    );
+    ).asBroadcastStream();
+  }
+
+  /// Get active pickups (waiting for rider, or picked up)
+  Stream<List<TrackingModel>> getActivePickups(String userId) {
+    return getUserTrackingIds(userId).map(
+      (list) => list
+          .where((t) =>
+              t.mode == 'pickup' &&
+              ['pending', 'ready_for_pickup', 'retrieved'].contains(t.status))
+          .toList(),
+    ).asBroadcastStream();
   }
 
   /// Verify tracking ID (used by courier/drop box system)

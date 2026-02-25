@@ -10,6 +10,7 @@ import 'logs_screen.dart';
 import 'notifications_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'dropbox_control_screen.dart';
+import 'add_pickup_screen.dart';
 import '../widgets/notification_badge.dart';
 
 /// Home Screen - Main dashboard showing active orders
@@ -27,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Stream subscriptions for cleanup
   Stream<List<TrackingModel>>? _activeOrdersStream;
+  Stream<List<TrackingModel>>? _activePickupsStream;
   Stream<int>? _notificationsCountStream;
   Stream<Map<String, dynamic>?>? _doorStateStream;
 
@@ -58,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     // Clean up streams to prevent memory leaks
     _activeOrdersStream = null;
+    _activePickupsStream = null;
     _notificationsCountStream = null;
     super.dispose();
   }
@@ -69,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _databaseService.initSocket(_userId!);
 
       _activeOrdersStream = _databaseService.getActiveOrders(_userId!);
+      _activePickupsStream = _databaseService.getActivePickups(_userId!);
       _notificationsCountStream =
           _databaseService.getUnreadNotificationsCount(_userId!);
       _doorStateStream = _databaseService.getDropBoxDoorState();
@@ -118,19 +122,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: _getSelectedTab(),
-      floatingActionButton: _selectedIndex == 1
+      floatingActionButton: _selectedIndex == 1 || _selectedIndex == 2
           ? FloatingActionButton.extended(
               onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const AddTrackingScreen(),
-                  ),
-                );
+                if (_selectedIndex == 1) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const AddTrackingScreen(),
+                    ),
+                  );
+                } else {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const AddPickupScreen(),
+                    ),
+                  );
+                }
               },
               icon: const Icon(Icons.add),
-              label: const Text('Add Tracking ID'),
-              heroTag: 'add_tracking_fab',
+              label: Text(_selectedIndex == 1 ? 'Add Tracking ID' : 'Add Pickup Item'),
+              heroTag: 'home_fab',
             )
           : null,
       bottomNavigationBar: NavigationBar(
@@ -138,8 +149,8 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (index) {
           setState(() {
             _selectedIndex = index;
-            // Proactively refresh data when switching back to main tabs
-            if (index == 0 && _userId != null) {
+            // Proactively refresh data when switching back to main tabs (Home, Orders, Pickup)
+            if (index <= 2 && _userId != null) {
               _databaseService.refreshTracking(_userId!);
             }
           });
@@ -156,12 +167,18 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Orders',
           ),
           NavigationDestination(
+            icon: Icon(Icons.outbox_outlined),
+            selectedIcon: Icon(Icons.outbox),
+            label: 'Pickup',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
       ),
+      body: _getSelectedTab(),
     );
   }
 
@@ -182,6 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
             stream: _activeOrdersStream,
             initialData: _databaseService.cachedTracking
                 .where((t) =>
+                    t.mode == 'drop_off' &&
                     ['pending', 'in_transit', 'delivered'].contains(t.status))
                 .toList(),
             builder: (context, snapshot) {
@@ -421,7 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         Theme.of(context)
                             .colorScheme
                             .primaryContainer
-                            .withValues(alpha: 0.1),
+                            .withOpacity(0.1),
                         Colors.white
                       ],
               ),
@@ -508,6 +526,9 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'delivered':
         statusColor = Colors.green;
         break;
+      case 'ready_for_pickup':
+        statusColor = Colors.deepPurple;
+        break;
       default:
         statusColor = Colors.grey;
     }
@@ -543,7 +564,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
+                    color: statusColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -666,10 +687,83 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildAllOrdersTab();
       case 2:
+        return _buildPickupTab();
+      case 3:
         return _buildProfileTab();
       default:
         return _buildActiveOrdersTab();
     }
+  }
+
+  Widget _buildPickupTab() {
+    if (_userId == null) return const Center(child: Text('Not logged in'));
+
+    return StreamBuilder<List<TrackingModel>>(
+      stream: _activePickupsStream,
+      initialData: _databaseService.cachedTracking
+          .where((t) =>
+              t.mode == 'pickup' &&
+              ['pending', 'ready_for_pickup'].contains(t.status))
+          .toList(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(child: Text('Error loading pickups'));
+        }
+
+        var pickups = snapshot.data ?? [];
+
+        // Mock data for UI demonstration if list is empty
+        if (pickups.isEmpty) {
+          pickups = [
+            TrackingModel(
+              trackingId: 'PICKUP-12345',
+              userId: _userId!,
+              shopName: 'Return Parcel (Shopee)',
+              status: 'ready_for_pickup',
+              mode: 'pickup',
+              registeredAt: DateTime.now().subtract(const Duration(hours: 2)),
+            ),
+            TrackingModel(
+              trackingId: 'PICKUP-67890',
+              userId: _userId!,
+              shopName: 'Document to Office',
+              status: 'pending',
+              mode: 'pickup',
+              registeredAt: DateTime.now().subtract(const Duration(days: 1)),
+            ),
+          ];
+        }
+
+        if (pickups.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.outbox_outlined, size: 80, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text('No pickups registered',
+                    style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                const SizedBox(height: 8),
+                Text('Add an item for riders to collect',
+                    style: TextStyle(color: Colors.grey[500])),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: pickups.length,
+          itemBuilder: (context, index) {
+            final pickup = pickups[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: _buildOrderCard(pickup),
+            );
+          },
+        );
+      },
+    );
   }
 
   Widget _buildProfileTab() {
@@ -717,7 +811,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.2),
+                                color: Colors.black.withOpacity(0.2),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -756,7 +850,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(
                               Icons.email_outlined,
                               size: 16,
-                              color: Colors.white.withValues(alpha: 0.9),
+                              color: Colors.white.withOpacity(0.9),
                             ),
                             const SizedBox(width: 6),
                             Flexible(
@@ -764,7 +858,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 userData?['email'] ?? '',
                                 style: TextStyle(
                                   fontSize: 15,
-                                  color: Colors.white.withValues(alpha: 0.9),
+                                  color: Colors.white.withOpacity(0.9),
                                 ),
                                 textAlign: TextAlign.center,
                                 overflow: TextOverflow.ellipsis,
@@ -946,7 +1040,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color:
-                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                  Theme.of(context).colorScheme.primary.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(

@@ -98,12 +98,14 @@ class DatabaseService {
     required String trackingId,
     required String shopName,
     String? expectedDeliveryDate,
+    String mode = 'drop_off',
   }) =>
       _tracking.registerTrackingId(
         userId: userId,
         trackingId: trackingId,
         shopName: shopName,
         expectedDeliveryDate: expectedDeliveryDate,
+        mode: mode,
       );
 
   Future<void> refreshTracking(String userId) =>
@@ -114,6 +116,9 @@ class DatabaseService {
 
   Stream<List<TrackingModel>> getActiveOrders(String userId) =>
       _tracking.getActiveOrders(userId);
+
+  Stream<List<TrackingModel>> getActivePickups(String userId) =>
+      _tracking.getActivePickups(userId);
 
   Future<Map<String, dynamic>?> verifyTrackingId(String trackingId) =>
       _tracking.verifyTrackingId(trackingId);

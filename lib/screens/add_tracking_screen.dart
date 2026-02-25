@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 
@@ -130,10 +131,22 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
               // Tracking ID
               TextFormField(
                 controller: _trackingIdController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Tracking ID',
                   hintText: 'Enter tracking number from shop',
-                  prefixIcon: Icon(Icons.qr_code_2),
+                  prefixIcon: const Icon(Icons.qr_code_2),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.content_paste),
+                    tooltip: 'Paste from clipboard',
+                    onPressed: () async {
+                      final data = await Clipboard.getData('text/plain');
+                      if (data != null && data.text != null) {
+                        setState(() {
+                          _trackingIdController.text = data.text!;
+                        });
+                      }
+                    },
+                  ),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
