@@ -132,6 +132,12 @@ bool lockTopOpen      = false;  // true = unlocked (parcel entry door)
 bool lockPickupOpen   = false;  // true = unlocked (pickup bin door)
 bool lockReceivedOpen = false;  // true = unlocked (received bin door)
 
+// UI Indicator states
+bool lastWifiState = false;
+bool lastSocketState = false;
+bool lastDoorState = false;
+unsigned long lastIndicatorUpdate = 0;
+
 // ============================================================
 //  OBJECTS
 // ============================================================
@@ -237,6 +243,7 @@ void loop() {
   yield();
   socketIO.loop();        // Keep Socket.IO connection alive
   checkSerialCommands();
+  updateDynamicIndicators();
 
   switch (currentState) {
 
@@ -267,6 +274,9 @@ void loop() {
       if (!stateInitialized) {
         drawPickupSelectScreen();
         Serial.println("[FLOW] Sub-menu: Waiting for Owner or Rider selection.");
+        Serial.println("==========================================");
+        Serial.println("  [BTN1] Owner        [BTN2] Rider");
+        Serial.println("------------------------------------------");
         stateInitialized = true;
       }
       if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Owner
@@ -293,6 +303,9 @@ void loop() {
       if (!stateInitialized) {
         drawOwnerModeScreen();
         Serial.println("[FLOW] Owner sub-menu: Single or Multiple?");
+        Serial.println("==========================================");
+        Serial.println("  [BTN1] Single       [BTN2] Multiple");
+        Serial.println("------------------------------------------");
         stateInitialized = true;
       }
       if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Single
@@ -362,6 +375,9 @@ void loop() {
         drawAddMorePrompt();
         Serial.print("[FLOW] Owner: Add more parcel? (registered so far: ");
         Serial.print(scannedCount); Serial.println(")");
+        Serial.println("==========================================");
+        Serial.println("  [BTN1] Add More     [BTN2] Done");
+        Serial.println("------------------------------------------");
         stateInitialized = true;
       }
       if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Add More
@@ -496,6 +512,9 @@ void loop() {
       if (!stateInitialized) {
         drawRiderPickupMorePrompt();
         Serial.print("[FLOW] Rider: Parcels scanned so far: "); Serial.println(scannedCount);
+        Serial.println("==========================================");
+        Serial.println("  [BTN1] Pick Up More [BTN2] Done");
+        Serial.println("------------------------------------------");
         stateInitialized = true;
       }
       if (digitalRead(BTN_RECEIVE) == LOW) {         // Left = Pick Up More
@@ -1192,6 +1211,43 @@ void reinitTFT() {
   showHomeScreen();
 }
 
+void updateDynamicIndicators() {
+  if (millis() - lastIndicatorUpdate < 1000) return; // check every 1 second
+  lastIndicatorUpdate = millis();
+
+  bool currentWifi = (WiFi.status() == WL_CONNECTED);
+  bool currentSocket = socketIO.isConnected();
+  bool currentDoorOpen = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
+
+  if (currentWifi != lastWifiState || 
+      currentSocket != lastSocketState || 
+      currentDoorOpen != lastDoorState) {
+    
+    // 1. WiFi
+    if (currentWifi != lastWifiState) {
+      tft.fillRect(10, 10, 15, 15, 0x2104); // clear wifi icon area
+      drawWiFiSignal(10, 10, currentWifi ? COLOR_GREEN : COLOR_RED);
+      lastWifiState = currentWifi;
+    }
+
+    // 2. Padlock (Security)
+    if (currentDoorOpen != lastDoorState) {
+      tft.fillRect(50, 6, 20, 24, 0x2104); // clear padlock area
+      drawSmallPadlock(56, 14, currentDoorOpen ? COLOR_RED : COLOR_GREEN, currentDoorOpen);
+      lastDoorState = currentDoorOpen;
+    }
+
+    // 3. Server
+    if (currentSocket != lastSocketState) {
+      tft.fillRect(235, 10, 65, 15, 0x2104); // clear text and dot area
+      tft.fillCircle(300, 16, 5, currentSocket ? COLOR_GREEN : COLOR_RED);
+      tft.setCursor(240, 12); tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+      tft.print(currentSocket ? "ONLINE " : "OFFLINE");
+      lastSocketState = currentSocket;
+    }
+  }
+}
+
 void forceNextStep() {
   switch (currentState) {
     case SELECTING_PICKUP_TYPE:
@@ -1252,12 +1308,21 @@ void forceNextStep() {
   }
 }
 
+void drawButtonLabel(int x, int y, uint16_t color, const char* label) {
+  tft.fillCircle(x, y + 3, 6, color);
+  tft.drawCircle(x, y + 3, 6, COLOR_TEXT);
+  tft.setCursor(x + 12, y);
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print(label);
+}
+
 void printSerialMenu() {
   Serial.println();
   Serial.println("==========================================");
   Serial.println("     SMART PARCEL DROPBOX SYSTEM");
   Serial.println("==========================================");
-  Serial.println("  [BTN1] Drop Off     [BTN2] Pick Up");
+  Serial.println("  [BLUE] Drop Off     [RED] Pick Up");
   Serial.println("------------------------------------------");
   Serial.println("  S=Reset  | U=Unlock All | D=US Diag | N=Next | T=TFT Reset");
   Serial.println("  V=View IDs & Status   | W=Network Info");
@@ -1328,16 +1393,14 @@ void showHomeScreen() {
   drawIconBox(82, 110, COLOR_TEXT);
   tft.setCursor(35, 180); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("DROP OFF");
-  tft.setCursor(45, 205); tft.setTextSize(1);
-  tft.print("[Btn Red]");
+  drawButtonLabel(45, 205, COLOR_BLUE, "BLUE");
 
   // Right: Pick Up (Purple)
   tft.fillRoundRect(165, 50, 145, 170, 10, COLOR_PURPLE);
   drawIconLock(237, 110, COLOR_TEXT, true);
   tft.setCursor(195, 180); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("PICK UP");
-  tft.setCursor(215, 205); tft.setTextSize(1);
-  tft.print("[Btn Blue]");
+  drawButtonLabel(215, 205, COLOR_RED, "RED");
   
   printSerialMenu();
 }
@@ -1346,16 +1409,23 @@ void drawStatusBar() {
   tft.fillRect(0, 0, 320, 32, 0x2104); // Dark grey bar
   tft.drawFastHLine(0, 32, 320, COLOR_GREY);
   
+  lastWifiState = (WiFi.status() == WL_CONNECTED);
+  lastSocketState = socketIO.isConnected();
+  lastDoorState = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
+
   // WiFi Icon
-  drawWiFiSignal(10, 10, (WiFi.status() == WL_CONNECTED) ? COLOR_GREEN : COLOR_RED);
+  drawWiFiSignal(10, 10, lastWifiState ? COLOR_GREEN : COLOR_RED);
   
+  // Security/Door Icon
+  drawSmallPadlock(56, 14, lastDoorState ? COLOR_RED : COLOR_GREEN, lastDoorState);
+
   // App/Server Status Dot
-  tft.fillCircle(300, 16, 5, socketIO.isConnected() ? COLOR_GREEN : COLOR_RED);
+  tft.fillCircle(300, 16, 5, lastSocketState ? COLOR_GREEN : COLOR_RED);
   tft.setCursor(240, 12); tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
-  tft.print(socketIO.isConnected() ? "ONLINE" : "OFFLINE");
+  tft.print(lastSocketState ? "ONLINE" : "OFFLINE");
 
   // Mode Text
-  tft.setCursor(100, 10); tft.setTextSize(1); tft.setTextColor(COLOR_ACCENT);
+  tft.setCursor(90, 10); tft.setTextSize(1); tft.setTextColor(COLOR_ACCENT);
   tft.print("SMART PARCEL DROPBOX");
 }
 
@@ -1363,6 +1433,17 @@ void drawWiFiSignal(int x, int y, uint16_t color) {
   for(int i=0; i<4; i++) {
     tft.fillRect(x + (i*4), y + (12 - (i*3)), 3, (i*3) + 3, color);
   }
+}
+
+void drawSmallPadlock(int x, int y, uint16_t color, bool open) {
+  if (open) {
+    tft.drawCircle(x, y-3, 5, color);
+    tft.fillRect(x+3, y-6, 4, 8, 0x2104); // break circle
+  } else {
+    tft.drawCircle(x, y-2, 5, color);
+  }
+  tft.fillRoundRect(x-6, y+2, 12, 10, 2, color);
+  tft.fillCircle(x, y+6, 2, COLOR_BG); // small keyhole
 }
 
 void drawIconLock(int x, int y, uint16_t color, bool open) {
@@ -1412,15 +1493,13 @@ void drawPickupSelectScreen() {
   drawIconLock(82, 108, COLOR_TEXT, true);
   tft.setCursor(25, 178); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("OWNER");
-  tft.setCursor(22, 200); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-  tft.print("[Left Button]");
+  drawButtonLabel(22, 200, COLOR_BLUE, "BLUE");
   // Right tile: Rider (Purple)
   tft.fillRoundRect(165, 58, 147, 155, 10, COLOR_PURPLE);
   drawIconBox(238, 108, COLOR_TEXT);
   tft.setCursor(187, 178); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("RIDER");
-  tft.setCursor(178, 200); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-  tft.print("[Right Button]");
+  drawButtonLabel(178, 200, COLOR_RED, "RED");
 }
 
 // ============================================================
@@ -1438,8 +1517,7 @@ void drawOwnerModeScreen() {
   tft.print("SINGLE");
   tft.setCursor(25, 197); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
   tft.print("1 parcel");
-  tft.setCursor(22, 210); tft.setTextSize(1);
-  tft.print("[Left Button]");
+  drawButtonLabel(22, 210, COLOR_BLUE, "BLUE");
   // Right tile: Multiple (Purple)
   tft.fillRoundRect(165, 58, 147, 155, 10, COLOR_PURPLE);
   drawIconBox(238, 98, COLOR_TEXT);
@@ -1448,8 +1526,7 @@ void drawOwnerModeScreen() {
   tft.print("MULTIPLE");
   tft.setCursor(187, 197); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
   tft.print("2+ parcels");
-  tft.setCursor(178, 210); tft.setTextSize(1);
-  tft.print("[Right Button]");
+  drawButtonLabel(178, 210, COLOR_RED, "RED");
 }
 
 // ============================================================
@@ -1466,15 +1543,13 @@ void drawAddMorePrompt() {
   tft.fillRoundRect(8, 70, 147, 145, 10, COLOR_BLUE);
   tft.setCursor(22, 120); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("ADD MORE");
-  tft.setCursor(22, 185); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-  tft.print("[Left Button]");
+  drawButtonLabel(22, 185, COLOR_BLUE, "BLUE");
   // Right tile: Done (Green)
   tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_GREEN);
   drawIconCheck(238, 120, COLOR_TEXT);
   tft.setCursor(190, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("DONE");
-  tft.setCursor(178, 185); tft.setTextSize(1); tft.setTextColor(0x0000);
-  tft.print("[Right Button]");
+  drawButtonLabel(178, 185, COLOR_RED, "RED");
 }
 
 // ============================================================
@@ -1521,13 +1596,11 @@ void drawRiderPickupMorePrompt() {
   tft.print("PICK UP");
   tft.setCursor(22, 132); tft.setTextSize(2);
   tft.print("MORE");
-  tft.setCursor(22, 185); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-  tft.print("[Left Button]");
+  drawButtonLabel(22, 185, COLOR_BLUE, "BLUE");
   // Right tile: Done (Green)
   tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_GREEN);
   drawIconCheck(238, 120, COLOR_TEXT);
   tft.setCursor(190, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("DONE");
-  tft.setCursor(178, 185); tft.setTextSize(1); tft.setTextColor(0x0000);
-  tft.print("[Right Button]");
+  drawButtonLabel(178, 185, COLOR_RED, "RED");
 }
