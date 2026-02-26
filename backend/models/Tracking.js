@@ -1,8 +1,3 @@
-/**
- * Tracking Model
- * Stores parcel tracking IDs registered by users via the mobile app.
- * The ESP32 checks this collection when verifying a barcode scan.
- */
 const mongoose = require('mongoose');
 
 const trackingSchema = new mongoose.Schema({
@@ -20,20 +15,21 @@ const trackingSchema = new mongoose.Schema({
     type: String,
     default: 'Unknown'
   },
+  expectedDeliveryDate: String,
   // 'drop_off' = courier drops parcel off, 'pick_up' = user picks up
   mode: {
     type: String,
-    enum: ['drop_off', 'pick_up'],
-    required: true
+    enum: ['drop_off', 'pick_up', 'pickup'], // Support both for compatibility during migration
+    default: 'drop_off'
   },
   status: {
     type: String,
-    enum: ['pending', 'in_transit', 'delivered', 'retrieved'],
+    enum: ['pending', 'in_transit', 'delivered', 'retrieved', 'ready_for_pickup'],
     default: 'pending'
   },
   registeredAt: { type: Date, default: Date.now },
-  deliveredAt:  { type: Date },
-  retrievedAt:  { type: Date }
+  deliveredAt: { type: Date },
+  retrievedAt: { type: Date }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Tracking', trackingSchema);

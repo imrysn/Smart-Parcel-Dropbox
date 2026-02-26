@@ -7,6 +7,7 @@ import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 import '../login_screen.dart';
+import '../pickup_screen.dart';
 
 /// Admin Dashboard - Professional slate blue theme
 /// Distinct from user's luxury gold theme
@@ -34,7 +35,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _initData();
   }
 
@@ -231,6 +232,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           icon: Icon(Icons.history),
                           text: 'Logs',
                         ),
+                        Tab(
+                          icon: Icon(Icons.outbox_outlined),
+                          text: 'Pickups',
+                        ),
                       ],
                     ),
                   ),
@@ -241,6 +246,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 children: [
                   _KeepAlivePage(child: _buildUsersTab()),
                   _KeepAlivePage(child: _buildTrackingTab()),
+                  _KeepAlivePage(
+                    child: PickupScreen(
+                      userId: _userId!,
+                      databaseService: _databaseService,
+                      isAdmin: true,
+                    ),
+                  ),
                   _KeepAlivePage(child: _buildLogsTab()),
                 ],
               ),

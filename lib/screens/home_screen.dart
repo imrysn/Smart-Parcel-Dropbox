@@ -11,6 +11,7 @@ import 'notifications_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'dropbox_control_screen.dart';
 import 'add_pickup_screen.dart';
+import 'pickup_screen.dart';
 import '../widgets/notification_badge.dart';
 
 /// Home Screen - Main dashboard showing active orders
@@ -687,7 +688,10 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildAllOrdersTab();
       case 2:
-        return _buildPickupTab();
+        return PickupScreen(
+          userId: _userId!,
+          databaseService: _databaseService,
+        );
       case 3:
         return _buildProfileTab();
       default:

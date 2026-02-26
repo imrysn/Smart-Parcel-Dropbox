@@ -36,6 +36,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Store io in express app for controllers
+app.set('io', io);
+
 // Request logging
 app.use((req, res, next) => {
   console.log(`📨 ${req.method} ${req.path}`);
@@ -44,6 +47,19 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/device-control', deviceControlRouter);
+
+// Consolidated API Routes
+const userRoutes = require('./routes/userRoutes');
+const trackingRoutes = require('./routes/trackingRoutes');
+const scanLogRoutes = require('./routes/scanLogRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const deliveryLogRoutes = require('./routes/deliveryLogRoutes');
+
+app.use('/api/users', userRoutes);
+app.use('/api/tracking', trackingRoutes);
+app.use('/api/scan-logs', scanLogRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/delivery-logs', deliveryLogRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -63,7 +79,12 @@ app.get('/', (req, res) => {
       health: '/health',
       deviceControl: '/device-control',
       deviceStatus: '/device-control (GET)',
-      deviceHealth: '/device-control/health'
+      deviceHealth: '/device-control/health',
+      api: {
+        users: '/api/users',
+        tracking: '/api/tracking',
+        notifications: '/api/notifications'
+      }
     }
   });
 });

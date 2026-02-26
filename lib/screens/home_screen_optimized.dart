@@ -8,6 +8,8 @@ import 'tracking_details_screen.dart';
 import 'logs_screen.dart';
 import 'notifications_screen.dart';
 import 'dropbox_control_screen.dart';
+import 'pickup_screen.dart';
+import 'add_pickup_screen.dart';
 
 /// OPTIMIZED Home Screen - Removed animations, improved performance
 class HomeScreen extends StatefulWidget {
@@ -99,6 +101,10 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _selectedIndex,
         children: [
           _buildDashboardTab(),
+          PickupScreen(
+            userId: _userId!,
+            databaseService: _databaseService,
+          ),
           _buildLogsTab(),
           _buildProfileTab(),
         ],
@@ -114,6 +120,11 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Dashboard',
           ),
           NavigationDestination(
+            icon: Icon(Icons.outbox_outlined),
+            selectedIcon: Icon(Icons.outbox),
+            label: 'Pickup',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.history_outlined),
             selectedIcon: Icon(Icons.history),
             label: 'Logs',
@@ -125,13 +136,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: _selectedIndex == 0
+      floatingActionButton: _selectedIndex == 0 || _selectedIndex == 1
           ? FloatingActionButton.extended(
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AddTrackingScreen()),
+                MaterialPageRoute(
+                  builder: (_) => _selectedIndex == 0
+                      ? const AddTrackingScreen()
+                      : const AddPickupScreen(),
+                ),
               ),
               icon: const Icon(Icons.add),
-              label: const Text('Add Tracking'),
+              label: Text(_selectedIndex == 0 ? 'Add Tracking' : 'Add Pickup'),
             )
           : null,
     );
