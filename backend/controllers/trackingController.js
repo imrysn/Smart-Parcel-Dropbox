@@ -1,5 +1,6 @@
 const Tracking = require('../models/Tracking');
 const DeliveryLog = require('../models/DeliveryLog');
+const Notification = require('../models/Notification');
 
 // @desc    Register a tracking ID
 exports.registerTracking = async (req, res) => {
@@ -25,6 +26,15 @@ exports.registerTracking = async (req, res) => {
             io.to(userId).emit('trackingUpdate', tracking);
             console.log(`[SOCKET] trackingUpdate emitted for user: ${userId}`);
         }
+
+        // Create a notification for the registration
+        const isPickUp = mode === 'pick_up' || mode === 'pickup';
+        await Notification.create({
+            userId,
+            title: isPickUp ? 'Pickup Registered' : 'Delivery Registered',
+            body: `Tracking ID ${trackingId} has been registered for ${isPickUp ? 'pick up' : 'drop off'}.`,
+            type: 'system'
+        });
 
         res.status(201).json(tracking);
     } catch (error) {

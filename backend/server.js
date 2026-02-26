@@ -13,6 +13,8 @@ const cors = require('cors');
 const { router: deviceControlRouter, setSocketIO } = require('./routes/deviceControl');
 const arduinoScanner = require('./hardware/arduinoScanner');
 const Tracking = require('./models/Tracking');
+const ScanLog = require('./models/ScanLog');
+const Notification = require('./models/Notification');
 
 // Initialize Express app
 const app = express();
@@ -152,6 +154,11 @@ io.on('connection', (socket) => {
       // Case 1: Tracking ID doesn't exist at all
       if (!tracking) {
         console.log(`  ❌ NOT FOUND: ${trackingId}`);
+        await ScanLog.create({
+          scannedCode: trackingId,
+          accessGranted: false,
+          reason: 'not_registered'
+        });
         socket.emit('scanResult', {
           valid: false,
           trackingId,
@@ -166,6 +173,19 @@ io.on('connection', (socket) => {
       const completedStatuses = ['delivered', 'done', 'retrieved'];
       if (completedStatuses.includes(tracking.status)) {
         console.log(`  ⚠️  ALREADY COMPLETED (${tracking.status}): ${trackingId}`);
+        await ScanLog.create({
+          scannedCode: trackingId,
+          accessGranted: false,
+          trackingId: tracking.trackingId,
+          userId: tracking.userId,
+          reason: 'already_completed'
+        });
+        await Notification.create({
+          userId: tracking.userId,
+          title: 'Scan Rejected',
+          body: `Tracking ID ${trackingId} was scanned but is already marked as ${tracking.status}.`,
+          type: 'warning'
+        });
         socket.emit('scanResult', {
           valid: false,
           trackingId,
@@ -177,9 +197,27 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Case 3: Registered but not yet in 'pending' (e.g. awaiting_pickup for wrong mode)
-      if (tracking.status !== 'pending') {
-        console.log(`  ⚠️  WRONG STATUS (${tracking.status}): ${trackingId}`);
+      // Case 3: Status mismatch for the requested mode.
+      // E.g., a pick_up scan on a parcel that is still 'pending',
+      // or a drop_off scan on a parcel that is already 'awaiting_pickup'.
+      const isPickUpMode = (mode === 'pick_up' || mode === 'pickup');
+      const expectedStatus = isPickUpMode ? 'awaiting_pickup' : 'pending';
+
+      if (tracking.status !== expectedStatus) {
+        console.log(`  ⚠️  WRONG STATUS (${tracking.status}): ${trackingId} expected ${expectedStatus} for mode ${mode}`);
+        await ScanLog.create({
+          scannedCode: trackingId,
+          accessGranted: false,
+          trackingId: tracking.trackingId,
+          userId: tracking.userId,
+          reason: 'wrong_status'
+        });
+        await Notification.create({
+          userId: tracking.userId,
+          title: 'Scan Rejected',
+          body: `Tracking ID ${trackingId} was scanned for ${isPickUpMode ? 'Pick Up' : 'Drop Off'} but its status is currently: ${tracking.status}.`,
+          type: 'warning'
+        });
         socket.emit('scanResult', {
           valid: false,
           trackingId,
@@ -193,6 +231,20 @@ io.on('connection', (socket) => {
 
       // Case 4: Valid — tracking is pending and ready to be processed
       console.log(`  ✅ VALID: ${trackingId}`);
+      await ScanLog.create({
+        scannedCode: trackingId,
+        accessGranted: true,
+        trackingId: tracking.trackingId,
+        userId: tracking.userId,
+        reason: 'Authorized'
+      });
+      await Notification.create({
+        userId: tracking.userId,
+        title: 'Scan Successful',
+        body: `Access granted for ${mode === 'drop_off' ? 'Drop Off' : 'Pick Up'} using tracking ID ${trackingId}.`,
+        type: mode === 'drop_off' ? 'delivery' : 'pickup'
+      });
+
       socket.emit('scanResult', {
         valid: true,
         trackingId,
@@ -230,11 +282,39 @@ io.on('connection', (socket) => {
   socket.on('registerOwnerPickup', async ({ trackingId }) => {
     console.log(`📦 registerOwnerPickup → trackingId: ${trackingId}`);
     try {
+      // Find tracking to get userId for notification
+      let tracking = await Tracking.findOne({ trackingId });
+
+      // Default to null if upserted a new one, but if we create it here we need a mode
+      // so Flutter knows it's a pickup.
       await Tracking.updateOne(
         { trackingId },
-        { $set: { status: 'awaiting_pickup', registeredAt: new Date() } },
+        {
+          $set: {
+            status: 'awaiting_pickup',
+            registeredAt: new Date(),
+            mode: 'pick_up'
+          },
+          // Assign to anonymous/hardware user if brand new, so it doesn't break schema
+          $setOnInsert: {
+            userId: tracking ? tracking.userId : 'hardware_generated_pickup'
+          }
+        },
         { upsert: true }
       );
+
+      // Default to null if upserted a new one and we can't notify a specific user
+      const userId = tracking ? tracking.userId : null;
+
+      if (userId) {
+        await Notification.create({
+          userId,
+          title: 'Pickup Ready',
+          body: `Tracking ID ${trackingId} is now awaiting pickup at the box.`,
+          type: 'pickup'
+        });
+      }
+
       io.emit('trackingStatusChanged', {
         trackingId,
         status: 'awaiting_pickup',
@@ -252,12 +332,37 @@ io.on('connection', (socket) => {
   socket.on('statusUpdate', async ({ trackingId, status, mode }) => {
     console.log(`📦 statusUpdate → ${trackingId}: ${status}`);
     try {
+      const tracking = await Tracking.findOne({ trackingId });
+
       const update = { status };
       if (status === 'delivered') update.deliveredAt = new Date();
       if (status === 'retrieved') update.retrievedAt = new Date();
       if (status === 'done') update.doneAt = new Date();
 
       await Tracking.updateOne({ trackingId }, { $set: update });
+
+      if (tracking && tracking.userId) {
+        let title = 'Status Update';
+        let body = `Tracking ID ${trackingId} status changed to ${status}.`;
+        let type = 'system';
+
+        if (status === 'delivered' || status === 'done') {
+          title = 'Parcel Delivered';
+          body = `Your parcel (${trackingId}) has been successfully dropped off in the box.`;
+          type = 'delivery';
+        } else if (status === 'retrieved') {
+          title = 'Parcel Retrieved';
+          body = `Your parcel (${trackingId}) has been successfully retrieved from the box.`;
+          type = 'pickup';
+        }
+
+        await Notification.create({
+          userId: tracking.userId,
+          title,
+          body,
+          type
+        });
+      }
 
       // Broadcast to all connected mobile app clients
       io.emit('trackingStatusChanged', {
