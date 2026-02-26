@@ -155,8 +155,10 @@ io.on('connection', (socket) => {
       if (!tracking) {
         console.log(`  ❌ NOT FOUND: ${trackingId}`);
         await ScanLog.create({
-          scannedCode: trackingId,
+          scannedId: trackingId,
           accessGranted: false,
+          mode: mode,
+          status: 'rejected',
           reason: 'not_registered'
         });
         socket.emit('scanResult', {
@@ -174,8 +176,10 @@ io.on('connection', (socket) => {
       if (completedStatuses.includes(tracking.status)) {
         console.log(`  ⚠️  ALREADY COMPLETED (${tracking.status}): ${trackingId}`);
         await ScanLog.create({
-          scannedCode: trackingId,
+          scannedId: trackingId,
           accessGranted: false,
+          mode: mode,
+          status: 'rejected',
           trackingId: tracking.trackingId,
           userId: tracking.userId,
           reason: 'already_completed'
@@ -206,8 +210,10 @@ io.on('connection', (socket) => {
       if (tracking.status !== expectedStatus) {
         console.log(`  ⚠️  WRONG STATUS (${tracking.status}): ${trackingId} expected ${expectedStatus} for mode ${mode}`);
         await ScanLog.create({
-          scannedCode: trackingId,
+          scannedId: trackingId,
           accessGranted: false,
+          mode: mode,
+          status: 'rejected',
           trackingId: tracking.trackingId,
           userId: tracking.userId,
           reason: 'wrong_status'
@@ -232,8 +238,10 @@ io.on('connection', (socket) => {
       // Case 4: Valid — tracking is pending and ready to be processed
       console.log(`  ✅ VALID: ${trackingId}`);
       await ScanLog.create({
-        scannedCode: trackingId,
+        scannedId: trackingId,
         accessGranted: true,
+        mode: mode,
+        status: 'authorized',
         trackingId: tracking.trackingId,
         userId: tracking.userId,
         reason: 'Authorized'

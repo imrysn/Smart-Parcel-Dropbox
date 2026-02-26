@@ -92,6 +92,7 @@ enum SystemState {
   WAITING_PLACEMENT_STABLE,
   TILTING_PLATFORM,
   CONFIRMING_DROP,
+  SCAN_FAILED_PROMPT,
   RESETTING
 };
 
@@ -100,6 +101,7 @@ bool isReceivingMode     = true;
 bool isRiderMode         = false;  // true = Rider Collect flow
 bool isMultiMode         = false;  // true = Owner multiple parcels
 int  scannedCount        = 0;      // parcels processed in current session
+int  consecutiveScanFails= 0;      // tracks consecutive WAITING_FOR_SCAN fails
 bool stateInitialized    = false;
 bool doorWasOpened       = false;
 unsigned long stateStartTime     = 0;
@@ -172,6 +174,7 @@ void drawAddMorePrompt();
 void drawRiderScanIdScreen();
 void drawRiderScanParcelScreen();
 void drawRiderPickupMorePrompt();
+void drawScanFailedPrompt();
 void drawIconLock(int x, int y, uint16_t color, bool open);
 void drawIconBox(int x, int y, uint16_t color);
 void drawIconCheck(int x, int y, uint16_t color);
@@ -565,6 +568,7 @@ void loop() {
             if (socketIO.isConnected()) {
               emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
             }
+            consecutiveScanFails = 0; // Reset fails on success
             // Non-blocking 1s display pause before unlocking
             pendingNextState  = UNLOCKING_ENTRY;
             actionDelayStart  = millis();
@@ -585,7 +589,8 @@ void loop() {
             displayMessage("INVALID ID", "RETRY SCAN");
             triggerBuzzer(3);
             currentTrackingId = ""; 
-            pendingNextState  = WAITING_FOR_SCAN;
+            consecutiveScanFails++;
+            pendingNextState  = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
             actionDelayStart  = millis();
             actionDelayActive = true;
           }
@@ -624,6 +629,7 @@ void loop() {
           Serial.print("[FLOW] Server APPROVED ID: "); Serial.println(currentTrackingId);
           displayMessage("VALID ID", "Authorized Access");
           triggerBuzzer(2);
+          consecutiveScanFails = 0; // Reset fails on success
           // Non-blocking 1s display pause before unlocking
           pendingNextState  = UNLOCKING_ENTRY;
           actionDelayStart  = millis();
@@ -634,7 +640,8 @@ void loop() {
           triggerBuzzer(3);
           currentTrackingId  = "";
           scanResultReceived = false;
-          pendingNextState   = WAITING_FOR_SCAN;
+          consecutiveScanFails++;
+          pendingNextState   = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
           actionDelayStart   = millis();
           actionDelayActive  = true;
         }
@@ -644,7 +651,8 @@ void loop() {
         displayMessage("TIMEOUT", "RETRY SCAN");
         triggerBuzzer(3);
         currentTrackingId  = "";
-        pendingNextState   = WAITING_FOR_SCAN;
+        consecutiveScanFails++;
+        pendingNextState   = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
         actionDelayStart   = millis();
         actionDelayActive  = true;
       }
@@ -766,6 +774,34 @@ void loop() {
       }
       break;
 
+    // ── SCAN FAILED PROMPT ────────────────────────────────
+    case SCAN_FAILED_PROMPT:
+      if (!stateInitialized) {
+        drawScanFailedPrompt();
+        Serial.println("[FLOW] Scan failed 3 times! Sub-menu: Retry or Exit.");
+        Serial.println("==========================================");
+        Serial.println("  [BLUE] Retry        [RED] Exit");
+        Serial.println("------------------------------------------");
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == LOW) {         // Left = Retry (Blue)
+        delay(50);
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+          Serial.println("[FLOW] Retry Scan.");
+          consecutiveScanFails = 0;
+          triggerBuzzer(1);
+          changeState(WAITING_FOR_SCAN);
+        }
+      } else if (digitalRead(BTN_PICKUP) == LOW) {  // Right = Exit (Red)
+        delay(50);
+        if (digitalRead(BTN_PICKUP) == LOW) {
+          Serial.println("[FLOW] Exiting to Idle.");
+          triggerBuzzer(1);
+          changeState(RESETTING);
+        }
+      }
+      break;
+
     // ── RESETTING ─────────────────────────────────────────
     case RESETTING:
       triggerBuzzer(1);
@@ -780,6 +816,7 @@ void loop() {
       isRiderMode         = false;
       isMultiMode         = false;
       scannedCount        = 0;
+      consecutiveScanFails= 0;
       riderVerifyReceived = false;
       riderVerifyValid    = false;
       changeState(IDLE);
@@ -1603,4 +1640,26 @@ void drawRiderPickupMorePrompt() {
   tft.setCursor(190, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.print("DONE");
   drawButtonLabel(178, 185, COLOR_RED, "RED");
+}
+
+// ============================================================
+//  ATM SCREEN: Scan Failed Prompt [Retry | Exit]
+// ============================================================
+void drawScanFailedPrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setCursor(35, 40); tft.setTextSize(2); tft.setTextColor(COLOR_RED);
+  tft.print("SCAN FAILED 3 TIMES");
+  // Left tile: Retry (Blue)
+  tft.fillRoundRect(8, 70, 147, 145, 10, COLOR_BLUE);
+  drawIconBox(82, 115, COLOR_TEXT); // re-use box icon as a generic 'retry scan' symbol
+  tft.setCursor(45, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("RETRY");
+  drawButtonLabel(35, 185, COLOR_BLUE, "BLUE");
+  // Right tile: Exit (Red)
+  tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_RED);
+  drawIconX(238, 120, COLOR_TEXT);
+  tft.setCursor(215, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("EXIT");
+  drawButtonLabel(195, 185, COLOR_RED, "RED");
 }
