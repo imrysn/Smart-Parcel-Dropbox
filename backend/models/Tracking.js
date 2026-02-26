@@ -24,12 +24,13 @@ const trackingSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'in_transit', 'delivered', 'retrieved', 'ready_for_pickup'],
+    enum: ['pending', 'in_transit', 'delivered', 'retrieved', 'ready_for_pickup', 'awaiting_pickup', 'done'],
     default: 'pending'
   },
   registeredAt: { type: Date, default: Date.now },
   deliveredAt: { type: Date },
-  retrievedAt: { type: Date }
+  retrievedAt: { type: Date },
+  doneAt: { type: Date }   // Set when rider marks parcel as collected
 }, { timestamps: true });
 
 module.exports = mongoose.model('Tracking', trackingSchema);

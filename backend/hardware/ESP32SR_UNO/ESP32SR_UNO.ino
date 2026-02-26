@@ -76,8 +76,18 @@ const int US_DROPOFF[2]  = {18,  8};  // TRIG: 18, ECHO: 8
 // ============================================================
 enum SystemState {
   IDLE,
+  // ── Pick Up sub-menu states ─────────────────────────────────
+  SELECTING_PICKUP_TYPE,    // ATM sub-menu: [Owner | Rider]
+  OWNER_SELECTING_MODE,     // ATM sub-menu: [Single | Multiple]
+  OWNER_SCANNING,           // Owner scans tracking ID(s) to register
+  OWNER_ADD_MORE_PROMPT,    // ATM prompt: [Add More | Done]
+  RIDER_VERIFYING,          // Rider scans their QR → server check
+  RIDER_DOOR_OPEN,          // Pickup bin door unlocked, wait for open+close
+  RIDER_SCANNING_PARCELS,   // Rider scans each parcel → status=done
+  RIDER_PICKUP_PROMPT,      // ATM prompt: [Pick Up More | Done]
+  // ── Drop Off states (unchanged) ─────────────────────────────
   WAITING_FOR_SCAN,
-  VERIFYING_SCAN,      // NEW: waiting for server scanResult response
+  VERIFYING_SCAN,
   UNLOCKING_ENTRY,
   WAITING_PLACEMENT_STABLE,
   TILTING_PLATFORM,
@@ -87,15 +97,23 @@ enum SystemState {
 
 SystemState currentState = IDLE;
 bool isReceivingMode     = true;
+bool isRiderMode         = false;  // true = Rider Collect flow
+bool isMultiMode         = false;  // true = Owner multiple parcels
+int  scannedCount        = 0;      // parcels processed in current session
 bool stateInitialized    = false;
 bool doorWasOpened       = false;
 unsigned long stateStartTime     = 0;
 unsigned long stabilityStartTime = 0;
 unsigned long lastDebugTime      = 0;
 
-// Non-blocking action delay helper (replaces delay() calls inside FSM states)
+// Non-blocking action delay helper
 unsigned long actionDelayStart  = 0;
 bool          actionDelayActive = false;
+SystemState   pendingNextState  = IDLE;
+
+// Rider verification result
+bool riderVerifyReceived = false;
+bool riderVerifyValid    = false;
 
 // ============================================================
 //  TRACKING IDs
@@ -128,10 +146,13 @@ void setupWiFi();
 void setupSocketIO();
 void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length);
 void emitVerifyScan(const String& trackingId, const String& mode);
+void emitVerifyRider(const String& riderId);
+void emitRegisterOwnerPickup(const String& trackingId);
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode);
 void emitDoorState();
 void handleRegisterTracking(const String& payload);
 void handleScanResult(const String& payload);
+void handleRiderVerifyResult(const String& payload);
 void handleControlDoor(const String& payload);
 float getDistance(const int pins[]);
 void checkSerialCommands();
@@ -139,12 +160,18 @@ void printSerialMenu();
 void showHomeScreen();
 void drawStatusBar();
 void drawScannerBg();
+void drawPickupSelectScreen();
+void drawOwnerModeScreen();
+void drawAddMorePrompt();
+void drawRiderScanIdScreen();
+void drawRiderScanParcelScreen();
+void drawRiderPickupMorePrompt();
 void drawIconLock(int x, int y, uint16_t color, bool open);
 void drawIconBox(int x, int y, uint16_t color);
 void drawIconCheck(int x, int y, uint16_t color);
 void drawIconX(int x, int y, uint16_t color);
 void drawWiFiSignal(int x, int y, uint16_t color);
-void reinitTFT(); // NEW: manual re-init logic
+void reinitTFT();
 
 // ============================================================
 //  SETUP
@@ -220,16 +247,270 @@ void loop() {
         if (digitalRead(BTN_RECEIVE) == LOW) {
           Serial.println("[FLOW] User selected: DROP OFF.");
           isReceivingMode = true;
+          isRiderMode     = false;
           triggerBuzzer(1);
           changeState(WAITING_FOR_SCAN);
         }
       } else if (digitalRead(BTN_PICKUP) == LOW) {
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.println("[FLOW] User selected: PICK UP.");
+          Serial.println("[FLOW] User selected: PICK UP → showing sub-menu.");
           isReceivingMode = false;
           triggerBuzzer(1);
-          changeState(WAITING_FOR_SCAN);
+          changeState(SELECTING_PICKUP_TYPE);
+        }
+      }
+      break;
+
+    // ── SELECTING PICKUP TYPE (ATM: Owner | Rider) ────────
+    case SELECTING_PICKUP_TYPE:
+      if (!stateInitialized) {
+        drawPickupSelectScreen();
+        Serial.println("[FLOW] Sub-menu: Waiting for Owner or Rider selection.");
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Owner
+        delay(50);
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+          Serial.println("[FLOW] Sub-menu: OWNER selected.");
+          isRiderMode = false;
+          triggerBuzzer(1);
+          changeState(OWNER_SELECTING_MODE);
+        }
+      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Rider
+        delay(50);
+        if (digitalRead(BTN_PICKUP) == LOW) {
+          Serial.println("[FLOW] Sub-menu: RIDER selected.");
+          isRiderMode = true;
+          triggerBuzzer(2);
+          changeState(RIDER_VERIFYING);
+        }
+      }
+      break;
+
+    // ── OWNER SELECTING MODE (ATM: Single | Multiple) ─────
+    case OWNER_SELECTING_MODE:
+      if (!stateInitialized) {
+        drawOwnerModeScreen();
+        Serial.println("[FLOW] Owner sub-menu: Single or Multiple?");
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Single
+        delay(50);
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+          Serial.println("[FLOW] Owner Mode: SINGLE pick up.");
+          isMultiMode  = false;
+          scannedCount = 0;
+          triggerBuzzer(1);
+          changeState(OWNER_SCANNING);
+        }
+      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Multiple
+        delay(50);
+        if (digitalRead(BTN_PICKUP) == LOW) {
+          Serial.println("[FLOW] Owner Mode: MULTIPLE pick up.");
+          isMultiMode  = true;
+          scannedCount = 0;
+          triggerBuzzer(2);
+          changeState(OWNER_SCANNING);
+        }
+      }
+      break;
+
+    // ── OWNER SCANNING (register tracking ID) ─────────────
+    case OWNER_SCANNING:
+      if (!stateInitialized) {
+        tft.fillScreen(COLOR_BG);
+        drawStatusBar();
+        drawScannerBg();
+        tft.setCursor(20, 185); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+        if (isMultiMode) {
+          String lbl = "Multi-Scan #" + String(scannedCount + 1);
+          tft.print(lbl);
+        } else {
+          tft.print("Scan Waybill QR");
+        }
+        Serial.println("[FLOW] Owner: Waiting for tracking ID scan...");
+        stateInitialized = true;
+      }
+      if (Serial2.available()) {
+        String scanned = Serial2.readStringUntil('\n');
+        scanned.trim();
+        if (scanned.length() > 2 && scanned.indexOf('[') == -1 && scanned.indexOf(']') == -1) {
+          currentTrackingId = scanned;
+          scannedCount++;
+          Serial.print("[FLOW] Owner scanned ID #"); Serial.print(scannedCount);
+          Serial.print(": "); Serial.println(scanned);
+          String label = "#" + String(scannedCount) + " " + scanned.substring(0, 10);
+          displayMessage("REGISTERED", label.c_str());
+          triggerBuzzer(2);
+          emitRegisterOwnerPickup(scanned);
+          pendingNextState  = isMultiMode ? OWNER_ADD_MORE_PROMPT : RESETTING;
+          actionDelayStart  = millis();
+          actionDelayActive = true;
+        }
+      }
+      if (actionDelayActive && millis() - actionDelayStart >= 1500) {
+        actionDelayActive = false;
+        changeState(pendingNextState);
+        pendingNextState = IDLE;
+      }
+      break;
+
+    // ── OWNER ADD MORE PROMPT (ATM: Add More | Done) ──────
+    case OWNER_ADD_MORE_PROMPT:
+      if (!stateInitialized) {
+        drawAddMorePrompt();
+        Serial.print("[FLOW] Owner: Add more parcel? (registered so far: ");
+        Serial.print(scannedCount); Serial.println(")");
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Add More
+        delay(50);
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+          Serial.println("[FLOW] Owner: Adding more parcels.");
+          triggerBuzzer(1);
+          changeState(OWNER_SCANNING);
+        }
+      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Done
+        delay(50);
+        if (digitalRead(BTN_PICKUP) == LOW) {
+          Serial.print("[FLOW] Owner: Done. Total registered: "); Serial.println(scannedCount);
+          triggerBuzzer(1);
+          changeState(RESETTING);
+        }
+      }
+      break;
+
+    // ── RIDER VERIFYING (scan rider QR → server check) ────
+    case RIDER_VERIFYING:
+      if (!stateInitialized) {
+        drawRiderScanIdScreen();
+        riderVerifyReceived = false;
+        riderVerifyValid    = false;
+        stateStartTime      = millis();
+        stateInitialized    = true;
+        Serial.println("[FLOW] Rider: Waiting for Rider QR scan...");
+      }
+      if (Serial2.available() && !actionDelayActive) {
+        String riderId = Serial2.readStringUntil('\n');
+        riderId.trim();
+        if (riderId.length() > 2 && riderId.indexOf('[') == -1 && riderId.indexOf(']') == -1) {
+          Serial.print("[FLOW] Rider ID scanned: "); Serial.println(riderId);
+          displayMessage("VERIFYING...", "Please wait");
+          if (socketIO.isConnected()) {
+            emitVerifyRider(riderId);
+          } else {
+            Serial.println("[WARN] Rider verify: offline — cannot verify.");
+            displayMessage("OFFLINE", "No server");
+            triggerBuzzer(3);
+            pendingNextState  = RIDER_VERIFYING;
+            actionDelayStart  = millis();
+            actionDelayActive = true;
+          }
+        }
+      }
+      if (riderVerifyReceived && !actionDelayActive) {
+        riderVerifyReceived = false;
+        if (riderVerifyValid) {
+          Serial.println("[FLOW] Rider: VERIFIED.");
+          displayMessage("VERIFIED", "Opening Bin...");
+          triggerBuzzer(2);
+          pendingNextState  = RIDER_DOOR_OPEN;
+        } else {
+          Serial.println("[FLOW] Rider: NOT AUTHORIZED.");
+          displayMessage("REJECTED", "Retry Scan");
+          triggerBuzzer(3);
+          pendingNextState  = RIDER_VERIFYING;
+        }
+        actionDelayStart  = millis();
+        actionDelayActive = true;
+      }
+      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
+        actionDelayActive = false;
+        changeState(pendingNextState);
+        pendingNextState = IDLE;
+      }
+      break;
+
+    // ── RIDER DOOR OPEN (unlock bin, wait open+close) ──────
+    case RIDER_DOOR_OPEN:
+      if (!stateInitialized) {
+        digitalWrite(LOCK_PICKUP, LOW);   // Unlock pickup bin
+        lockPickupOpen = true;
+        emitDoorState();
+        displayMessage("DOOR OPEN", "Collect Parcels");
+        doorWasOpened    = false;
+        stateInitialized = true;
+        scannedCount     = 0;
+        triggerBuzzer(2);
+        Serial.println("[FLOW] Rider: Pickup bin UNLOCKED.");
+      }
+      if (digitalRead(REED_PICKUP) == 1 && !doorWasOpened) {
+        Serial.println("[FLOW] Rider: Bin door OPENED.");
+        doorWasOpened = true;
+        triggerBuzzer(1);
+        drawRiderScanParcelScreen();
+      }
+      if (doorWasOpened && digitalRead(REED_PICKUP) == 0) {
+        digitalWrite(LOCK_PICKUP, HIGH);  // Re-lock
+        lockPickupOpen = false;
+        emitDoorState();
+        Serial.println("[FLOW] Rider: Bin door CLOSED → Locked.");
+        triggerBuzzer(1);
+        changeState(RIDER_SCANNING_PARCELS);
+      }
+      break;
+
+    // ── RIDER SCANNING PARCELS ─────────────────────────────
+    case RIDER_SCANNING_PARCELS:
+      if (!stateInitialized) {
+        drawRiderScanParcelScreen();
+        Serial.println("[FLOW] Rider: Waiting for parcel scan...");
+        stateInitialized = true;
+      }
+      if (Serial2.available() && !actionDelayActive) {
+        String scanned = Serial2.readStringUntil('\n');
+        scanned.trim();
+        if (scanned.length() > 2 && scanned.indexOf('[') == -1 && scanned.indexOf(']') == -1) {
+          scannedCount++;
+          Serial.print("[FLOW] Rider scanned parcel #"); Serial.print(scannedCount);
+          Serial.print(": "); Serial.println(scanned);
+          emitStatusUpdate(scanned, "done", "rider_collect");
+          String label = "#" + String(scannedCount) + " " + scanned.substring(0, 10);
+          displayMessage("SCANNED", label.c_str());
+          triggerBuzzer(1);
+          pendingNextState  = RIDER_PICKUP_PROMPT;
+          actionDelayStart  = millis();
+          actionDelayActive = true;
+        }
+      }
+      if (actionDelayActive && millis() - actionDelayStart >= 1000) {
+        actionDelayActive = false;
+        changeState(pendingNextState);
+        pendingNextState = IDLE;
+      }
+      break;
+
+    // ── RIDER PICKUP PROMPT (ATM: Pick Up More | Done) ────
+    case RIDER_PICKUP_PROMPT:
+      if (!stateInitialized) {
+        drawRiderPickupMorePrompt();
+        Serial.print("[FLOW] Rider: Parcels scanned so far: "); Serial.println(scannedCount);
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == LOW) {         // Left = Pick Up More
+        delay(50);
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+          Serial.println("[FLOW] Rider: Scanning more parcels.");
+          triggerBuzzer(1);
+          changeState(RIDER_SCANNING_PARCELS);
+        }
+      } else if (digitalRead(BTN_PICKUP) == LOW) {  // Right = Done
+        delay(50);
+        if (digitalRead(BTN_PICKUP) == LOW) {
+          Serial.print("[FLOW] Rider: DONE. Total parcels: "); Serial.println(scannedCount);
+          triggerBuzzer(1);
+          changeState(RESETTING);
         }
       }
       break;
@@ -265,8 +546,10 @@ void loop() {
             if (socketIO.isConnected()) {
               emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
             }
-            delay(1000); 
-            changeState(UNLOCKING_ENTRY);
+            // Non-blocking 1s display pause before unlocking
+            pendingNextState  = UNLOCKING_ENTRY;
+            actionDelayStart  = millis();
+            actionDelayActive = true;
           } 
           else if (socketIO.isConnected()) {
             // No local match, but server is available -> Fallback to Online Check
@@ -283,19 +566,30 @@ void loop() {
             displayMessage("INVALID ID", "RETRY SCAN");
             triggerBuzzer(3);
             currentTrackingId = ""; 
+            pendingNextState  = WAITING_FOR_SCAN;
             actionDelayStart  = millis();
             actionDelayActive = true;
           }
         }
       }
-      // Non-blocking delay: revert display after 2s on scan-fail (offline)
-      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
-        actionDelayActive = false;
-        tft.fillScreen(COLOR_BG);
-        drawStatusBar();
-        drawScannerBg();
-        tft.setCursor(40, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
-        tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
+      // Non-blocking delay: 1s pause → UNLOCKING_ENTRY (success), 2s → retry (fail/offline)
+      if (actionDelayActive) {
+        unsigned long pauseMs = (pendingNextState == UNLOCKING_ENTRY) ? 1000 : 2000;
+        if (millis() - actionDelayStart >= pauseMs) {
+          actionDelayActive = false;
+          if (pendingNextState == WAITING_FOR_SCAN) {
+            // Redraw scanner UI before looping back
+            tft.fillScreen(COLOR_BG);
+            drawStatusBar();
+            drawScannerBg();
+            tft.setCursor(40, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+            tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
+            pendingNextState = IDLE;  // reset flag, stay in WAITING_FOR_SCAN
+          } else {
+            changeState(pendingNextState);
+            pendingNextState = IDLE;
+          }
+        }
       }
       break;
 
@@ -306,35 +600,43 @@ void loop() {
         stateInitialized = true;
       }
 
-      if (scanResultReceived) {
+      if (scanResultReceived && !actionDelayActive) {
         if (scanResultValid) {
           Serial.print("[FLOW] Server APPROVED ID: "); Serial.println(currentTrackingId);
           displayMessage("VALID ID", "Authorized Access");
           triggerBuzzer(2);
-          delay(1000);
-          changeState(UNLOCKING_ENTRY);
+          // Non-blocking 1s display pause before unlocking
+          pendingNextState  = UNLOCKING_ENTRY;
+          actionDelayStart  = millis();
+          actionDelayActive = true;
         } else {
           Serial.print("[FLOW] Server REJECTED ID: "); Serial.println(currentTrackingId);
           displayMessage("REJECTED", "RETRY SCAN");
           triggerBuzzer(3);
-          currentTrackingId = "";
-          scanResultReceived = false; 
-          actionDelayStart  = millis();
-          actionDelayActive = true;
+          currentTrackingId  = "";
+          scanResultReceived = false;
+          pendingNextState   = WAITING_FOR_SCAN;
+          actionDelayStart   = millis();
+          actionDelayActive  = true;
         }
-      } else if (millis() - stateStartTime > 8000) {
+      } else if (!actionDelayActive && millis() - stateStartTime > 8000) {
         // Timeout: 8 seconds
         Serial.println("[FLOW] Server verification timed out.");
         displayMessage("TIMEOUT", "RETRY SCAN");
         triggerBuzzer(3);
-        currentTrackingId = "";
-        actionDelayStart  = millis();
-        actionDelayActive = true;
+        currentTrackingId  = "";
+        pendingNextState   = WAITING_FOR_SCAN;
+        actionDelayStart   = millis();
+        actionDelayActive  = true;
       }
-      // Non-blocking 2s pause after reject/timeout before RETRYING
-      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
-        actionDelayActive = false;
-        changeState(WAITING_FOR_SCAN);
+      // Non-blocking pause: 1s (success → UNLOCKING_ENTRY) or 2s (fail/timeout → WAITING_FOR_SCAN)
+      if (actionDelayActive) {
+        unsigned long pauseMs = (pendingNextState == UNLOCKING_ENTRY) ? 1000 : 2000;
+        if (millis() - actionDelayStart >= pauseMs) {
+          actionDelayActive = false;
+          changeState(pendingNextState);
+          pendingNextState = IDLE;
+        }
       }
       break;
 
@@ -452,10 +754,15 @@ void loop() {
       digitalWrite(LOCK_PICKUP,   HIGH);
       digitalWrite(LOCK_RECEIVED, HIGH);
       lockTopOpen = false; lockPickupOpen = false; lockReceivedOpen = false;
-      emitDoorState();  // 🔔 notify app: all doors locked on reset
+      emitDoorState();  // notify app: all doors locked on reset
       platformServo.write(90);
-      currentTrackingId  = "";
-      scanResultReceived = false;
+      currentTrackingId   = "";
+      scanResultReceived  = false;
+      isRiderMode         = false;
+      isMultiMode         = false;
+      scannedCount        = 0;
+      riderVerifyReceived = false;
+      riderVerifyValid    = false;
       changeState(IDLE);
       showHomeScreen();
       Serial.println("--- [FLOW] SYSTEM RESET TO IDLE ---");
@@ -567,26 +874,27 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
       String eventName = doc[0].as<String>();
 
       if (eventName == "scanResult") {
-        // Server responded to our verifyScan request
         String data;
         serializeJson(doc[1], data);
         handleScanResult(data);
 
+      } else if (eventName == "riderVerifyResult") {
+        // Server responded to our verifyRider request
+        String data;
+        serializeJson(doc[1], data);
+        handleRiderVerifyResult(data);
+
       } else if (eventName == "registerTracking") {
-        // Mobile app pushed a tracking ID to register on the hardware
         String data;
         serializeJson(doc[1], data);
         handleRegisterTracking(data);
 
       } else if (eventName == "controlDoor") {
-        // Mobile app or admin requested manual door control
-        // Payload: { type: "top"|"pickup"|"received", action: "open"|"close" }
         String data;
         serializeJson(doc[1], data);
         handleControlDoor(data);
 
       } else if (eventName == "getStatus") {
-        // App requested current door states + parcel sensor readings
         emitDoorState();
       }
       break;
@@ -616,6 +924,38 @@ void emitVerifyScan(const String& trackingId, const String& mode) {
   serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output.c_str());
   if (DEBUG_WS) { Serial.print("[WS] Emitted verifyScan: "); Serial.println(output); }
+}
+
+// ============================================================
+//  EMIT: Send verifyRider to server
+// ============================================================
+void emitVerifyRider(const String& riderId) {
+  StaticJsonDocument<256> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("verifyRider");
+  JsonObject data = arr.createNestedObject();
+  data["riderId"] = riderId;
+
+  String output;
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output.c_str());
+  if (DEBUG_WS) { Serial.print("[WS] Emitted verifyRider: "); Serial.println(output); }
+}
+
+// ============================================================
+//  EMIT: Register owner pickup tracking ID via scanner
+// ============================================================
+void emitRegisterOwnerPickup(const String& trackingId) {
+  StaticJsonDocument<256> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("registerOwnerPickup");
+  JsonObject data = arr.createNestedObject();
+  data["trackingId"] = trackingId;
+
+  String output;
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output.c_str());
+  if (DEBUG_WS) { Serial.print("[WS] Emitted registerOwnerPickup: "); Serial.println(output); }
 }
 
 // ============================================================
@@ -721,7 +1061,20 @@ void handleScanResult(const String& payload) {
 
   scanResultValid    = valid;
   scanResultReceived = true;
-  // The VERIFYING_SCAN state will react to these flags on the next loop()
+}
+
+// ============================================================
+//  HANDLE: riderVerifyResult from server
+// ============================================================
+void handleRiderVerifyResult(const String& payload) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload);
+
+  bool valid = doc["valid"].as<bool>();
+  Serial.print("[WS] riderVerifyResult → valid: "); Serial.println(valid ? "YES" : "NO");
+
+  riderVerifyValid    = valid;
+  riderVerifyReceived = true;
 }
 
 // ============================================================
@@ -841,27 +1194,56 @@ void reinitTFT() {
 
 void forceNextStep() {
   switch (currentState) {
+    case SELECTING_PICKUP_TYPE:
+      Serial.println("[FLOW] Bypass: Defaulting to OWNER mode.");
+      isRiderMode = false;
+      changeState(OWNER_SELECTING_MODE);
+      break;
+    case OWNER_SELECTING_MODE:
+      Serial.println("[FLOW] Bypass: Defaulting to SINGLE mode.");
+      isMultiMode = false; scannedCount = 0;
+      changeState(OWNER_SCANNING);
+      break;
+    case OWNER_SCANNING:
+      Serial.println("[FLOW] Bypass: Skipping owner scan.");
+      changeState(RESETTING);
+      break;
+    case OWNER_ADD_MORE_PROMPT:
+      Serial.println("[FLOW] Bypass: Ending multi-scan.");
+      changeState(RESETTING);
+      break;
+    case RIDER_VERIFYING:
+      Serial.println("[FLOW] Bypass: Skipping rider verification.");
+      changeState(RIDER_DOOR_OPEN);
+      break;
+    case RIDER_DOOR_OPEN:
+      Serial.println("[FLOW] Bypass: Skipping bin door wait.");
+      changeState(RIDER_SCANNING_PARCELS);
+      break;
+    case RIDER_SCANNING_PARCELS:
+      Serial.println("[FLOW] Bypass: Skipping parcel scan.");
+      changeState(RIDER_PICKUP_PROMPT);
+      break;
+    case RIDER_PICKUP_PROMPT:
+      Serial.println("[FLOW] Bypass: Ending rider session.");
+      changeState(RESETTING);
+      break;
     case WAITING_FOR_SCAN:
-      // Skip scan, unlock top
       Serial.println("[FLOW] Bypass: Bypassing Scan.");
       changeState(UNLOCKING_ENTRY);
       break;
     case UNLOCKING_ENTRY:
-      // Skip reed switch, proceed to placement
       Serial.println("[FLOW] Bypass: Bypassing Reed Switch.");
       changeState(WAITING_PLACEMENT_STABLE);
       break;
     case WAITING_PLACEMENT_STABLE:
-      // Skip US Platform, proceed to Tilt
       Serial.println("[FLOW] Bypass: Bypassing Platform Sensor.");
       changeState(TILTING_PLATFORM);
       break;
     case TILTING_PLATFORM:
-      // Skip Tilt timer, proceed to confirm
       changeState(CONFIRMING_DROP);
       break;
     case CONFIRMING_DROP:
-      // Skip bin sensor, reset
       changeState(RESETTING);
       break;
     default:
@@ -910,8 +1292,9 @@ void triggerBuzzer(int beeps) {
 }
 
 void displayMessage(const char* title, const char* msg) {
-  uint16_t bgColor = (strstr(title, "Success") || strstr(title, "Valid")) ? COLOR_GREEN : 
-                     (strstr(title, "Error") || strstr(title, "Invalid") || strstr(title, "Reject")) ? COLOR_RED : COLOR_BLUE;
+  uint16_t bgColor = (strstr(title, "SUCCESS") || strstr(title, "VALID"))                                         ? COLOR_GREEN :
+                     (strstr(title, "ERROR")   || strstr(title, "INVALID") || strstr(title, "REJECTED") ||
+                      strstr(title, "TIMEOUT") || strstr(title, "WARN"))                                          ? COLOR_RED   : COLOR_BLUE;
 
   tft.fillScreen(bgColor);
   drawStatusBar();
@@ -1014,4 +1397,137 @@ void drawIconX(int x, int y, uint16_t color) {
   tft.drawLine(x-21, y-20, x+19, y+20, color);
   tft.drawLine(x+20, y-20, x-20, y+20, color);
   tft.drawLine(x+21, y-20, x-19, y+20, color);
+}
+
+// ============================================================
+//  ATM SCREEN: Pick Up Type Selection [Owner | Rider]
+// ============================================================
+void drawPickupSelectScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setCursor(50, 38); tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print("SELECT PICK UP TYPE");
+  // Left tile: Owner (Blue)
+  tft.fillRoundRect(8, 58, 147, 155, 10, COLOR_BLUE);
+  drawIconLock(82, 108, COLOR_TEXT, true);
+  tft.setCursor(25, 178); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("OWNER");
+  tft.setCursor(22, 200); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("[Left Button]");
+  // Right tile: Rider (Purple)
+  tft.fillRoundRect(165, 58, 147, 155, 10, COLOR_PURPLE);
+  drawIconBox(238, 108, COLOR_TEXT);
+  tft.setCursor(187, 178); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("RIDER");
+  tft.setCursor(178, 200); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("[Right Button]");
+}
+
+// ============================================================
+//  ATM SCREEN: Owner Mode Selection [Single | Multiple]
+// ============================================================
+void drawOwnerModeScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setCursor(60, 38); tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print("OWNER PICK UP");
+  // Left tile: Single (Blue)
+  tft.fillRoundRect(8, 58, 147, 155, 10, COLOR_BLUE);
+  drawIconBox(82, 108, COLOR_TEXT);
+  tft.setCursor(32, 175); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("SINGLE");
+  tft.setCursor(25, 197); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("1 parcel");
+  tft.setCursor(22, 210); tft.setTextSize(1);
+  tft.print("[Left Button]");
+  // Right tile: Multiple (Purple)
+  tft.fillRoundRect(165, 58, 147, 155, 10, COLOR_PURPLE);
+  drawIconBox(238, 98, COLOR_TEXT);
+  drawIconBox(238, 118, COLOR_TEXT);
+  tft.setCursor(175, 175); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("MULTIPLE");
+  tft.setCursor(187, 197); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("2+ parcels");
+  tft.setCursor(178, 210); tft.setTextSize(1);
+  tft.print("[Right Button]");
+}
+
+// ============================================================
+//  ATM SCREEN: Add More Parcel Prompt [Add More | Done]
+// ============================================================
+void drawAddMorePrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  String countStr = "Parcel #" + String(scannedCount) + " registered!";
+  tft.setCursor(max(0, (int)(160 - countStr.length() * 6)), 40);
+  tft.setTextSize(2); tft.setTextColor(COLOR_GREEN);
+  tft.print(countStr);
+  // Left tile: Add More (Blue)
+  tft.fillRoundRect(8, 70, 147, 145, 10, COLOR_BLUE);
+  tft.setCursor(22, 120); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("ADD MORE");
+  tft.setCursor(22, 185); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("[Left Button]");
+  // Right tile: Done (Green)
+  tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_GREEN);
+  drawIconCheck(238, 120, COLOR_TEXT);
+  tft.setCursor(190, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("DONE");
+  tft.setCursor(178, 185); tft.setTextSize(1); tft.setTextColor(0x0000);
+  tft.print("[Right Button]");
+}
+
+// ============================================================
+//  SCREEN: Rider Scan ID
+// ============================================================
+void drawRiderScanIdScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  drawScannerBg();
+  tft.setCursor(55, 185); tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print("Scan Rider ID");
+  tft.setCursor(40, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("Scan your rider QR code");
+}
+
+// ============================================================
+//  SCREEN: Rider Scan Parcel
+// ============================================================
+void drawRiderScanParcelScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  drawScannerBg();
+  String prompt = "Scan Parcel #" + String(scannedCount + 1);
+  tft.setCursor(max(0, (int)(160 - prompt.length() * 6)), 185);
+  tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print(prompt);
+  tft.setCursor(30, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("Scan each parcel barcode");
+}
+
+// ============================================================
+//  ATM SCREEN: Rider Pickup More Prompt [Pick Up More | Done]
+// ============================================================
+void drawRiderPickupMorePrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  String countStr = "#" + String(scannedCount) + " marked DONE";
+  tft.setCursor(max(0, (int)(160 - countStr.length() * 6)), 40);
+  tft.setTextSize(2); tft.setTextColor(COLOR_GREEN);
+  tft.print(countStr);
+  // Left tile: Pick Up More (Purple)
+  tft.fillRoundRect(8, 70, 147, 145, 10, COLOR_PURPLE);
+  tft.setCursor(15, 110); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("PICK UP");
+  tft.setCursor(22, 132); tft.setTextSize(2);
+  tft.print("MORE");
+  tft.setCursor(22, 185); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("[Left Button]");
+  // Right tile: Done (Green)
+  tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_GREEN);
+  drawIconCheck(238, 120, COLOR_TEXT);
+  tft.setCursor(190, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("DONE");
+  tft.setCursor(178, 185); tft.setTextSize(1); tft.setTextColor(0x0000);
+  tft.print("[Right Button]");
 }

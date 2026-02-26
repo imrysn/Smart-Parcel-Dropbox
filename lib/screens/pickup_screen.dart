@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../models/tracking_model.dart';
 import 'tracking_details_screen.dart';
-import 'add_pickup_screen.dart';
 
 /// Pickup Screen - Manages items waiting to be picked up by couriers
 class PickupScreen extends StatefulWidget {
@@ -32,16 +31,16 @@ class _PickupScreenState extends State<PickupScreen> {
           stream: widget.isAdmin
               ? widget.databaseService.getAllTrackingIds().map((list) => list
                   .where((t) =>
-                      t.mode == 'pickup' &&
-                      ['pending', 'ready_for_pickup', 'retrieved']
+                      (t.mode == 'pickup' || t.mode == 'pick_up') &&
+                      ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
                           .contains(t.status))
                   .toList())
               : widget.databaseService.getActivePickups(widget.userId),
           initialData: widget.databaseService.cachedTracking
               .where((t) =>
-                  t.mode == 'pickup' &&
+                  (t.mode == 'pickup' || t.mode == 'pick_up') &&
                   (widget.isAdmin || t.userId == widget.userId) &&
-                  ['pending', 'ready_for_pickup'].contains(t.status))
+                  ['pending', 'awaiting_pickup', 'ready_for_pickup'].contains(t.status))
               .toList(),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
@@ -86,7 +85,7 @@ class _PickupScreenState extends State<PickupScreen> {
                       ),
                       const SizedBox(height: 24),
                       const Text(
-                        'No Pickups Registered',
+                        'No Pickups Yet',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -96,25 +95,24 @@ class _PickupScreenState extends State<PickupScreen> {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 40),
                         child: Text(
-                          'Items you register for rider collection will appear here.',
+                          'Scan a waybill QR code at the dropbox to register a pickup. Items will appear here automatically.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                          style: TextStyle(color: Colors.grey[600], fontSize: 15),
                         ),
                       ),
-                      const SizedBox(height: 32),
-                      ElevatedButton.icon(
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const AddPickupScreen(),
-                          ),
-                        ),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Register First Pickup'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
+                      const SizedBox(height: 24),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.qr_code_scanner, color: Colors.deepPurple.shade300, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Use the box scanner to register',
+                              style: TextStyle(color: Colors.deepPurple.shade400, fontWeight: FontWeight.w600),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -133,16 +131,6 @@ class _PickupScreenState extends State<PickupScreen> {
             );
           },
         ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => const AddPickupScreen(),
-          ),
-        ),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Pickup'),
-        heroTag: 'pickup_fab',
       ),
     );
   }
@@ -234,12 +222,16 @@ class _PickupScreenState extends State<PickupScreen> {
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'pending':
-        return Colors.orange;
+      case 'awaiting_pickup':
+        return Colors.indigo;
       case 'ready_for_pickup':
         return Colors.deepPurple;
+      case 'pending':
+        return Colors.orange;
       case 'retrieved':
-        return Colors.green;
+        return Colors.grey;
+      case 'done':
+        return Colors.teal;
       default:
         return Colors.grey;
     }

@@ -133,8 +133,6 @@ io.on('connection', (socket) => {
     console.log(`🔍 verifyScan → trackingId: ${trackingId}, mode: ${mode}`);
     try {
       // Find a tracking record that matches AND is still pending
-      // Note: we match by trackingId + status only. The `mode` from the ESP32
-      // determines which bin to use (routing), not whether the ID is valid.
       const tracking = await Tracking.findOne({
         trackingId,
         status: 'pending'
@@ -143,7 +141,6 @@ io.on('connection', (socket) => {
       const valid = !!tracking;
       console.log(`  ${valid ? '✅ VALID' : '❌ INVALID'}: ${trackingId}`);
 
-      // Reply only to the ESP32 socket that sent this
       socket.emit('scanResult', {
         valid,
         trackingId,
@@ -157,6 +154,45 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Rider Verification ──────────────────────────────────────────────────
+  // ESP32 emits this when rider scans their QR code
+  // Payload: { riderId: "RIDER-001" }
+  // For now: any non-empty riderId is accepted (no Rider model yet).
+  // Replace with a real DB check once a Rider model is added.
+  socket.on('verifyRider', async ({ riderId }) => {
+    console.log(`🚴 verifyRider → riderId: ${riderId}`);
+    try {
+      const valid = riderId && riderId.length > 2;
+      console.log(`  ${valid ? '✅ RIDER VALID' : '❌ RIDER INVALID'}: ${riderId}`);
+      socket.emit('riderVerifyResult', { valid: !!valid, riderId });
+    } catch (err) {
+      console.error('❌ verifyRider error:', err.message);
+      socket.emit('riderVerifyResult', { valid: false, riderId });
+    }
+  });
+
+  // ── Owner Pickup Registration ────────────────────────────────────────────
+  // ESP32 emits this when owner scans a waybill QR at the box
+  // Payload: { trackingId: "ABC123" }
+  socket.on('registerOwnerPickup', async ({ trackingId }) => {
+    console.log(`📦 registerOwnerPickup → trackingId: ${trackingId}`);
+    try {
+      await Tracking.updateOne(
+        { trackingId },
+        { $set: { status: 'awaiting_pickup', registeredAt: new Date() } },
+        { upsert: true }
+      );
+      io.emit('trackingStatusChanged', {
+        trackingId,
+        status: 'awaiting_pickup',
+        timestamp: new Date()
+      });
+      console.log(`  ✅ Owner pickup registered: ${trackingId}`);
+    } catch (err) {
+      console.error('❌ registerOwnerPickup error:', err.message);
+    }
+  });
+
   // ── Phase 3: Status Update (hardware → backend → mobile app) ────────────
   // ESP32 emits this after a successful drop-off or pick-up cycle
   // Payload: { trackingId: "ABC123", status: "delivered", mode: "drop_off" }
@@ -166,6 +202,7 @@ io.on('connection', (socket) => {
       const update = { status };
       if (status === 'delivered') update.deliveredAt = new Date();
       if (status === 'retrieved') update.retrievedAt = new Date();
+      if (status === 'done') update.doneAt = new Date();
 
       await Tracking.updateOne({ trackingId }, { $set: update });
 

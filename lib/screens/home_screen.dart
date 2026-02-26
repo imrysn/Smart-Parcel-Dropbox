@@ -10,7 +10,7 @@ import 'logs_screen.dart';
 import 'notifications_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'dropbox_control_screen.dart';
-import 'add_pickup_screen.dart';
+
 import 'pickup_screen.dart';
 import '../widgets/notification_badge.dart';
 
@@ -123,25 +123,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: _selectedIndex == 1 || _selectedIndex == 2
+      floatingActionButton: _selectedIndex == 1
           ? FloatingActionButton.extended(
               onPressed: () {
-                if (_selectedIndex == 1) {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const AddTrackingScreen(),
-                    ),
-                  );
-                } else {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const AddPickupScreen(),
-                    ),
-                  );
-                }
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const AddTrackingScreen(),
+                  ),
+                );
               },
               icon: const Icon(Icons.add),
-              label: Text(_selectedIndex == 1 ? 'Add Tracking ID' : 'Add Pickup Item'),
+              label: const Text('Add Tracking ID'),
               heroTag: 'home_fab',
             )
           : null,

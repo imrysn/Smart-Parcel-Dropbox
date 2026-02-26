@@ -33,7 +33,7 @@ class DeviceControlService {
     required String userId,
     required bool open,
     String doorType = 'user', // 'parcel' or 'user'
-    bool useBiometrics = true,
+    bool useBiometrics = false, // Set to true for real device biometric testing
   }) async {
     if (useBiometrics) {
       final bioService = getIt<BiometricService>();

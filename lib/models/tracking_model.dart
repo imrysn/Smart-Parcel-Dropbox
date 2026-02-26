@@ -5,12 +5,13 @@ class TrackingModel {
   final String trackingId;
   final String userId;
   final String shopName;
-  final String status; // pending, in_transit, delivered, retrieved
+  final String status; // pending, in_transit, delivered, retrieved, awaiting_pickup, done
   final String mode;   // drop_off, pickup
   final DateTime? registeredAt;
   final String? expectedDeliveryDate;
   final DateTime? deliveredAt;
   final DateTime? retrievedAt;
+  final DateTime? doneAt;
 
   TrackingModel({
     required this.trackingId,
@@ -22,6 +23,7 @@ class TrackingModel {
     this.expectedDeliveryDate,
     this.deliveredAt,
     this.retrievedAt,
+    this.doneAt,
   });
 
   /// Create TrackingModel from Map (JSON)
@@ -36,6 +38,7 @@ class TrackingModel {
       expectedDeliveryDate: data['expectedDeliveryDate'],
       deliveredAt: data['deliveredAt'] != null ? DateTime.parse(data['deliveredAt']) : null,
       retrievedAt: data['retrievedAt'] != null ? DateTime.parse(data['retrievedAt']) : null,
+      doneAt:      data['doneAt']      != null ? DateTime.parse(data['doneAt'])      : null,
     );
   }
 
@@ -52,21 +55,26 @@ class TrackingModel {
       'expectedDeliveryDate': expectedDeliveryDate,
       'deliveredAt': deliveredAt?.toIso8601String(),
       'retrievedAt': retrievedAt?.toIso8601String(),
+      'doneAt':      doneAt?.toIso8601String(),
     };
   }
 
   /// Get status display text
   String getStatusText() {
-    if (mode == 'pickup') {
+    if (mode == 'pickup' || mode == 'pick_up') {
       switch (status) {
         case 'pending':
           return 'Pending Deposit';
+        case 'awaiting_pickup':
+          return 'Awaiting Pickup';
         case 'ready_for_pickup':
           return 'Ready for Pickup';
         case 'retrieved':
           return 'Picked Up';
+        case 'done':
+          return 'Collected by Rider';
         default:
-          return 'Unknown';
+          return status;
       }
     }
     switch (status) {
@@ -92,10 +100,14 @@ class TrackingModel {
         return 'blue';
       case 'delivered':
         return 'green';
+      case 'awaiting_pickup':
+        return 'indigo';
       case 'ready_for_pickup':
         return 'deepPurple';
       case 'retrieved':
         return 'grey';
+      case 'done':
+        return 'teal';
       default:
         return 'grey';
     }
