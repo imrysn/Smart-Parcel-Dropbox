@@ -64,30 +64,34 @@ class TrackingModel {
     if (mode == 'pickup' || mode == 'pick_up') {
       switch (status) {
         case 'pending':
-          return 'Pending Deposit';
+          return 'PENDING DEPOSIT';
         case 'awaiting_pickup':
-          return 'Awaiting Pickup';
+          return 'AWAITING PICKUP';
         case 'ready_for_pickup':
-          return 'Ready for Pickup';
+          return 'READY FOR PICKUP';
         case 'retrieved':
-          return 'Picked Up';
+          return 'PICKED UP';
         case 'done':
-          return 'Collected by Rider';
+          return 'COLLECTED BY RIDER';
         default:
-          return status;
+          return status.toUpperCase();
       }
     }
     switch (status) {
       case 'pending':
-        return 'Pending';
+        return 'PENDING';
       case 'in_transit':
-        return 'In Transit';
+        return 'IN TRANSIT';
       case 'delivered':
-        return 'Delivered';
+        return 'DELIVERED';
+      case 'awaiting_pickup':
+        return 'AWAITING PICKUP';
       case 'retrieved':
-        return 'Retrieved';
+        return 'RETRIEVED';
+      case 'done':
+        return 'DELIVERED'; // parcel successfully deposited into the box
       default:
-        return 'Unknown';
+        return status.toUpperCase();
     }
   }
 

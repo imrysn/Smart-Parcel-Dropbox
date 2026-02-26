@@ -108,3 +108,46 @@ exports.updateTrackingStatus = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+// @desc    Reset a completed tracking record back to 'pending' (FOR TESTING ONLY)
+// @route   POST /api/tracking/:trackingId/reset
+exports.resetTracking = async (req, res) => {
+    try {
+        const tracking = await Tracking.findOne({ trackingId: req.params.trackingId });
+
+        if (!tracking) {
+            return res.status(404).json({ message: 'Tracking ID not found' });
+        }
+
+        const completedStatuses = ['delivered', 'done', 'retrieved', 'awaiting_pickup', 'ready_for_pickup'];
+        if (!completedStatuses.includes(tracking.status)) {
+            return res.status(400).json({
+                message: `Cannot reset: status is '${tracking.status}'. Only completed parcels can be reset.`
+            });
+        }
+
+        const updated = await Tracking.findOneAndUpdate(
+            { trackingId: req.params.trackingId },
+            {
+                $set: {
+                    status: 'pending',
+                    deliveredAt: null,
+                    retrievedAt: null,
+                    doneAt: null,
+                }
+            },
+            { new: true }
+        );
+
+        console.log(`🔄 [TEST] Reset tracking ${req.params.trackingId} → pending`);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(updated.userId).emit('trackingUpdate', updated);
+        }
+
+        res.json({ message: 'Reset to pending for re-testing', tracking: updated });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

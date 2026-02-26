@@ -57,9 +57,9 @@ flutter {
     source '../..'
 }
 
-// Fix: Gradle 8 fails on Windows when the project path contains spaces (e.g. "Bryan Bergonia").
-// Redirect build output to a space-free path using the Gradle 8 API.
-layout.buildDirectory = file('C:/FlutterBuild/SmartParcelDropbox/app')
+// Note: Build output is controlled by root build.gradle which redirects to '../build'.
+// Do NOT override layout.buildDirectory here — Flutter's tool requires the APK to be
+// at the standard project-relative build/ path to succeed.
 
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'

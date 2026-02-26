@@ -1,0 +1,17 @@
+﻿Launching lib\main.dart on sdk gphone64 x86 64 in debug mode...
+Running Gradle task 'assembleDebug'...                             10.3s
+flutter : Error: Gradle build failed to 
+produce an .apk file. It's likely that this 
+file was generated under 
+C:\THESIS\Smart-Parcel-Dropbox\build, but 
+the tool couldn't find it.
+At line:1 char:1
++ flutter run -d emulator-5554 2>&1 | 
+Out-File "C:\THESIS\Smart-Parcel- ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: 
+    (Error: Gradle b...uldn't find it.:Str  
+  ing) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommand 
+   Error
+ 

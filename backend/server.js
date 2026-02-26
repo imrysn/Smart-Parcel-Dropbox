@@ -26,9 +26,9 @@ const io = socketIO(server, {
   // while the Flutter app continues to use EIO=4. Without this, the ESP32
   // gets immediately disconnected because it speaks a different protocol version.
   allowEIO3: true,
-  // Give the ESP32 (slow MCU) more time to respond to heartbeats
-  pingTimeout: 60000,   // 60s before declaring client dead (default: 20s)
-  pingInterval: 25000,  // Ping every 25s
+  // Fast detection of dead connections (e.g. ESP32 powered off)
+  pingTimeout: 10000,   // 10s before declaring client dead
+  pingInterval: 5000,   // Ping every 5s
 });
 
 // Middleware
@@ -97,6 +97,23 @@ io.on('connection', (socket) => {
   socket.on('join', (roomId) => {
     socket.join(roomId);
     console.log(`📡 ${socket.id} joined room: ${roomId}`);
+
+    // Track ESP32 connection status
+    if (roomId === 'esp32_device') {
+      socket.isEsp32 = true; // stamp flag — socket.rooms is empty by disconnect time
+      console.log('✅ ESP32 connected and joined room');
+      io.emit('esp32Status', { connected: true, timestamp: new Date() });
+    }
+  });
+
+  // ── ESP32 Status Query (mobile app → backend) ──────────────────────────
+  // Flutter emits this when a screen opens to get the CURRENT connection state
+  // without waiting for a future connect/disconnect event.
+  socket.on('getEsp32Status', () => {
+    const room = io.sockets.adapter.rooms.get('esp32_device');
+    const connected = !!(room && room.size > 0);
+    console.log(`📊 getEsp32Status → ${connected ? 'CONNECTED' : 'OFFLINE'}`);
+    socket.emit('esp32Status', { connected, timestamp: new Date() });
   });
 
   // ── Phase 1: Remote ID Registration (mobile app → ESP32) ──────────────────
@@ -127,30 +144,66 @@ io.on('connection', (socket) => {
 
   // ── Phase 2: Scan Verification ──────────────────────────────────────────
 
-  // ESP32 emits this when a barcode is scanned at WAITING_FOR_SCAN
-  // Payload: { trackingId: "ABC123", mode: "drop_off" }
   socket.on('verifyScan', async ({ trackingId, mode }) => {
     console.log(`🔍 verifyScan → trackingId: ${trackingId}, mode: ${mode}`);
     try {
-      // Find a tracking record that matches AND is still pending
-      const tracking = await Tracking.findOne({
-        trackingId,
-        status: 'pending'
-      });
+      const tracking = await Tracking.findOne({ trackingId });
 
-      const valid = !!tracking;
-      console.log(`  ${valid ? '✅ VALID' : '❌ INVALID'}: ${trackingId}`);
+      // Case 1: Tracking ID doesn't exist at all
+      if (!tracking) {
+        console.log(`  ❌ NOT FOUND: ${trackingId}`);
+        socket.emit('scanResult', {
+          valid: false,
+          trackingId,
+          mode,
+          userId: null,
+          reason: 'not_registered'
+        });
+        return;
+      }
 
+      // Case 2: Already completed — parcel was already delivered/done/retrieved
+      const completedStatuses = ['delivered', 'done', 'retrieved'];
+      if (completedStatuses.includes(tracking.status)) {
+        console.log(`  ⚠️  ALREADY COMPLETED (${tracking.status}): ${trackingId}`);
+        socket.emit('scanResult', {
+          valid: false,
+          trackingId,
+          mode,
+          userId: tracking.userId,
+          reason: 'already_completed',
+          currentStatus: tracking.status
+        });
+        return;
+      }
+
+      // Case 3: Registered but not yet in 'pending' (e.g. awaiting_pickup for wrong mode)
+      if (tracking.status !== 'pending') {
+        console.log(`  ⚠️  WRONG STATUS (${tracking.status}): ${trackingId}`);
+        socket.emit('scanResult', {
+          valid: false,
+          trackingId,
+          mode,
+          userId: tracking.userId,
+          reason: 'wrong_status',
+          currentStatus: tracking.status
+        });
+        return;
+      }
+
+      // Case 4: Valid — tracking is pending and ready to be processed
+      console.log(`  ✅ VALID: ${trackingId}`);
       socket.emit('scanResult', {
-        valid,
+        valid: true,
         trackingId,
         mode,
-        userId: tracking ? tracking.userId : null
+        userId: tracking.userId,
+        reason: 'ok'
       });
 
     } catch (err) {
       console.error('❌ verifyScan error:', err.message);
-      socket.emit('scanResult', { valid: false, trackingId, mode, userId: null });
+      socket.emit('scanResult', { valid: false, trackingId, mode, userId: null, reason: 'server_error' });
     }
   });
 
@@ -220,8 +273,21 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Sensor / Bin Status (ESP32 → backend → mobile app) ─────────────────
+  // ESP32 emits this periodically or on change with ultrasonic + reed readings
+  // Payload: { US_PICKUP: <cm>, US_DROPOFF: <cm>, REED_TOP: bool, REED_PICKUP: bool, REED_RECEIVED: bool }
+  socket.on('sensorUpdate', (data) => {
+    console.log(`📡 sensorUpdate:`, data);
+    io.emit('binStatusUpdate', { ...data, timestamp: new Date() });
+  });
+
   socket.on('disconnect', () => {
     console.log(`🔌 Client disconnected: ${socket.id}`);
+    // socket.rooms is EMPTY by the time disconnect fires — use the flag we stamped at join time
+    if (socket.isEsp32) {
+      console.log('⚠️  ESP32 disconnected');
+      io.emit('esp32Status', { connected: false, timestamp: new Date() });
+    }
   });
 });
 

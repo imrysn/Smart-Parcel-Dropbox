@@ -27,6 +27,10 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _trackingStatusController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _esp32StatusController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _binStatusController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -36,6 +40,12 @@ class WebSocketService {
       _doorStateController.stream;
   Stream<Map<String, dynamic>> get trackingStatusChanges =>
       _trackingStatusController.stream;
+  /// Fires whenever ESP32 connects or disconnects: { connected: bool }
+  Stream<Map<String, dynamic>> get esp32StatusUpdates =>
+      _esp32StatusController.stream;
+  /// Fires on every sensorUpdate from ESP32: { US_PICKUP, US_DROPOFF, REED_TOP, REED_PICKUP, REED_RECEIVED }
+  Stream<Map<String, dynamic>> get binStatusUpdates =>
+      _binStatusController.stream;
 
   bool get isConnected => _socket?.connected ?? false;
 
@@ -103,6 +113,18 @@ class WebSocketService {
       debugPrint('📦 Tracking status changed: $data');
       _trackingStatusController.add(data as Map<String, dynamic>);
     });
+
+    // ESP32 connection status
+    _socket!.on('esp32Status', (data) {
+      debugPrint('🔌 ESP32 status: $data');
+      _esp32StatusController.add(data as Map<String, dynamic>);
+    });
+
+    // Bin fill level updates from ultrasonic sensors
+    _socket!.on('binStatusUpdate', (data) {
+      debugPrint('📡 Bin status: $data');
+      _binStatusController.add(data as Map<String, dynamic>);
+    });
   }
 
   /// Emit an event to the server
@@ -153,6 +175,15 @@ class WebSocketService {
     debugPrint('📊 Emitted getStatus request');
   }
 
+  /// Query current ESP32 connection state from the backend.
+  /// Backend responds with an [esp32StatusUpdates] event immediately.
+  /// Call this on screen open to get the current state without waiting for
+  /// a future connect/disconnect transition.
+  void requestEsp32Status() {
+    emit('getEsp32Status', null);
+    debugPrint('📊 Emitted getEsp32Status request');
+  }
+
   /// Disconnect and cleanup
   void disconnect() {
     _socket?.dispose();
@@ -168,6 +199,8 @@ class WebSocketService {
     _notificationController.close();
     _doorStateController.close();
     _trackingStatusController.close();
+    _esp32StatusController.close();
+    _binStatusController.close();
   }
 
   /// Reset singleton instance

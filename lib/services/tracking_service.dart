@@ -92,13 +92,14 @@ class TrackingService {
     return _trackingController.stream;
   }
 
-  /// Get active orders (not retrieved yet)
+  /// Get active orders (drop_off mode — all non-archived statuses)
   Stream<List<TrackingModel>> getActiveOrders(String userId) {
     return getUserTrackingIds(userId).map(
       (list) => list
           .where((t) =>
               t.mode == 'drop_off' &&
-              ['pending', 'in_transit', 'delivered'].contains(t.status))
+              ['pending', 'in_transit', 'delivered', 'awaiting_pickup', 'done']
+                  .contains(t.status))
           .toList(),
     ).asBroadcastStream();
   }
@@ -108,8 +109,9 @@ class TrackingService {
     return getUserTrackingIds(userId).map(
       (list) => list
           .where((t) =>
-              t.mode == 'pickup' &&
-              ['pending', 'ready_for_pickup', 'retrieved'].contains(t.status))
+              (t.mode == 'pickup' || t.mode == 'pick_up') &&
+              ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
+                  .contains(t.status))
           .toList(),
     ).asBroadcastStream();
   }

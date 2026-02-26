@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
-import '../services/database_service.dart';
 import 'dart:async';
+import '../services/service_locator.dart';
+import '../services/websocket_service.dart';
+
+// ─── Door type constants matching ESP32 firmware ───────────────────────────
+const String kDoorTop      = 'top';      // LOCK_TOP / REED_TOP
+const String kDoorPickup   = 'pickup';   // LOCK_PICKUP / REED_PICKUP
+const String kDoorReceived = 'received'; // LOCK_RECEIVED / REED_RECEIVED
+
+// ─── Ultrasonic sensor range constants (cm) ────────────────────────────────
+// Tune these to match your physical bin depth
+const double kBinEmpty  = 30.0; // cm — sensor reading when bin is empty
+const double kBinFull   =  5.0; // cm — sensor reading when bin is 100% full
 
 class DropboxControlScreen extends StatefulWidget {
   const DropboxControlScreen({super.key});
@@ -11,115 +22,155 @@ class DropboxControlScreen extends StatefulWidget {
 
 class _DropboxControlScreenState extends State<DropboxControlScreen>
     with TickerProviderStateMixin {
-  final DatabaseService _databaseService = DatabaseService();
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
+
+  late final WebSocketService _ws;
+
+  // Stream subscriptions
+  StreamSubscription<Map<String, dynamic>>? _esp32Sub;
+  StreamSubscription<Map<String, dynamic>>? _binSub;
+
+  // Live state
+  bool _esp32Connected = false;
+
+  // Per-door open/close state (local optimistic update)
+  final Map<String, bool> _doorOpen = {
+    kDoorTop: false,
+    kDoorPickup: false,
+    kDoorReceived: false,
+  };
+  final Map<String, bool> _doorProcessing = {
+    kDoorTop: false,
+    kDoorPickup: false,
+    kDoorReceived: false,
+  };
+
+  // REED switch state from hardware
+  final Map<String, bool?> _reedState = {
+    'REED_TOP': null,
+    'REED_PICKUP': null,
+    'REED_RECEIVED': null,
+  };
+
+  // Ultrasonic fill percentages (0.0 – 1.0)
+  double? _pickupFill;
+  double? _dropoffFill;
 
   String? _userId;
-  Stream<Map<String, dynamic>?>? _doorStateStream;
 
-  // Local state tracking for independent door control
-  // This allows doors to work independently until backend is updated
-  bool _localParcelDoorOpen = false;
-  bool _localUserDoorOpen = false;
-  DateTime? _lastParcelDoorUpdate;
-  DateTime? _lastUserDoorUpdate;
+  // Pulse animation for ESP32 connected indicator
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
-    _initUser();
+    _ws = getIt<WebSocketService>();
 
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat(reverse: true);
-
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
+    _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    _init();
   }
 
-  Future<void> _initUser() async {
-    // We assume the user is already initialized in DatabaseService via HomeScreen
-    // But for safety, we can get the current ID if needed.
-    // For now, we'll just use the stream which is already initialized globally in the service
-    _doorStateStream = _databaseService.getDropBoxDoorState();
+  Future<void> _init() async {
+    // Listen for ESP32 connection events
+    _esp32Sub = _ws.esp32StatusUpdates.listen((data) {
+      if (mounted) {
+        setState(() => _esp32Connected = data['connected'] == true);
+      }
+    });
 
-    // Attempt to get the user ID for commands
-    // In a real app, you might pass this or get it from an AuthService
-    // Since we're in the same session, we'll try to find it.
-    // For this implementation, we'll assume the socket is already joined to the room.
-    setState(() {});
+    // Listen for bin / sensor updates
+    _binSub = _ws.binStatusUpdates.listen((data) {
+      if (!mounted) return;
+      setState(() {
+        // Ultrasonic: convert cm reading → fill %
+        final usPickup  = (data['US_PICKUP']  as num?)?.toDouble();
+        final usDropoff = (data['US_DROPOFF'] as num?)?.toDouble();
+        if (usPickup  != null) _pickupFill  = _cmToFill(usPickup);
+        if (usDropoff != null) _dropoffFill = _cmToFill(usDropoff);
+
+        // Reed switches
+        if (data.containsKey('REED_TOP'))      _reedState['REED_TOP']      = data['REED_TOP'];
+        if (data.containsKey('REED_PICKUP'))   _reedState['REED_PICKUP']   = data['REED_PICKUP'];
+        if (data.containsKey('REED_RECEIVED')) _reedState['REED_RECEIVED'] = data['REED_RECEIVED'];
+      });
+    });
+
+    // ── Query CURRENT state from backend immediately ──────────────────────
+    // The esp32Status event fires on connect/disconnect transitions only —
+    // calling requestEsp32Status() gets the current state right now, even
+    // if the ESP32 was already connected before this screen was opened.
+    _ws.requestEsp32Status();
+    _ws.requestDoorStatus();
+    if (mounted) setState(() {});
+  }
+
+  /// Convert ultrasonic distance (cm) to 0..1 fill fraction.
+  double _cmToFill(double cm) {
+    // Clamp to valid range, then invert (closer = more full)
+    final clamped = cm.clamp(kBinFull, kBinEmpty);
+    return 1.0 - ((clamped - kBinFull) / (kBinEmpty - kBinFull));
   }
 
   @override
   void dispose() {
+    _esp32Sub?.cancel();
+    _binSub?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
 
-  Future<void> _toggleDoor(
-      bool currentIsOpen, String userId, String doorType) async {
-    try {
-      // Update local state immediately for responsive UI
-      setState(() {
-        if (doorType == 'parcel') {
-          _localParcelDoorOpen = !currentIsOpen;
-          _lastParcelDoorUpdate = DateTime.now();
-        } else {
-          _localUserDoorOpen = !currentIsOpen;
-          _lastUserDoorUpdate = DateTime.now();
-        }
-      });
+  // ─── Door control ────────────────────────────────────────────────────────
+  void _toggleDoor(String doorType) {
+    final isOpen = _doorOpen[doorType]!;
+    final action = isOpen ? 'close' : 'open';
 
-      await _databaseService.controlDropBoxDoor(
-        userId: userId,
-        open: !currentIsOpen,
-        doorType: doorType,
-      );
-      if (mounted) {
-        final doorName = doorType == 'parcel' ? 'Parcel Door' : 'User Door';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(currentIsOpen
-                ? 'Closing $doorName...'
-                : 'Opening $doorName...'),
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      // Revert local state on error
-      setState(() {
-        if (doorType == 'parcel') {
-          _localParcelDoorOpen = currentIsOpen;
-        } else {
-          _localUserDoorOpen = currentIsOpen;
-        }
-      });
+    setState(() => _doorProcessing[doorType] = true);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+    // Optimistic update
+    setState(() => _doorOpen[doorType] = !isOpen);
+
+    // Send to ESP32 via WebSocket relay
+    _ws.emitControlDoor(doorType, action);
+
+    // Revert processing flag after brief delay
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _doorProcessing[doorType] = false);
+    });
+
+    final doorName = _doorLabel(doorType);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${isOpen ? 'Closing' : 'Opening'} $doorName...'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isOpen ? Colors.red.shade700 : Colors.green.shade700,
+      ),
+    );
+  }
+
+  String _doorLabel(String doorType) {
+    switch (doorType) {
+      case kDoorTop:      return 'Parcel Door';
+      case kDoorPickup:   return 'Pick Up Door';
+      case kDoorReceived: return 'Drop Off Door';
+      default:            return doorType;
     }
   }
 
+  // ─── Build ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Drop Box Control'),
+        title: const Text('Dropbox Management'),
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.white,
@@ -131,305 +182,266 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF1A237E), // Indigo 900
-              Color(0xFF311B92), // Deep Purple 900
-            ],
+            colors: [Color(0xFF1A237E), Color(0xFF311B92)],
           ),
         ),
         child: SafeArea(
-          child: StreamBuilder<Map<String, dynamic>?>(
-            stream: _doorStateStream,
-            builder: (context, snapshot) {
-              final doorState = snapshot.data;
-              final command = doorState?['command'] as String?;
-              final isProcessing = doorState?['status'] == 'processing';
-              final parcelDetected = doorState?['parcelDetected'] ?? false;
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header removed per request
 
-              // Smart door state logic:
-              // 1. If backend provides separate door states, use them
-              // 2. Otherwise, use local state (for independent control)
-              final backendParcelDoorOpen = doorState?['parcelDoorOpen'];
-              final backendUserDoorOpen = doorState?['userDoorOpen'];
+                // ── ESP32 Connection Banner ──────────────────────────────
+                _buildConnectionBanner(),
+                const SizedBox(height: 20),
 
-              final parcelDoorOpen =
-                  backendParcelDoorOpen ?? _localParcelDoorOpen;
-              final userDoorOpen = backendUserDoorOpen ?? _localUserDoorOpen;
+                // ── Door Cards ──────────────────────────────────────────
+                _buildDoorCard(
+                  doorType: kDoorTop,
+                  title: 'Parcel Door',
+                  subtitle: 'Courier drop-off entry (Top)',
+                  icon: Icons.local_shipping_outlined,
+                  reedKey: 'REED_TOP',
+                  accentColor: Colors.orangeAccent,
+                ),
+                const SizedBox(height: 14),
 
-              // We need the userId. In the current architecture,
-              // we can get it from the doorState if the backend includes it,
-              // or better, pass it from the home screen.
-              // For now, let's assume we can retrieve it or it's known.
-              // I'll add a placeholder if missing.
-              final userId = doorState?['userId'] ?? "current_user";
+                _buildDoorCard(
+                  doorType: kDoorPickup,
+                  title: 'Pick Up Door',
+                  subtitle: 'Front bottom — owner retrieves parcel',
+                  icon: Icons.outbox_outlined,
+                  reedKey: 'REED_PICKUP',
+                  accentColor: Colors.cyanAccent,
+                ),
+                const SizedBox(height: 14),
 
-              debugPrint('🚪 Door State Update:');
-              debugPrint(
-                  '  Parcel Door: ${parcelDoorOpen ? "OPEN" : "LOCKED"} (local: $_localParcelDoorOpen, backend: $backendParcelDoorOpen)');
-              debugPrint(
-                  '  User Door: ${userDoorOpen ? "OPEN" : "LOCKED"} (local: $_localUserDoorOpen, backend: $backendUserDoorOpen)');
-              debugPrint('  Processing: $isProcessing');
+                _buildDoorCard(
+                  doorType: kDoorReceived,
+                  title: 'Drop Off Door',
+                  subtitle: 'Back — owner deposits outgoing parcel',
+                  icon: Icons.move_to_inbox_outlined,
+                  reedKey: 'REED_RECEIVED',
+                  accentColor: const Color(0xFF69F0AE), // light green
+                ),
+                const SizedBox(height: 24),
 
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
+                // ── Bin Status ──────────────────────────────────────────
+                const Text(
+                  'BIN STATUS',
+                  style: TextStyle(
+                    color: Colors.white60,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                Row(
                   children: [
-                    const SizedBox(height: 20),
-
-                    // Title
-                    const Text(
-                      'Drop Box Control',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
+                    Expanded(
+                      child: _buildBinCard(
+                        label: 'Pick Up Bin',
+                        sublabel: 'US_PICKUP',
+                        fill: _pickupFill,
+                        color: Colors.cyanAccent,
+                        icon: Icons.outbox_outlined,
                       ),
                     ),
-
-                    const SizedBox(height: 8),
-
-                    Text(
-                      'Manage both doors independently',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 14,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _buildBinCard(
+                        label: 'Drop Off Bin',
+                        sublabel: 'US_DROPOFF',
+                        fill: _dropoffFill,
+                        color: const Color(0xFF69F0AE),
+                        icon: Icons.move_to_inbox_outlined,
                       ),
                     ),
-
-                    const SizedBox(height: 40),
-
-                    // Parcel Door Control (Top Door - for couriers)
-                    _buildDoorControlCard(
-                      title: 'Parcel Entrance Door',
-                      subtitle: 'For courier deliveries (Top)',
-                      icon: Icons.local_shipping_outlined,
-                      isOpen: parcelDoorOpen,
-                      isProcessing: isProcessing,
-                      onToggle: () =>
-                          _toggleDoor(parcelDoorOpen, userId, 'parcel'),
-                      theme: theme,
-                      accentColor: Colors.orange,
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // User Door Control (Bottom Door - for retrieval)
-                    _buildDoorControlCard(
-                      title: 'User Retrieval Door',
-                      subtitle: 'For parcel pickup (Bottom)',
-                      icon: Icons.person_outline,
-                      isOpen: userDoorOpen,
-                      isProcessing: isProcessing,
-                      onToggle: () => _toggleDoor(userDoorOpen, userId, 'user'),
-                      theme: theme,
-                      accentColor: Colors.blue,
-                    ),
-
-                    const SizedBox(height: 30),
-
-                    // Info Cards
-                    Row(
-                      children: [
-                        _buildInfoCard(
-                          icon: Icons.inventory_2_outlined,
-                          label: 'Parcel Status',
-                          value: parcelDetected ? 'Detected' : 'Empty',
-                          color:
-                              parcelDetected ? Colors.orange : Colors.white70,
-                        ),
-                        const SizedBox(width: 16),
-                        _buildInfoCard(
-                          icon: Icons.wifi,
-                          label: 'Connection',
-                          value: 'Online',
-                          color: Colors.green,
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Info Message
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.info_outline,
-                            color: Colors.white70,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              parcelDetected
-                                  ? 'Warning: A parcel is currently inside the box.'
-                                  : 'Both doors can be controlled independently for secure parcel management.',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.7),
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
                   ],
                 ),
-              );
-            },
+                const SizedBox(height: 20),
+
+                // Footer removed per request
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildDoorControlCard({
+  // ─── ESP32 Connection Banner ─────────────────────────────────────────────
+  Widget _buildConnectionBanner() {
+    return AnimatedBuilder(
+      animation: _pulseAnimation,
+      builder: (_, __) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: (_esp32Connected ? Colors.green : Colors.red)
+              .withOpacity(0.15 * _pulseAnimation.value + 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: (_esp32Connected ? Colors.greenAccent : Colors.redAccent)
+                .withOpacity(0.5),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _esp32Connected ? Colors.greenAccent : Colors.redAccent,
+                boxShadow: [
+                  BoxShadow(
+                    color: (_esp32Connected ? Colors.green : Colors.red)
+                        .withOpacity(0.6 * _pulseAnimation.value),
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              _esp32Connected ? 'ESP32 Connected' : 'ESP32 Disconnected',
+              style: TextStyle(
+                color: _esp32Connected ? Colors.greenAccent : Colors.redAccent,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Door Card ───────────────────────────────────────────────────────────
+  Widget _buildDoorCard({
+    required String doorType,
     required String title,
     required String subtitle,
     required IconData icon,
-    required bool isOpen,
-    required bool isProcessing,
-    required VoidCallback onToggle,
-    required ThemeData theme,
+    required String reedKey,
     required Color accentColor,
   }) {
+    final isOpen       = _doorOpen[doorType]!;
+    final isProcessing = _doorProcessing[doorType]!;
+    final reedOpen     = _reedState[reedKey]; // null = unknown
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isOpen
-              ? accentColor.withOpacity(0.5)
-              : Colors.white.withOpacity(0.2),
-          width: 2,
+          color: isOpen ? accentColor.withOpacity(0.5) : Colors.white12,
+          width: 1.5,
         ),
       ),
       child: Column(
         children: [
-          // Header
+          // Header row
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: accentColor.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  color: accentColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  color: accentColor,
-                  size: 28,
-                ),
+                child: Icon(icon, color: accentColor, size: 24),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: Colors.white60,
-                        fontSize: 12,
-                      ),
-                    ),
+                    Text(title,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: const TextStyle(color: Colors.white54, fontSize: 11)),
                   ],
                 ),
               ),
-              // Status Badge
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: (isOpen ? Colors.green : Colors.red)
-                      .withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isOpen ? Colors.green : Colors.red,
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: isOpen ? Colors.green : Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      isOpen ? 'OPEN' : 'LOCKED',
-                      style: TextStyle(
-                        color: isOpen ? Colors.green : Colors.red,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
+              // Status pill
+              _buildStatusPill(isOpen),
+            ],
+          ),
+
+          const SizedBox(height: 6),
+
+          // Reed sensor row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Icon(Icons.sensors, size: 12, color: Colors.white38),
+              const SizedBox(width: 4),
+              Text(
+                reedOpen == null
+                    ? 'Reed: —'
+                    : reedOpen
+                        ? 'Reed: OPEN'
+                        : 'Reed: CLOSED',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: reedOpen == null
+                      ? Colors.white38
+                      : reedOpen
+                          ? Colors.orangeAccent
+                          : Colors.white54,
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
-          // Control Button
+          // Control button
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
-              onPressed: isProcessing ? null : onToggle,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isOpen ? Colors.red.shade600 : accentColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: isOpen ? 4 : 2,
+            child: ElevatedButton.icon(
+              onPressed: (_doorProcessing[doorType]! || !_esp32Connected)
+                  ? null
+                  : () => _toggleDoor(doorType),
+              icon: Icon(
+                isOpen ? Icons.lock_outline : Icons.lock_open_outlined,
+                size: 18,
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    isOpen ? Icons.lock_outline : Icons.lock_open_outlined,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    isProcessing
-                        ? 'Processing...'
-                        : (isOpen ? 'CLOSE DOOR' : 'OPEN DOOR'),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
+              label: Text(
+                isProcessing
+                    ? 'PROCESSING...'
+                    : !_esp32Connected
+                        ? 'ESP32 OFFLINE'
+                        : isOpen
+                            ? 'CLOSE DOOR'
+                            : 'OPEN DOOR',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    !_esp32Connected
+                        ? Colors.grey.shade700
+                        : isOpen
+                            ? Colors.red.shade600
+                            : accentColor.withOpacity(0.85),
+                foregroundColor: Colors.white,
+                disabledForegroundColor: Colors.grey, // Keep text white when offline/disabled
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11)),
+                disabledBackgroundColor: Colors.grey.shade800,
               ),
             ),
           ),
@@ -438,43 +450,131 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     );
   }
 
-  Widget _buildInfoCard({
-    required IconData icon,
+  // ─── Status Pill ─────────────────────────────────────────────────────────
+  Widget _buildStatusPill(bool isOpen) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: (isOpen ? Colors.green : Colors.red).withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isOpen ? Colors.green : Colors.red),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: isOpen ? Colors.green : Colors.red,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            isOpen ? 'OPEN' : 'LOCKED',
+            style: TextStyle(
+              color: isOpen ? Colors.green : Colors.red,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Bin Status Card ─────────────────────────────────────────────────────
+  Widget _buildBinCard({
     required String label,
-    required String value,
+    required String sublabel,
+    required double? fill,
     required Color color,
+    required IconData icon,
   }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 10),
-            Text(
-              value,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+    final pct        = fill != null ? (fill * 100).round() : null;
+    final fillLabel  = pct == null ? '—' : '$pct%';
+    final statusText = pct == null
+        ? 'No data'
+        : pct == 0
+            ? 'Empty'
+            : pct <= 25
+                ? 'Almost Empty'
+                : pct <= 50
+                    ? 'Half Full'
+                    : pct <= 80
+                        ? 'Getting Full'
+                        : 'FULL';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(sublabel,
+              style: const TextStyle(color: Colors.white38, fontSize: 10)),
+          const SizedBox(height: 12),
+
+          // Progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: fill ?? 0,
+              minHeight: 10,
+              backgroundColor: Colors.white12,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                pct == null
+                    ? Colors.white24
+                    : pct >= 85
+                        ? Colors.redAccent
+                        : pct >= 50
+                            ? Colors.orangeAccent
+                            : color,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 11,
+          ),
+          const SizedBox(height: 8),
+
+          // Percentage + label row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                fillLabel,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+              Text(
+                statusText,
+                style: const TextStyle(color: Colors.white60, fontSize: 11),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

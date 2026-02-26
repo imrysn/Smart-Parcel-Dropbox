@@ -519,8 +519,17 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'delivered':
         statusColor = Colors.green;
         break;
+      case 'awaiting_pickup':
+        statusColor = Colors.indigo;
+        break;
       case 'ready_for_pickup':
         statusColor = Colors.deepPurple;
+        break;
+      case 'retrieved':
+        statusColor = Colors.grey;
+        break;
+      case 'done':
+        statusColor = Colors.teal;
         break;
       default:
         statusColor = Colors.grey;
