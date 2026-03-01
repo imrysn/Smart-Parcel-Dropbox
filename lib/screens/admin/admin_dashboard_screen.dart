@@ -45,21 +45,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _initData();
+    
+    // Initialize Future to a pending state immediately to avoid LateInitializationError
+    _currentUserDataFuture = _fetchInitialData();
+    
+    // Assign empty streams temporarily; they will be replaced in _fetchInitialData
+    _usersStream = const Stream.empty();
+    _trackingStream = const Stream.empty();
+    _scanLogsStream = const Stream.empty();
+    _deliveryLogsStream = const Stream.empty();
   }
 
-  Future<void> _initData() async {
+  Future<Map<String, dynamic>?> _fetchInitialData() async {
     _userId = await _authService.currentUserId;
+    Map<String, dynamic>? userData;
+    
     if (_userId != null) {
       _databaseService.initSocket(_userId!);
-      _currentUserDataFuture = _databaseService.getUserData(_userId!);
-    } else {
-      _currentUserDataFuture = Future.value(null);
+      userData = await _databaseService.getUserData(_userId!);
     }
 
-    // --- Assign streams FIRST before triggering any fetch ---
-    // Broadcast streams do not replay; if data is emitted before a
-    // StreamBuilder subscribes the widget spins forever.
+    // --- Assign real streams ---
     final trackingService = getIt<TrackingService>();
     final userService     = getIt<UserService>();
     final ws              = getIt<WebSocketService>();
@@ -69,21 +75,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     _scanLogsStream      = _databaseService.getScanLogs();
     _deliveryLogsStream  = _databaseService.getAllDeliveryLogs();
 
-    // Now notify Flutter so StreamBuilders subscribe before we push data
-    if (mounted) setState(() {});
-
-    // --- Trigger initial data fetches (emits into already-subscribed streams) ---
+    // Trigger initial data fetches
     userService.refreshAllUsers().ignore();
     trackingService.refreshAllTracking().ignore();
 
-    // Subscribe to hardware status-change events for automatic tracking refresh
+    // Subscribe to hardware status-change events
     _trackingStatusSub = ws.trackingStatusChanges.listen((_) async {
       if (!mounted) return;
       setState(() => _trackingRefreshing = true);
       await trackingService.refreshAllTracking();
       if (mounted) setState(() => _trackingRefreshing = false);
     });
+
+    if (mounted) setState(() {});
+    return userData;
   }
+
+  // Old _initData kept for reference or removed if unused
+  Future<void> _initData() async {}
+
 
   @override
   void dispose() {
@@ -293,6 +303,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _buildUsersTab() {
     return StreamBuilder<List<UserModel>>(
       stream: _usersStream,
+      initialData: getIt<UserService>().cachedUsers,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
@@ -516,6 +527,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _buildTrackingTab() {
     return StreamBuilder<List<TrackingModel>>(
       stream: _trackingStream,
+      initialData: getIt<TrackingService>().cachedTracking,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             (snapshot.data == null || snapshot.data!.isEmpty)) {
