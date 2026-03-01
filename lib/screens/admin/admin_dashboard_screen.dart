@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../config/admin_theme.dart';
@@ -6,6 +7,10 @@ import '../../models/tracking_model.dart';
 import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
+import '../../services/service_locator.dart';
+import '../../services/tracking_service.dart';
+import '../../services/user_service.dart';
+import '../../services/websocket_service.dart';
 import '../login_screen.dart';
 
 /// Admin Dashboard - Professional slate blue theme
@@ -31,10 +36,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   late Stream<List<ScanLogModel>> _scanLogsStream;
   late Stream<List<Map<String, dynamic>>> _deliveryLogsStream;
 
+  // Real-time tracking state
+  StreamSubscription<Map<String, dynamic>>? _trackingStatusSub;
+  bool _trackingRefreshing = false;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _initData();
   }
 
@@ -47,19 +56,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _currentUserDataFuture = Future.value(null);
     }
 
-    // Initialize streams once
-    _usersStream = _databaseService.getAllUsers();
-    _trackingStream = _databaseService.getAllTrackingIds();
-    _scanLogsStream = _databaseService.getScanLogs();
-    _deliveryLogsStream = _databaseService.getAllDeliveryLogs();
+    // --- Assign streams FIRST before triggering any fetch ---
+    // Broadcast streams do not replay; if data is emitted before a
+    // StreamBuilder subscribes the widget spins forever.
+    final trackingService = getIt<TrackingService>();
+    final userService     = getIt<UserService>();
+    final ws              = getIt<WebSocketService>();
 
-    if (mounted) {
-      setState(() {});
-    }
+    _usersStream         = userService.usersStream;
+    _trackingStream      = trackingService.trackingStream;
+    _scanLogsStream      = _databaseService.getScanLogs();
+    _deliveryLogsStream  = _databaseService.getAllDeliveryLogs();
+
+    // Now notify Flutter so StreamBuilders subscribe before we push data
+    if (mounted) setState(() {});
+
+    // --- Trigger initial data fetches (emits into already-subscribed streams) ---
+    userService.refreshAllUsers().ignore();
+    trackingService.refreshAllTracking().ignore();
+
+    // Subscribe to hardware status-change events for automatic tracking refresh
+    _trackingStatusSub = ws.trackingStatusChanges.listen((_) async {
+      if (!mounted) return;
+      setState(() => _trackingRefreshing = true);
+      await trackingService.refreshAllTracking();
+      if (mounted) setState(() => _trackingRefreshing = false);
+    });
   }
 
   @override
   void dispose() {
+    _trackingStatusSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -231,6 +258,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           icon: Icon(Icons.history),
                           text: 'Logs',
                         ),
+                        Tab(
+                          icon: Icon(Icons.local_shipping_outlined),
+                          text: 'Pickup',
+                        ),
                       ],
                     ),
                   ),
@@ -242,6 +273,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   _KeepAlivePage(child: _buildUsersTab()),
                   _KeepAlivePage(child: _buildTrackingTab()),
                   _KeepAlivePage(child: _buildLogsTab()),
+                  _KeepAlivePage(
+                    child: PickupScreen(
+                      userId: _userId!,
+                      databaseService: _databaseService,
+                      isAdmin: true,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -475,12 +513,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _buildTrackingTab() {
-    const statuses = ['pending', 'in_transit', 'delivered', 'retrieved'];
-
     return StreamBuilder<List<TrackingModel>>(
       stream: _trackingStream,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            (snapshot.data == null || snapshot.data!.isEmpty)) {
           return Center(
             child: CircularProgressIndicator(color: AdminTheme.primaryBlue),
           );
@@ -502,11 +539,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         }
 
         // Calculate statistics
-        final pendingCount = items.where((t) => t.status == 'pending').length;
-        final inTransitCount =
-            items.where((t) => t.status == 'in_transit').length;
-        final deliveredCount =
-            items.where((t) => t.status == 'delivered').length;
+        final pendingCount    = items.where((t) => t.status == 'pending').length;
+        final inTransitCount  = items.where((t) => t.status == 'in_transit').length;
+        final deliveredCount  = items.where((t) => ['delivered', 'done'].contains(t.status)).length;
+        final awaitingCount   = items.where((t) => t.status == 'awaiting_pickup').length;
+        final retrievedCount  = items.where((t) => t.status == 'retrieved').length;
 
         return ListView(
           padding: const EdgeInsets.all(16),
@@ -540,26 +577,107 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     color: AdminTheme.statusSuccess,
                   ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    icon: Icons.inventory_2_outlined,
+                    label: 'Awaiting',
+                    value: '$awaitingCount',
+                    color: const Color(0xFF6366F1),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    icon: Icons.done_all,
+                    label: 'Retrieved',
+                    value: '$retrievedCount',
+                    color: const Color(0xFF8B5CF6),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 24),
 
-            // Section Header
-            _buildSectionHeader('Tracking Management', Icons.inventory_2),
+            // Section Header with LIVE badge and Refresh button
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSectionHeader('Tracking', Icons.inventory_2),
+                ),
+                // LIVE indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AdminTheme.statusSuccess.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AdminTheme.statusSuccess, width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_trackingRefreshing)
+                        SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: AdminTheme.statusSuccess,
+                          ),
+                        )
+                      else
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: AdminTheme.statusSuccess,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'LIVE',
+                        style: TextStyle(
+                          color: AdminTheme.statusSuccess,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Manual refresh button
+                IconButton(
+                  icon: Icon(Icons.refresh, color: AdminTheme.primaryBlue),
+                  tooltip: 'Refresh tracking list',
+                  onPressed: () async {
+                    setState(() => _trackingRefreshing = true);
+                    await getIt<TrackingService>().refreshAllTracking();
+                    if (mounted) setState(() => _trackingRefreshing = false);
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
 
-            // Tracking List
-            ...items
-                .map((tracking) => _buildTrackingCard(tracking, statuses))
-                .toList(),
+            // Tracking List (read-only — status driven by hardware)
+            ...items.map((tracking) => _buildTrackingCard(tracking)).toList(),
           ],
         );
       },
     );
   }
 
-  Widget _buildTrackingCard(TrackingModel tracking, List<String> statuses) {
+  Widget _buildTrackingCard(TrackingModel tracking) {
     final statusColor = AdminTheme.getStatusColor(tracking.status);
+    final modeLabel = (tracking.mode == 'pick_up' || tracking.mode == 'pickup')
+        ? 'PICK UP'
+        : 'DROP OFF';
+    final modeColor = (tracking.mode == 'pick_up' || tracking.mode == 'pickup')
+        ? const Color(0xFF6366F1)
+        : AdminTheme.accentTeal;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -570,7 +688,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           children: [
             Row(
               children: [
-                // Status Indicator
+                // Status dot
                 Container(
                   width: 12,
                   height: 12,
@@ -598,40 +716,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                 ),
 
-                // Status Dropdown
+                // Mode badge
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AdminTheme.backgroundSurface,
+                    color: modeColor.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: const Color(0xFFE2E8F0).withOpacity(0.3),
-                    ),
+                    border: Border.all(color: modeColor.withOpacity(0.4)),
                   ),
-                  child: DropdownButton<String>(
-                    value: tracking.status,
-                    underline: const SizedBox(),
-                    dropdownColor: AdminTheme.backgroundCard,
-                    icon: Icon(Icons.arrow_drop_down, color: statusColor),
-                    style: TextStyle(color: statusColor, fontSize: 13),
-                    items: statuses
-                        .map(
-                          (status) => DropdownMenuItem(
-                            value: status,
-                            child: Text(
-                              status.replaceAll('_', ' ').toUpperCase(),
-                              style: TextStyle(
-                                color: AdminTheme.getStatusColor(status),
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null && value != tracking.status) {
-                        _updateTrackingStatus(tracking.trackingId, value);
-                      }
-                    },
+                  child: Text(
+                    modeLabel,
+                    style: TextStyle(
+                      color: modeColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
               ],
@@ -639,17 +739,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             const SizedBox(height: 12),
 
             // Tracking Details
-            _buildInfoRow(
-              Icons.qr_code,
-              'Tracking ID',
-              tracking.trackingId,
-            ),
+            _buildInfoRow(Icons.qr_code, 'Tracking ID', tracking.trackingId),
             const SizedBox(height: 8),
-            _buildInfoRow(
-              Icons.person_outline,
-              'User ID',
-              tracking.userId,
-            ),
+            _buildInfoRow(Icons.person_outline, 'User ID', tracking.userId),
             if (tracking.expectedDeliveryDate != null) ...[
               const SizedBox(height: 8),
               _buildInfoRow(
@@ -658,36 +750,63 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 tracking.expectedDeliveryDate!,
               ),
             ],
+            if (tracking.deliveredAt != null) ...[
+              const SizedBox(height: 8),
+              _buildInfoRow(
+                Icons.check_circle_outline,
+                'Delivered At',
+                _formatTimestamp(tracking.deliveredAt!.toIso8601String()),
+              ),
+            ],
+            if (tracking.retrievedAt != null) ...[
+              const SizedBox(height: 8),
+              _buildInfoRow(
+                Icons.done_all,
+                'Retrieved At',
+                _formatTimestamp(tracking.retrievedAt!.toIso8601String()),
+              ),
+            ],
             const SizedBox(height: 12),
 
-            // Status Badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: statusColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: statusColor, width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _getStatusIcon(tracking.status),
-                    size: 16,
-                    color: statusColor,
+            // Read-only Status Badge — set automatically by hardware
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusColor, width: 1),
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    tracking.getStatusText(),
-                    style: TextStyle(
-                      color: statusColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_getStatusIcon(tracking.status), size: 15, color: statusColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        tracking.getStatusText(),
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                // Auto-updated label
+                Icon(Icons.sensors, size: 14, color: AdminTheme.textMuted),
+                const SizedBox(width: 4),
+                Text(
+                  'Auto-updated by hardware',
+                  style: TextStyle(
+                    color: AdminTheme.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1098,7 +1217,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return Icons.pending_actions;
       case 'in_transit':
         return Icons.local_shipping;
+      case 'awaiting_pickup':
+        return Icons.inventory_2_outlined;
       case 'delivered':
+      case 'done':
         return Icons.check_circle;
       case 'retrieved':
         return Icons.done_all;
@@ -1137,8 +1259,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         trackingId: trackingId,
         status: status,
       );
-      // Refresh tracking list to update UI
-      _databaseService.refreshAllTrackingIds();
+      // Refresh tracking stream to update UI
+      if (mounted) {
+        setState(() {
+          _trackingStream = _databaseService.getAllTrackingIds();
+        });
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

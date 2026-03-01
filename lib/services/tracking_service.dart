@@ -59,7 +59,7 @@ class TrackingService {
     }
   }
 
-  /// Refresh tracking data for a user
+  /// Refresh tracking data for a specific user
   Future<void> refreshTracking(String userId) async {
     if (_isFetching) return;
     _isFetching = true;
@@ -73,10 +73,35 @@ class TrackingService {
         final List data = jsonDecode(response.body);
         final list = data.map((json) => TrackingModel.fromMap(json)).toList();
         _cachedTracking = list;
-        _trackingController.add(list);
+        if (!_trackingController.isClosed) {
+          _trackingController.add(list);
+        }
       }
     } catch (e) {
       debugPrint('Error refreshing tracking: $e');
+    } finally {
+      _isFetching = false;
+    }
+  }
+
+  /// Refetch ALL tracking records (admin) and push to stream.
+  /// Call this when a WebSocket trackingStatusChanged event arrives
+  /// so the admin view auto-updates without manual interaction.
+  Future<void> refreshAllTracking() async {
+    if (_isFetching) return;
+    _isFetching = true;
+    try {
+      final response = await http.get(Uri.parse(ApiConfig.tracking));
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        final list = data.map((e) => TrackingModel.fromMap(e)).toList();
+        _cachedTracking = list;
+        if (!_trackingController.isClosed) {
+          _trackingController.add(list);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error refreshing all tracking: $e');
     } finally {
       _isFetching = false;
     }
@@ -88,7 +113,6 @@ class TrackingService {
     if (_cachedTracking.isEmpty && !_isFetching) {
       refreshTracking(userId);
     }
-    
     return _trackingController.stream;
   }
 
@@ -150,7 +174,7 @@ class TrackingService {
     }
   }
 
-  /// Get all tracking IDs (Admin)
+  /// Get all tracking IDs list (Admin — one-time fetch)
   Future<List<TrackingModel>> getAllTrackingIds() async {
     try {
       final response = await http.get(Uri.parse(ApiConfig.tracking));

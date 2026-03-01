@@ -1,11 +1,10 @@
 class ApiConfig {
-  // LOCAL TESTING: PC must be connected to the Android hotspot
-  static const String baseUrl = 'http://192.168.18.78:5000/api';
-  // PRODUCTION (Render.com): uncomment below and comment above when deploying
-  // static const String baseUrl = 'https://smart-parcel-dropbox.onrender.com/api';
-
+  // LOCAL TESTING: 10.0.2.2 is the localhost for Android Emulator
+  // LOCAL TESTING: For real devices, use your PC's IP (e.g., 192.168.18.78)
+  static const String baseUrl = 'http://10.0.2.2:5000/api';
+  
   // Socket.IO connects to the root server URL (no /api)
-  static const String socketUrl = 'http://192.168.18.78:5000';
+  static const String socketUrl = 'http://10.0.2.2:5000';
   // static const String socketUrl = 'https://smart-parcel-dropbox.onrender.com';  // production
   
   static const String users = '$baseUrl/users';

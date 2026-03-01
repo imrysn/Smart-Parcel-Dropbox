@@ -306,7 +306,10 @@ class AdminTheme {
         return statusWarning;
       case 'in_transit':
         return statusInfo;
+      case 'awaiting_pickup':
+        return const Color(0xFF6366F1); // Indigo 500
       case 'delivered':
+      case 'done':
         return statusSuccess;
       case 'retrieved':
         return const Color(0xFF8B5CF6); // Purple 500
