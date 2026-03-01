@@ -12,6 +12,7 @@ import '../../services/tracking_service.dart';
 import '../../services/user_service.dart';
 import '../../services/websocket_service.dart';
 import '../login_screen.dart';
+import 'admin_pickup_screen.dart';
 
 /// Admin Dashboard - Professional slate blue theme
 /// Distinct from user's luxury gold theme
