@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../models/tracking_model.dart';
 import 'tracking_details_screen.dart';
+import 'admin/rider_management_screen.dart';
 
 /// Pickup Screen - Manages items waiting to be picked up by couriers
 class PickupScreen extends StatefulWidget {
@@ -25,7 +26,35 @@ class _PickupScreenState extends State<PickupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: RefreshIndicator(
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const RiderManagementScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.motorcycle),
+                label: const Text('Manage Delivery Riders'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade700,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
         onRefresh: () => widget.databaseService.refreshTracking(widget.userId),
         child: StreamBuilder<List<TrackingModel>>(
           stream: widget.isAdmin
@@ -131,6 +160,9 @@ class _PickupScreenState extends State<PickupScreen> {
             );
           },
         ),
+      ),
+          ),
+        ],
       ),
     );
   }

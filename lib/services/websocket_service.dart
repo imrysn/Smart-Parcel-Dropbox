@@ -31,6 +31,8 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _binStatusController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _ownerVerifyAckController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -46,6 +48,10 @@ class WebSocketService {
   /// Fires on every sensorUpdate from ESP32: { US_PICKUP, US_DROPOFF, REED_TOP, REED_PICKUP, REED_RECEIVED }
   Stream<Map<String, dynamic>> get binStatusUpdates =>
       _binStatusController.stream;
+  /// Fires when backend confirms owner QR scan result: { approved: bool }
+  Stream<Map<String, dynamic>> get ownerVerifyAck =>
+      _ownerVerifyAckController.stream;
+
 
   bool get isConnected => _socket?.connected ?? false;
 
@@ -125,6 +131,12 @@ class WebSocketService {
       debugPrint('📡 Bin status: $data');
       _binStatusController.add(data as Map<String, dynamic>);
     });
+
+    // Owner QR verify acknowledgement from backend
+    _socket!.on('ownerVerifyAck', (data) {
+      debugPrint('🔑 Owner verify ack: $data');
+      _ownerVerifyAckController.add(data as Map<String, dynamic>);
+    });
   }
 
   /// Emit an event to the server
@@ -184,6 +196,13 @@ class WebSocketService {
     debugPrint('📊 Emitted getEsp32Status request');
   }
 
+  /// Send the scanned owner QR token to the backend for validation.
+  /// Backend will validate and relay result to the ESP32.
+  void emitVerifyOwnerQR(String token) {
+    emit('verifyOwnerQR', {'token': token});
+    debugPrint('🔑 Emitted verifyOwnerQR: $token');
+  }
+
   /// Disconnect and cleanup
   void disconnect() {
     _socket?.dispose();
@@ -201,6 +220,7 @@ class WebSocketService {
     _trackingStatusController.close();
     _esp32StatusController.close();
     _binStatusController.close();
+    _ownerVerifyAckController.close();
   }
 
   /// Reset singleton instance

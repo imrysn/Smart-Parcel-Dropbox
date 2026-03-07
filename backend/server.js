@@ -15,6 +15,11 @@ const arduinoScanner = require('./hardware/arduinoScanner');
 const Tracking = require('./models/Tracking');
 const ScanLog = require('./models/ScanLog');
 const Notification = require('./models/Notification');
+const Rider = require('./models/Rider');
+
+// In-memory store for one-time owner QR session tokens { token → expiresAtMs }
+const ownerSessions = new Map();
+
 
 // Initialize Express app
 const app = express();
@@ -56,12 +61,14 @@ const trackingRoutes = require('./routes/trackingRoutes');
 const scanLogRoutes = require('./routes/scanLogRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const deliveryLogRoutes = require('./routes/deliveryLogRoutes');
+const riderRoutes = require('./routes/riderRoutes');
 
 app.use('/api/users', userRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/scan-logs', scanLogRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/delivery-logs', deliveryLogRoutes);
+app.use('/api/riders', riderRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -270,19 +277,53 @@ io.on('connection', (socket) => {
   // ── Rider Verification ──────────────────────────────────────────────────
   // ESP32 emits this when rider scans their QR code
   // Payload: { riderId: "RIDER-001" }
-  // For now: any non-empty riderId is accepted (no Rider model yet).
-  // Replace with a real DB check once a Rider model is added.
   socket.on('verifyRider', async ({ riderId }) => {
-    console.log(`🚴 verifyRider → riderId: ${riderId}`);
+    console.log(`🚴 verifyRider → checking ID: ${riderId}`);
     try {
-      const valid = riderId && riderId.length > 2;
-      console.log(`  ${valid ? '✅ RIDER VALID' : '❌ RIDER INVALID'}: ${riderId}`);
-      socket.emit('riderVerifyResult', { valid: !!valid, riderId });
+      if (!riderId || riderId.length < 3) {
+        return socket.emit('riderVerifyResult', { valid: false, riderId });
+      }
+
+      // Check MongoDB for registered Rider ID
+      const rider = await Rider.findOne({ riderId: riderId });
+      const valid = !!rider;
+      console.log(`  ${valid ? `✅ RIDER VALID (${rider.name})` : '❌ RIDER INVALID'}: ${riderId}`);
+
+      socket.emit('riderVerifyResult', { valid, riderId });
     } catch (err) {
       console.error('❌ verifyRider error:', err.message);
       socket.emit('riderVerifyResult', { valid: false, riderId });
     }
   });
+
+  // ── Owner QR Session Request (ESP32 → backend → ESP32) ──────────────────
+  // ESP32 enters OWNER_VERIFYING state and asks for a one-time session token.
+  // Backend generates a UUID, stores it with a 10-second TTL, and returns it.
+  // ESP32 renders the token as a QR code on the TFT LCD.
+  socket.on('requestOwnerSession', () => {
+    const token = `OWN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const expiresAt = Date.now() + 65000; // 65s TTL (60s scan window + 5s buffer)
+    ownerSessions.set(token, expiresAt);
+    console.log(`🔑 requestOwnerSession → generated token: ${token}`);
+    socket.emit('ownerSessionToken', { token });
+    setTimeout(() => ownerSessions.delete(token), 70000); // auto-cleanup
+  });
+
+  // ── Owner QR Verification (Flutter → backend → ESP32) ───────────────────
+  // Flutter app scans the QR code on the LCD and emits this event.
+  // Backend validates the token and relays the result to the ESP32.
+  socket.on('verifyOwnerQR', ({ token }) => {
+    console.log(`🔑 verifyOwnerQR → token: ${token}`);
+    const expiresAt = ownerSessions.get(token);
+    const approved = !!(expiresAt && Date.now() < expiresAt);
+    ownerSessions.delete(token); // One-time use: consume immediately
+    console.log(`  ${approved ? '✅ OWNER APPROVED' : '❌ OWNER DENIED/EXPIRED'}`);
+    // Forward result to the ESP32 hardware
+    io.to('esp32_device').emit('ownerVerifyResult', { approved });
+    // Confirm to the Flutter app
+    socket.emit('ownerVerifyAck', { approved, token });
+  });
+
 
   // ── Owner Pickup Registration ────────────────────────────────────────────
   // ESP32 emits this when owner scans a waybill QR at the box

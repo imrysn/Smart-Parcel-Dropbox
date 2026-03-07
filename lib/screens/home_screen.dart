@@ -9,9 +9,11 @@ import 'tracking_details_screen.dart';
 import 'logs_screen.dart';
 import 'notifications_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
+import 'admin/rider_management_screen.dart';
 import 'dropbox_control_screen.dart';
 
 import 'pickup_screen.dart';
+import 'owner_verify_screen.dart';
 import '../widgets/notification_badge.dart';
 
 /// Home Screen - Main dashboard showing active orders
@@ -299,6 +301,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       setState(() {
                         _selectedIndex = 1; // Switch to Orders tab
                       });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildQuickActionButton(
+                    icon: Icons.qr_code_scanner,
+                    label: 'Verify Owner Access',
+                    subtitle: 'Scan QR on dropbox LCD to approve pick up',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const OwnerVerifyScreen(),
+                        ),
+                      );
                     },
                   ),
                 ],
@@ -1012,6 +1027,25 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                           icon: const Icon(Icons.admin_panel_settings),
                           label: const Text('Open Admin Dashboard'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => const RiderManagementScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.motorcycle),
+                          label: const Text('Manage Delivery Riders'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade700,
+                            foregroundColor: Colors.white,
+                          ),
                         ),
                       ),
                     ],
