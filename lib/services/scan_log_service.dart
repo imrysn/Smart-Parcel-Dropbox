@@ -74,6 +74,24 @@ class ScanLogService {
     }
   }
 
+  /// Get owner access logs (Feature #7)
+  Future<List<ScanLogModel>> getOwnerAccessLogs() async {
+    try {
+      final response = await http.get(
+        // Ensure this matches the Express route
+        Uri.parse('${ApiConfig.scanLogs}/owner-access'),
+      );
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.map((e) => ScanLogModel.fromMap(e)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching owner access logs: $e');
+      return [];
+    }
+  }
+
   /// Get all delivery logs (Admin)
   Future<List<Map<String, dynamic>>> getAllDeliveryLogs() async {
     try {

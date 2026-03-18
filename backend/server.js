@@ -16,9 +16,19 @@ const Tracking = require('./models/Tracking');
 const ScanLog = require('./models/ScanLog');
 const Notification = require('./models/Notification');
 const Rider = require('./models/Rider');
+const User = require('./models/User');
 
 // In-memory store for one-time owner QR session tokens { token → expiresAtMs }
 const ownerSessions = new Map();
+
+// Feature #2 — Rate-limit requestOwnerSession
+// Tracks the last time a session was requested { socketId → timestampMs }
+const sessionCooldowns = new Map();
+const SESSION_COOLDOWN_MS = 10000; // 10 seconds
+
+// Feature #9 — Pending alert re-emit on reconnect
+// Holds an active alert until it expires { userId → expiresAtMs }
+const pendingOwnerAlerts = new Map();
 
 
 // Initialize Express app
@@ -103,15 +113,22 @@ io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
 
   // Device room join (ESP32 identifies itself)
-  socket.on('join', (roomId) => {
+  socket.on('join', async (roomId) => {
     socket.join(roomId);
     console.log(`📡 ${socket.id} joined room: ${roomId}`);
 
     // Track ESP32 connection status
     if (roomId === 'esp32_device') {
-      socket.isEsp32 = true; // stamp flag — socket.rooms is empty by disconnect time
+      socket.isEsp32 = true;
       console.log('✅ ESP32 connected and joined room');
       io.emit('esp32Status', { connected: true, timestamp: new Date() });
+    }
+
+    // Feature #9 — Re-emit pending owner alert if this user has one waiting
+    const alertExpiry = pendingOwnerAlerts.get(roomId);
+    if (alertExpiry && Date.now() < alertExpiry) {
+      socket.emit('ownerAccessAlert', { timestamp: new Date(), replay: true });
+      console.log(`🔔 Re-emitted pending ownerAccessAlert to rejoining user: ${roomId}`);
     }
   });
 
@@ -296,32 +313,85 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── Owner QR Session Request (ESP32 → backend → ESP32) ──────────────────
-  // ESP32 enters OWNER_VERIFYING state and asks for a one-time session token.
-  // Backend generates a UUID, stores it with a 10-second TTL, and returns it.
-  // ESP32 renders the token as a QR code on the TFT LCD.
-  socket.on('requestOwnerSession', () => {
-    const token = `OWN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  // ── Owner QR Session Request (ESP32 → backend → app) ───────────────────
+  // Feature #1: Targets only the admin (owner) user's Socket.IO room.
+  // Feature #2: Rate-limited to once per 10 seconds.
+  // Feature #3: Creates an audit log entry on every attempt.
+  socket.on('requestOwnerSession', async () => {
+    // Feature #2 — Rate-limit
+    const lastRequest = sessionCooldowns.get(socket.id) || 0;
+    if (Date.now() - lastRequest < SESSION_COOLDOWN_MS) {
+      console.log('⚠️  requestOwnerSession rate-limited — too soon after last request');
+      return;
+    }
+    sessionCooldowns.set(socket.id, Date.now());
+
+    // Feature #6: Generate a simple 6-digit PIN for manual entry fallback
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const token = `OWN-${pin}`;
     const expiresAt = Date.now() + 65000; // 65s TTL (60s scan window + 5s buffer)
     ownerSessions.set(token, expiresAt);
     console.log(`🔑 requestOwnerSession → generated token: ${token}`);
     socket.emit('ownerSessionToken', { token });
     setTimeout(() => ownerSessions.delete(token), 70000); // auto-cleanup
+
+    try {
+      // Feature #1 — Find admin user, emit only to their room
+      const owner = await User.findOne({ role: 'admin' }).select('_id');
+      if (owner) {
+        const ownerRoom = owner._id.toString();
+        io.to(ownerRoom).emit('ownerAccessAlert', { timestamp: new Date() });
+        console.log(`🔔 ownerAccessAlert → room: ${ownerRoom}`);
+
+        // Feature #9 — Store pending alert so reconnecting owner still gets it
+        pendingOwnerAlerts.set(ownerRoom, expiresAt);
+        setTimeout(() => pendingOwnerAlerts.delete(ownerRoom), 70000);
+      } else {
+        // Fallback: no admin user found — broadcast to all app clients
+        socket.broadcast.emit('ownerAccessAlert', { timestamp: new Date() });
+        console.log('⚠️  No admin user found; ownerAccessAlert broadcast to all clients');
+      }
+
+      // Feature #3 — Audit log: record the access attempt
+      await ScanLog.create({
+        scannedId: token,
+        accessGranted: null,
+        mode: 'owner_verify',
+        status: 'pending',
+        reason: 'owner_qr_requested',
+        userId: owner ? owner._id.toString() : 'unknown'
+      });
+    } catch (err) {
+      console.error('❌ requestOwnerSession DB error:', err.message);
+      socket.broadcast.emit('ownerAccessAlert', { timestamp: new Date() });
+    }
   });
 
   // ── Owner QR Verification (Flutter → backend → ESP32) ───────────────────
   // Flutter app scans the QR code on the LCD and emits this event.
-  // Backend validates the token and relays the result to the ESP32.
-  socket.on('verifyOwnerQR', ({ token }) => {
+  // Feature #3: Updates the audit log with the outcome.
+  socket.on('verifyOwnerQR', async ({ token }) => {
     console.log(`🔑 verifyOwnerQR → token: ${token}`);
     const expiresAt = ownerSessions.get(token);
     const approved = !!(expiresAt && Date.now() < expiresAt);
-    ownerSessions.delete(token); // One-time use: consume immediately
+    ownerSessions.delete(token); // one-time use
     console.log(`  ${approved ? '✅ OWNER APPROVED' : '❌ OWNER DENIED/EXPIRED'}`);
-    // Forward result to the ESP32 hardware
     io.to('esp32_device').emit('ownerVerifyResult', { approved });
-    // Confirm to the Flutter app
     socket.emit('ownerVerifyAck', { approved, token });
+
+    // Feature #3 — Update the audit log entry with the result
+    try {
+      await ScanLog.findOneAndUpdate(
+        { scannedId: token, mode: 'owner_verify' },
+        { $set: {
+            accessGranted: approved,
+            status: approved ? 'authorized' : 'rejected',
+            reason: approved ? 'owner_qr_approved' : 'owner_qr_denied_or_expired'
+        }}
+      );
+    } catch (err) {
+      console.error('❌ verifyOwnerQR audit log update error:', err.message);
+    }
   });
 
 

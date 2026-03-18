@@ -14,6 +14,7 @@ import 'dropbox_control_screen.dart';
 
 import 'pickup_screen.dart';
 import 'owner_verify_screen.dart';
+import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
 
 /// Home Screen - Main dashboard showing active orders
@@ -100,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Smart Parcel Drop Box'),
+        centerTitle: false, // Ensures the title is aligned to the left
         actions: [
           // Notifications button with badge - isolated widget prevents AppBar rebuilds
           if (_userId != null)
@@ -107,38 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
               userId: _userId!,
               databaseService: _databaseService,
             ),
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'View Logs',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const LogsScreen(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: _logout,
-          ),
         ],
       ),
-      floatingActionButton: _selectedIndex == 1
-          ? FloatingActionButton.extended(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const AddTrackingScreen(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('Add Tracking ID'),
-              heroTag: 'home_fab',
-            )
-          : null,
+      floatingActionButton: _getFloatingActionButton(),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
@@ -177,6 +150,36 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget? _getFloatingActionButton() {
+    if (_selectedIndex == 0) {
+      return FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const OwnerVerifyScreen(),
+            ),
+          );
+        },
+        heroTag: 'home_verify_fab',
+        child: const Icon(Icons.qr_code_scanner),
+      );
+    } else if (_selectedIndex == 1) {
+      return FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const AddTrackingScreen(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Add Tracking ID'),
+        heroTag: 'home_fab',
+      );
+    }
+    return null;
+  }
+
   Widget _buildActiveOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
 
@@ -191,16 +194,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // Quick Stats Card
           StreamBuilder<List<TrackingModel>>(
-            stream: _activeOrdersStream,
-            initialData: _databaseService.cachedTracking
-                .where((t) =>
-                    t.mode == 'drop_off' &&
-                    ['pending', 'in_transit', 'delivered'].contains(t.status))
-                .toList(),
+            stream: _databaseService.getUserTrackingIds(_userId!),
+            initialData: _databaseService.cachedTracking,
             builder: (context, snapshot) {
-              final activeOrders = snapshot.data ?? [];
-              final deliveredCount =
-                  activeOrders.where((o) => o.status == 'delivered').length;
+              final allOrders = snapshot.data ?? [];
+              
+              // Calculate specific state metrics
+              final activeDropOffCount = allOrders.where((o) => 
+                o.mode == 'drop_off' && ['pending', 'in_transit'].contains(o.status)).length;
+              final dropOffBinCount = allOrders.where((o) => 
+                o.mode == 'drop_off' && o.status == 'delivered').length;
+                
+              final activePickupCount = allOrders.where((o) => 
+                o.mode == 'pickup' && o.status == 'pending').length;
+              final pickUpBinCount = allOrders.where((o) => 
+                o.mode == 'pickup' && o.status == 'ready_for_pickup').length;
 
               return Card(
                 child: Padding(
@@ -231,7 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Expanded(
                             child: _buildStatItem(
                               'Active Orders',
-                              '${activeOrders.length}',
+                              '$activeDropOffCount',
                               Icons.local_shipping_outlined,
                               Colors.blue,
                             ),
@@ -239,10 +247,32 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 16),
                           Expanded(
                             child: _buildStatItem(
-                              'In Drop Box',
-                              '$deliveredCount',
+                              'Drop Off bin',
+                              '$dropOffBinCount',
                               Icons.inbox,
                               Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildStatItem(
+                              'Active Pickup',
+                              '$activePickupCount',
+                              Icons.outbox_outlined,
+                              Colors.orange,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildStatItem(
+                              'Pick Up bin',
+                              '$pickUpBinCount',
+                              Icons.inventory_2_outlined,
+                              Colors.deepPurple,
                             ),
                           ),
                         ],
@@ -253,73 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          const SizedBox(height: 16),
 
-          // Quick Actions Card
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.flash_on_outlined,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Quick Actions',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildQuickActionButton(
-                    icon: Icons.notifications_outlined,
-                    label: 'Notifications',
-                    subtitle: 'View delivery updates',
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const NotificationsScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _buildQuickActionButton(
-                    icon: Icons.inventory_2_outlined,
-                    label: 'View All Orders',
-                    subtitle: 'See complete order history',
-                    onTap: () {
-                      setState(() {
-                        _selectedIndex = 1; // Switch to Orders tab
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _buildQuickActionButton(
-                    icon: Icons.qr_code_scanner,
-                    label: 'Verify Owner Access',
-                    subtitle: 'Scan QR on dropbox LCD to approve pick up',
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const OwnerVerifyScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -1049,6 +1013,24 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ],
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _logout,
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Logout'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red.shade600,
+                          side: BorderSide(color: Colors.red.shade600),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),

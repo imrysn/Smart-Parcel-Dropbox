@@ -35,7 +35,7 @@ class ArduinoScanner {
       });
 
       this.port.on('error', (err) => {
-        console.error('❌ Arduino Scanner Error:', err.message);
+        // console.error('❌ Arduino Scanner Error:', err.message);
         this.isConnected = false;
       });
 

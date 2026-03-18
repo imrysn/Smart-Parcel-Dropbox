@@ -12,8 +12,6 @@ dependencies:
     sdk: flutter
 
   # State Management
-  provider: ^6.1.0
-  flutter_riverpod: ^2.4.0
 
   # Local Storage & Caching
   hive: ^2.2.3
@@ -33,8 +31,6 @@ dependencies:
   # Dependency Injection
   get_it: ^7.6.0
 
-  # Functional Programming
-  dartz: ^0.10.1
 
   # Value Equality
   equatable: ^2.0.5

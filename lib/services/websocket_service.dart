@@ -33,6 +33,8 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _ownerVerifyAckController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _ownerAccessAlertController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -51,6 +53,9 @@ class WebSocketService {
   /// Fires when backend confirms owner QR scan result: { approved: bool }
   Stream<Map<String, dynamic>> get ownerVerifyAck =>
       _ownerVerifyAckController.stream;
+  /// Fires when the hardware shows the owner QR code (prompts owner to verify)
+  Stream<Map<String, dynamic>> get ownerAccessAlerts =>
+      _ownerAccessAlertController.stream;
 
 
   bool get isConnected => _socket?.connected ?? false;
@@ -137,6 +142,13 @@ class WebSocketService {
       debugPrint('🔑 Owner verify ack: $data');
       _ownerVerifyAckController.add(data as Map<String, dynamic>);
     });
+
+    // Hardware entered owner verification — prompt owner to open app & scan
+    _socket!.on('ownerAccessAlert', (data) {
+      debugPrint('🔔 ownerAccessAlert received');
+      _ownerAccessAlertController.add(
+          (data as Map<String, dynamic>? ?? {'timestamp': DateTime.now().toIso8601String()}));
+    });
   }
 
   /// Emit an event to the server
@@ -221,6 +233,7 @@ class WebSocketService {
     _esp32StatusController.close();
     _binStatusController.close();
     _ownerVerifyAckController.close();
+    _ownerAccessAlertController.close();
   }
 
   /// Reset singleton instance

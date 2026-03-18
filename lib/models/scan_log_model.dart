@@ -10,6 +10,7 @@ class ScanLogModel {
   final String? trackingId; // Associated tracking ID if found
   final String? userId; // User ID if tracking ID was found
   final String? reason; // Reason for denial if access was denied
+  final String? status; // 'pending', 'authorized', 'rejected'
 
   ScanLogModel({
     required this.id,
@@ -19,6 +20,7 @@ class ScanLogModel {
     this.trackingId,
     this.userId,
     this.reason,
+    this.status,
   });
 
   /// Create ScanLogModel from Map (JSON)
@@ -31,6 +33,7 @@ class ScanLogModel {
       trackingId: data['trackingId'],
       userId: data['userId'],
       reason: data['reason'],
+      status: data['status'],
     );
   }
 
@@ -43,6 +46,7 @@ class ScanLogModel {
       if (trackingId != null) 'trackingId': trackingId,
       if (userId != null) 'userId': userId,
       if (reason != null) 'reason': reason,
+      if (status != null) 'status': status,
     };
   }
 

@@ -28,6 +28,12 @@ class NotificationService {
   static const _channelDesc =
       'Real-time notifications when your parcel is delivered or picked up';
 
+  // Dedicated channel for owner access alerts
+  static const _ownerChannelId   = 'owner_access';
+  static const _ownerChannelName = 'Owner Access Alerts';
+  static const _ownerChannelDesc =
+      'Urgent alerts when someone attempts owner-level access to your dropbox';
+
   // ── Stream / cache for in-app notifications ───────────────────────────────
   final _notificationController =
       StreamController<List<NotificationModel>>.broadcast();
@@ -42,7 +48,11 @@ class NotificationService {
 
   /// Call once on app start (inside _initializeServices in main.dart).
   /// Sets up both the local-notification plugin AND the in-app stream.
-  Future<void> initialize() async {
+  ///
+  /// [onNotificationTap] — optional callback invoked with the notification
+  /// payload when the user taps a system notification. Use this to navigate
+  /// to the correct screen (e.g. OwnerVerifyScreen for 'owner_verify').
+  Future<void> initialize({void Function(String? payload)? onNotificationTap}) async {
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -51,7 +61,11 @@ class NotificationService {
 
     await _notifications.initialize(
       settings,
-      onDidReceiveNotificationResponse: _onNotificationResponse,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        // Delegate to the injected handler first (navigation logic in main.dart)
+        onNotificationTap?.call(response.payload);
+        _onNotificationResponse(response);
+      },
     );
 
     // Create high-importance channel for Android 8.0+
@@ -64,11 +78,22 @@ class NotificationService {
       enableVibration: true,
     );
 
+    // Owner access alert channel — max importance so it rings even in DND
+    const AndroidNotificationChannel ownerChannel = AndroidNotificationChannel(
+      _ownerChannelId,
+      _ownerChannelName,
+      description: _ownerChannelDesc,
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+    );
+
     final androidPlugin = _notifications
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
 
     await androidPlugin?.createNotificationChannel(channel);
+    await androidPlugin?.createNotificationChannel(ownerChannel);
 
     // Request Android 13+ permission
     await androidPlugin?.requestNotificationsPermission();
@@ -80,6 +105,47 @@ class NotificationService {
     if (response.actionId == 'action_unlock') {
       debugPrint('[Notifications] Unlock action triggered via notification');
       // Logic for unlocking will be handled if needed (e.g., via background service or navigation)
+    }
+  }
+
+  // ── Owner access alert notification ─────────────────────────────────────
+
+  /// Show an urgent notification when the hardware enters Owner Verification
+  /// mode (QR displayed on LCD). Tapping the notification will open the
+  /// Verify Owner Access camera screen via the [payload] `'owner_verify'`.
+  Future<void> showOwnerAccessAlert() async {
+    const title = '🔒 Dropbox Access Alert';
+    const body  = 'Someone is accessing your dropbox. Are you the owner? Tap to verify.';
+    try {
+      await _notifications.show(
+        // Fixed ID — a new alert replaces the previous one instead of stacking
+        99901,
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _ownerChannelId,
+            _ownerChannelName,
+            channelDescription: _ownerChannelDesc,
+            importance: Importance.max,
+            priority: Priority.max,
+            icon: '@mipmap/ic_launcher',
+            // Feature #4: "I Didn't Request This" quick-dismiss action
+            actions: [
+              AndroidNotificationAction(
+                'action_not_me',
+                "❌ I Didn't Request This",
+                showsUserInterface: false,
+                cancelNotification: true,
+              ),
+            ],
+          ),
+        ),
+        payload: 'owner_verify',
+      );
+      debugPrint('[Notifications] Owner access alert shown');
+    } catch (e) {
+      debugPrint('[Notifications] Error showing owner access alert: $e');
     }
   }
 

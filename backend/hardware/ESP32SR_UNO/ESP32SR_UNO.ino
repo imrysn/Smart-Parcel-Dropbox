@@ -154,6 +154,11 @@ bool lastSocketState = false;
 bool lastDoorState = false;
 unsigned long lastIndicatorUpdate = 0;
 
+// Feature #10: Offline Queue for pick-up parcels
+#define MAX_OFFLINE_QUEUE 20
+String offlineQueue[MAX_OFFLINE_QUEUE];
+int offlineQueueCount = 0;
+
 // Tracking ID Timeouts
 unsigned long dropOffRegisterTime = 0;
 unsigned long pickupRegisterTime  = 0;
@@ -249,8 +254,9 @@ void setup() {
   Serial.println("\n--- [INIT] Watchdog Timer (using core default timeout) ---");
   // In ESP32 Arduino Core v3.x+, TWDT is already initialized by default.
   // Using esp_task_wdt_init() will throw a "TWDT already initialized" error.
-  // We just need to add the current thread.
-  esp_task_wdt_add(NULL); // Add current loop task to WDT
+  // We REMOVED esp_task_wdt_add(NULL) here because socketIO.loop() blocks during TCP
+  // reconnection attempts when the server is offline, which causes the WDT to panic 
+  // and reboot the ESP32. By not adding the main loop to the WDT, it survives offline periods.
 
   // Ultrasonic sensors
   pinMode(US_PLATFORM[0], OUTPUT); pinMode(US_PLATFORM[1], INPUT);
@@ -290,7 +296,6 @@ void setup() {
 //  MAIN LOOP
 // ============================================================
 void loop() {
-  esp_task_wdt_reset();   // Feed the watchdog
   yield();
   socketIO.loop();        // Keep Socket.IO connection alive
   checkSerialCommands();
@@ -430,6 +435,19 @@ void loop() {
           ownerQrDrawn = true;
           stateStartTime = millis(); // restart 60s countdown from when QR is shown
           Serial.println("[FLOW] Owner QR: QR code displayed. Owner has 60s to scan.");
+        }
+
+        // Feature #5: Update countdown every second (overwrite only the timer area)
+        static int lastCountdownSec = -1;
+        int elapsed = (millis() - stateStartTime) / 1000;
+        int remaining = max(0, 60 - elapsed);
+        if (remaining != lastCountdownSec) {
+          lastCountdownSec = remaining;
+          // Overwrite just the bottom line — white bg, black text (QR screen colors)
+          tft.fillRect(0, 218, 320, 22, COLOR_TEXT);
+          tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+          tft.setCursor(55, 222);
+          tft.print("Expires in "); tft.print(remaining); tft.print(" seconds");
         }
       }
 
@@ -1099,12 +1117,20 @@ void drawOwnerVerifyingScreen(const String& token) {
   // Draw QR code centred on TFT (320x240). Module size 4 → 29 modules = 116px
   // QR version 3 = 29x29 modules; 4px per module = 116px. Centre at x=(320-116)/2=102, y=25
   drawQRCode(102, 25, 4, token);
+  // Feature #6: Provide PIN fallback on LCD
+  tft.setTextSize(2); tft.setTextColor(COLOR_BG);
+  tft.setCursor(65, 155);
+  tft.print("PIN: ");
+  String pinOnly = token;
+  pinOnly.replace("OWN-", ""); // Just show the numeric part
+  tft.print(pinOnly);
+
   // Instruction
   tft.setTextSize(1); tft.setTextColor(COLOR_BG);
-  tft.setCursor(25, 210);
-  tft.print("Scan with Smart Parcel app to verify");
+  tft.setCursor(45, 210);
+  tft.print("Scan QR or enter PIN in app");
   tft.setCursor(80, 222);
-  tft.print("Expires in 10 seconds");
+  tft.print("Expires in 60 seconds");
 }
 
 void drawScannerBg() {
@@ -1211,6 +1237,20 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
       Serial.println("[WS] Socket.IO connected.");
       // Identify as hardware device to the server
       socketIO.send(sIOtype_EVENT, "[\"join\",\"esp32_device\"]");
+      
+      // Feature #10: Send queued pickups on reconnect
+      if (offlineQueueCount > 0) {
+        Serial.print("[OFFLINE] Processing queue of "); 
+        Serial.print(offlineQueueCount); 
+        Serial.println(" items...");
+        
+        for (int i = 0; i < offlineQueueCount; i++) {
+           // Calls the original emit function, but this time socketIO.isConnected() is true
+           emitRegisterOwnerPickup(offlineQueue[i]);
+           delay(100); // Small delay to prevent network flood
+        }
+        offlineQueueCount = 0;
+      }
       break;
 
     case sIOtype_DISCONNECT:
@@ -1328,6 +1368,17 @@ void emitRequestOwnerSession() {
 }
 
 void emitRegisterOwnerPickup(const String& trackingId) {
+  // Feature #10: Queue locally if offline
+  if (!socketIO.isConnected()) {
+    if (offlineQueueCount < MAX_OFFLINE_QUEUE) {
+      offlineQueue[offlineQueueCount++] = trackingId;
+      Serial.print("[OFFLINE] Queued owner pickup: "); Serial.println(trackingId);
+    } else {
+      Serial.println("[OFFLINE] ERROR: Queue full. Cannot queue more pickups.");
+    }
+    return;
+  }
+
   StaticJsonDocument<256> doc;
   JsonArray arr = doc.to<JsonArray>();
   arr.add("registerOwnerPickup");
