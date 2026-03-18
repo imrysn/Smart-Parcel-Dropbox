@@ -22,6 +22,8 @@ class PickupScreen extends StatefulWidget {
 }
 
 class _PickupScreenState extends State<PickupScreen> {
+  int _currentTab = 0; // 0 = Pickup, 1 = Riders
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -30,139 +32,177 @@ class _PickupScreenState extends State<PickupScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const RiderManagementScreen(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.motorcycle),
-                label: const Text('Manage Delivery Riders'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            child: _buildToggleButton(),
+          ),
+          Expanded(
+            child: _currentTab == 0
+                ? _buildPickupList()
+                : const RiderManagementScreen(isEmbedded: true),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleButton() {
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300, width: 1),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _currentTab = 0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: _currentTab == 0 ? Colors.orange.shade600 : Colors.transparent,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  'Pickup Queue',
+                  style: TextStyle(
+                    color: _currentTab == 0 ? Colors.white : Colors.grey.shade600,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ),
           ),
           Expanded(
-            child: RefreshIndicator(
-        onRefresh: () => widget.databaseService.refreshTracking(widget.userId),
-        child: StreamBuilder<List<TrackingModel>>(
-          stream: widget.isAdmin
-              ? widget.databaseService.getAllTrackingIds().map((list) => list
-                  .where((t) =>
-                      (t.mode == 'pickup' || t.mode == 'pick_up') &&
-                      ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
-                          .contains(t.status))
-                  .toList())
-              : widget.databaseService.getActivePickups(widget.userId),
-          initialData: widget.databaseService.cachedTracking
-              .where((t) =>
-                  (t.mode == 'pickup' || t.mode == 'pick_up') &&
-                  (widget.isAdmin || t.userId == widget.userId) &&
-                  ['pending', 'awaiting_pickup', 'ready_for_pickup'].contains(t.status))
-              .toList(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Center(
+            child: GestureDetector(
+              onTap: () => setState(() => _currentTab = 1),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: _currentTab == 1 ? Colors.orange.shade600 : Colors.transparent,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  'Manage Riders',
+                  style: TextStyle(
+                    color: _currentTab == 1 ? Colors.white : Colors.grey.shade600,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPickupList() {
+    return RefreshIndicator(
+      onRefresh: () => widget.databaseService.refreshTracking(widget.userId),
+      child: StreamBuilder<List<TrackingModel>>(
+        stream: widget.isAdmin
+            ? widget.databaseService.getAllTrackingIds().map((list) => list
+                .where((t) =>
+                    (t.mode == 'pickup' || t.mode == 'pick_up') &&
+                    ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
+                        .contains(t.status))
+                .toList())
+            : widget.databaseService.getActivePickups(widget.userId),
+        initialData: widget.databaseService.cachedTracking
+            .where((t) =>
+                (t.mode == 'pickup' || t.mode == 'pick_up') &&
+                (widget.isAdmin || t.userId == widget.userId) &&
+                ['pending', 'awaiting_pickup', 'ready_for_pickup'].contains(t.status))
+            .toList(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('Error: ${snapshot.error}'),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () =>
+                        widget.databaseService.refreshTracking(widget.userId),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final pickups = snapshot.data ?? [];
+
+          if (pickups.isEmpty) {
+            return Center(
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                    const SizedBox(height: 16),
-                    Text('Error: ${snapshot.error}'),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () =>
-                          widget.databaseService.refreshTracking(widget.userId),
-                      child: const Text('Retry'),
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.outbox_rounded,
+                        size: 80,
+                        color: Colors.deepPurple.shade300,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'No Pickups Yet',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 40),
+                      child: Text(
+                        'Scan a waybill QR code at the dropbox to register a pickup. Items will appear here automatically.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey[600], fontSize: 15),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 40),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.qr_code_scanner, color: Colors.deepPurple.shade300, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Use the box scanner to register',
+                            style: TextStyle(color: Colors.deepPurple.shade400, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              );
-            }
-
-            final pickups = snapshot.data ?? [];
-
-            if (pickups.isEmpty) {
-              return Center(
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.shade50,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.outbox_rounded,
-                          size: 80,
-                          color: Colors.deepPurple.shade300,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'No Pickups Yet',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 40),
-                        child: Text(
-                          'Scan a waybill QR code at the dropbox to register a pickup. Items will appear here automatically.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey[600], fontSize: 15),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 40),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.qr_code_scanner, color: Colors.deepPurple.shade300, size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Use the box scanner to register',
-                              style: TextStyle(color: Colors.deepPurple.shade400, fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: pickups.length,
-              itemBuilder: (context, index) {
-                final pickup = pickups[index];
-                return _buildPickupCard(pickup);
-              },
+              ),
             );
-          },
-        ),
-      ),
-          ),
-        ],
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: pickups.length,
+            itemBuilder: (context, index) {
+              final pickup = pickups[index];
+              return _buildPickupCard(pickup);
+            },
+          );
+        },
       ),
     );
   }

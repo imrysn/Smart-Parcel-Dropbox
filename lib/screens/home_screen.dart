@@ -95,12 +95,29 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String _getAppBarTitle() {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Smart Parcel Dropbox';
+      case 1:
+        return 'Orders';
+      case 2:
+        return 'Pick Up';
+      case 3:
+        return 'Dropbox Management';
+      case 4:
+        return 'Profile';
+      default:
+        return 'Smart Parcel Dropbox';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Smart Parcel Drop Box'),
+        title: Text(_getAppBarTitle()),
         centerTitle: false, // Ensures the title is aligned to the left
         actions: [
           // Notifications button with badge - isolated widget prevents AppBar rebuilds
@@ -138,6 +155,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.outbox_outlined),
             selectedIcon: Icon(Icons.outbox),
             label: 'Pickup',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.dns_outlined),
+            selectedIcon: Icon(Icons.dns),
+            label: 'Dropbox',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
@@ -180,19 +202,303 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
+  Widget _buildGreetingHeader() {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _userDataFuture,
+      builder: (context, snapshot) {
+        String name = 'User';
+        if (snapshot.hasData && snapshot.data != null) {
+          name = snapshot.data!['fullName'] ?? snapshot.data!['name'] ?? 'User';
+          if (name.contains(' ')) {
+            name = name.split(' ')[0]; // Use first name
+          }
+        }
+        
+        final hour = DateTime.now().hour;
+        String greeting = 'Good Morning';
+        if (hour >= 12 && hour < 17) greeting = 'Good Afternoon';
+        else if (hour >= 17) greeting = 'Good Evening';
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$greeting, $name! 👋',
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Here is your dropbox activity summary',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  List<int> _calculateWeeklyData(List<TrackingModel> orders, bool Function(TrackingModel) filter) {
+    final now = DateTime.now();
+    final List<int> dailyCounts = List.filled(7, 0);
+
+    for (int i = 6; i >= 0; i--) {
+      final date = now.subtract(Duration(days: i));
+      final dateString = date.toIso8601String().split('T')[0];
+      
+      int countForDay = orders.where((o) {
+        if (!filter(o)) return false;
+        if (o.registeredAt == null) return false;
+        final regDateStr = o.registeredAt!.toIso8601String().split('T')[0];
+        return regDateStr == dateString;
+      }).length;
+      
+      dailyCounts[6 - i] = countForDay;
+    }
+    return dailyCounts;
+  }
+
+  Widget _buildMiniStatCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required List<int> weeklyData,
+  }) {
+    final maxVal = weeklyData.isEmpty ? 0 : weeklyData.reduce((a, b) => a > b ? a : b);
+    final yMax = maxVal < 5 ? 5 : maxVal + 1;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: color.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(icon, color: color, size: 20),
+              Icon(Icons.trending_up, color: color.withOpacity(0.4), size: 14),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[600],
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            height: 24,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: List.generate(7, (index) {
+                final val = weeklyData[index];
+                final heightFactor = val / yMax;
+                return FractionallySizedBox(
+                  heightFactor: heightFactor > 0 ? heightFactor : 0.1,
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    width: 6,
+                    decoration: BoxDecoration(
+                      color: index == 6 ? color : color.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRetailerJungle(List<TrackingModel> orders) {
+    // Platform detection logic
+    final Map<String, int> counts = {
+      'Shopee': 0,
+      'Lazada': 0,
+      'TikTok': 0,
+      'Amazon': 0,
+      'Others': 0,
+    };
+
+    for (var order in orders) {
+      final name = order.shopName.toLowerCase();
+      if (name.contains('shopee')) counts['Shopee'] = counts['Shopee']! + 1;
+      else if (name.contains('lazada')) counts['Lazada'] = counts['Lazada']! + 1;
+      else if (name.contains('tiktok')) counts['TikTok'] = counts['TikTok']! + 1;
+      else if (name.contains('amazon')) counts['Amazon'] = counts['Amazon']! + 1;
+      else counts['Others'] = counts['Others']! + 1;
+    }
+
+    final total = orders.isEmpty ? 1 : orders.length; // Prevent div by zero
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D2C24), // Deep Jungle Green
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF10B981).withOpacity(0.2),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            // Jungle subtle leaf pattern - using icons as placeholders
+            Positioned(
+              right: -20,
+              top: -20,
+              child: Icon(Icons.eco, size: 100, color: Colors.white.withOpacity(0.05)),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.forest, color: Color(0xFF10B981), size: 24),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Retailer Jungle',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${orders.length} Parcels',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your shopping ecosystem distribution.',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.5),
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  ...counts.entries.where((e) => e.value > 0 || e.key == 'Others').map((entry) {
+                    final percentage = entry.value / total;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                entry.key,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                              ),
+                              Text(
+                                '${entry.value}',
+                                style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Stack(
+                            children: [
+                              Container(
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                              FractionallySizedBox(
+                                widthFactor: percentage > 0 ? percentage : 0.02,
+                                child: Container(
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF059669), Color(0xFF10B981)],
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF10B981).withOpacity(0.3),
+                                        blurRadius: 4,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildActiveOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Dropbox Status Card (Enhanced)
-          _buildDropboxStatusCard(),
-          const SizedBox(height: 16),
+          _buildGreetingHeader(),
+          const SizedBox(height: 24),
 
-          // Quick Stats Card
           StreamBuilder<List<TrackingModel>>(
             stream: _databaseService.getUserTrackingIds(_userId!),
             initialData: _databaseService.cachedTracking,
@@ -210,114 +516,79 @@ class _HomeScreenState extends State<HomeScreen> {
               final pickUpBinCount = allOrders.where((o) => 
                 o.mode == 'pickup' && o.status == 'ready_for_pickup').length;
 
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.inventory_2_outlined,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'Quick Stats',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildStatItem(
-                              'Active Orders',
-                              '$activeDropOffCount',
-                              Icons.local_shipping_outlined,
-                              Colors.blue,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildStatItem(
-                              'Drop Off bin',
-                              '$dropOffBinCount',
-                              Icons.inbox,
-                              Colors.green,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildStatItem(
-                              'Active Pickup',
-                              '$activePickupCount',
-                              Icons.outbox_outlined,
-                              Colors.orange,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildStatItem(
-                              'Pick Up bin',
-                              '$pickUpBinCount',
-                              Icons.inventory_2_outlined,
-                              Colors.deepPurple,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+              final dropOffWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off');
+              final pickUpWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup');
+              final deliveredWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off' && o.status == 'delivered');
+              final readyPickupWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup' && o.status == 'ready_for_pickup');
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Dashboard Overview',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[800],
+                      letterSpacing: -0.5,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  
+                  SizedBox(
+                    height: 140,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _buildMiniStatCard(
+                            title: 'Active',
+                            value: '$activeDropOffCount',
+                            icon: Icons.local_shipping_rounded,
+                            color: const Color(0xFF4C51F0),
+                            weeklyData: dropOffWeekly,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildMiniStatCard(
+                            title: 'Drop Bin',
+                            value: '$dropOffBinCount',
+                            icon: Icons.inbox_rounded,
+                            color: const Color(0xFF10B981),
+                            weeklyData: deliveredWeekly,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildMiniStatCard(
+                            title: 'Pickups',
+                            value: '$activePickupCount',
+                            icon: Icons.outbox_rounded,
+                            color: const Color(0xFFF59E0B),
+                            weeklyData: pickUpWeekly,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildMiniStatCard(
+                            title: 'Pick Bin',
+                            value: '$pickUpBinCount',
+                            icon: Icons.inventory_2_rounded,
+                            color: const Color(0xFF8B5CF6),
+                            weeklyData: readyPickupWeekly,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  _buildRetailerJungle(allOrders),
+                ],
               );
             },
           ),
-
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(
-      String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-            textAlign: TextAlign.center,
-          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -673,6 +944,8 @@ class _HomeScreenState extends State<HomeScreen> {
           databaseService: _databaseService,
         );
       case 3:
+        return const DropboxControlScreen();
+      case 4:
         return _buildProfileTab();
       default:
         return _buildActiveOrdersTab();

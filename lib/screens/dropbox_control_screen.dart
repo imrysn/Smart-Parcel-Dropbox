@@ -168,26 +168,13 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('Dropbox Management'),
-        backgroundColor: Colors.orange,
-        elevation: 0,
-        foregroundColor: Colors.black87,
-        iconTheme: const IconThemeData(color: Colors.black87),
-      ),
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.grey.shade50,
-        child: SafeArea(
+      backgroundColor: Colors.grey.shade50,
+      body: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Header removed per request
-
                 // ── ESP32 Connection Banner ──────────────────────────────
                 _buildConnectionBanner(),
                 const SizedBox(height: 20),
@@ -265,9 +252,8 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
   // ─── ESP32 Connection Banner ─────────────────────────────────────────────
   Widget _buildConnectionBanner() {

@@ -6,7 +6,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../config/api_config.dart';
 
 class RiderManagementScreen extends StatefulWidget {
-  const RiderManagementScreen({Key? key}) : super(key: key);
+  final bool isEmbedded;
+  const RiderManagementScreen({Key? key, this.isEmbedded = false}) : super(key: key);
 
   @override
   State<RiderManagementScreen> createState() => _RiderManagementScreenState();
@@ -158,11 +159,13 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Manage Delivery Riders'),
-        backgroundColor: Colors.orange.shade700,
-        foregroundColor: Colors.white,
-      ),
+      appBar: widget.isEmbedded 
+          ? null 
+          : AppBar(
+              title: const Text('Manage Delivery Riders'),
+              backgroundColor: Colors.orange.shade700,
+              foregroundColor: Colors.white,
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddRiderDialog,
         icon: const Icon(Icons.add),
