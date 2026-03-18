@@ -171,20 +171,15 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Dropbox Management'),
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.orange,
         elevation: 0,
-        foregroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        iconTheme: const IconThemeData(color: Colors.black87),
       ),
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF1A237E), Color(0xFF311B92)],
-          ),
-        ),
+        color: Colors.grey.shade50,
         child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -204,7 +199,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   subtitle: 'Courier drop-off entry (Top)',
                   icon: Icons.local_shipping_outlined,
                   reedKey: 'REED_TOP',
-                  accentColor: Colors.orangeAccent,
+                  accentColor: Colors.orange.shade600,
                 ),
                 const SizedBox(height: 14),
 
@@ -214,7 +209,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   subtitle: 'Front bottom — owner retrieves parcel',
                   icon: Icons.outbox_outlined,
                   reedKey: 'REED_PICKUP',
-                  accentColor: Colors.cyanAccent,
+                  accentColor: Colors.deepOrange.shade600,
                 ),
                 const SizedBox(height: 14),
 
@@ -224,16 +219,16 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   subtitle: 'Back — owner deposits outgoing parcel',
                   icon: Icons.move_to_inbox_outlined,
                   reedKey: 'REED_RECEIVED',
-                  accentColor: const Color(0xFF69F0AE), // light green
+                  accentColor: Colors.orange.shade400,
                 ),
                 const SizedBox(height: 24),
 
                 // ── Bin Status ──────────────────────────────────────────
-                const Text(
+                Text(
                   'BIN STATUS',
                   style: TextStyle(
-                    color: Colors.white60,
-                    fontSize: 11,
+                    color: Colors.grey.shade800,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.5,
                   ),
@@ -247,7 +242,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                         label: 'Pick Up Bin',
                         sublabel: 'US_PICKUP',
                         fill: _pickupFill,
-                        color: Colors.cyanAccent,
+                        color: Colors.deepOrange.shade600,
                         icon: Icons.outbox_outlined,
                       ),
                     ),
@@ -257,7 +252,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                         label: 'Drop Off Bin',
                         sublabel: 'US_DROPOFF',
                         fill: _dropoffFill,
-                        color: const Color(0xFF69F0AE),
+                        color: Colors.orange.shade600,
                         icon: Icons.move_to_inbox_outlined,
                       ),
                     ),
@@ -339,10 +334,18 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(18),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 15,
+            spreadRadius: 1,
+            offset: const Offset(0, 6),
+          ),
+        ],
         border: Border.all(
-          color: isOpen ? accentColor.withOpacity(0.5) : Colors.white12,
+          color: isOpen ? accentColor.withOpacity(0.5) : Colors.grey.shade200,
           width: 1.5,
         ),
       ),
@@ -365,13 +368,13 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
+                        style: TextStyle(
+                            color: Colors.grey.shade900,
+                            fontSize: 16,
                             fontWeight: FontWeight.bold)),
                     const SizedBox(height: 2),
                     Text(subtitle,
-                        style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                   ],
                 ),
               ),
@@ -386,7 +389,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Icon(Icons.sensors, size: 12, color: Colors.white38),
+              Icon(Icons.sensors, size: 12, color: Colors.grey.shade500),
               const SizedBox(width: 4),
               Text(
                 reedOpen == null
@@ -395,12 +398,13 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                         ? 'Reed: OPEN'
                         : 'Reed: CLOSED',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
                   color: reedOpen == null
-                      ? Colors.white38
+                      ? Colors.grey.shade400
                       : reedOpen
-                          ? Colors.orangeAccent
-                          : Colors.white54,
+                          ? Colors.orange.shade700
+                          : Colors.grey.shade600,
                 ),
               ),
             ],
@@ -432,16 +436,17 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               style: ElevatedButton.styleFrom(
                 backgroundColor:
                     !_esp32Connected
-                        ? Colors.grey.shade700
+                        ? Colors.red.shade50
                         : isOpen
                             ? Colors.red.shade600
                             : accentColor.withOpacity(0.85),
                 foregroundColor: Colors.white,
-                disabledForegroundColor: Colors.grey, // Keep text white when offline/disabled
+                disabledForegroundColor: Colors.red.shade700, // Match red banner
                 padding: const EdgeInsets.symmetric(vertical: 13),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(11)),
-                disabledBackgroundColor: Colors.grey.shade800,
+                disabledBackgroundColor: Colors.red.shade50, // Match red banner bg
+                elevation: 0,
               ),
             ),
           ),
@@ -509,9 +514,17 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.07),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 15,
+            spreadRadius: 1,
+            offset: const Offset(0, 6),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,17 +536,17 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               Expanded(
                 child: Text(
                   label,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: Colors.grey.shade900,
                       fontWeight: FontWeight.bold,
-                      fontSize: 13),
+                      fontSize: 14),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 2),
           Text(sublabel,
-              style: const TextStyle(color: Colors.white38, fontSize: 10)),
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
           const SizedBox(height: 12),
 
           // Progress bar
@@ -542,7 +555,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
             child: LinearProgressIndicator(
               value: fill ?? 0,
               minHeight: 10,
-              backgroundColor: Colors.white12,
+              backgroundColor: Colors.grey.shade200,
               valueColor: AlwaysStoppedAnimation<Color>(
                 pct == null
                     ? Colors.white24
@@ -570,7 +583,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               ),
               Text(
                 statusText,
-                style: const TextStyle(color: Colors.white60, fontSize: 11),
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               ),
             ],
           ),
