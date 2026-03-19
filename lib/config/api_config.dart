@@ -1,11 +1,11 @@
 class ApiConfig {
   // LOCAL TESTING: PC must be connected to the Android hotspot
   // LOCAL TESTING: PC IP on your current network/hotspot
-  static const String baseUrl = 'http://10.222.49.205:3000/api';
+  static const String baseUrl = 'http://192.168.18.5:3000/api';
   
   // Socket.IO connects to the root server URL (no /api)
   // IMPORTANT: For local hotspot testing, use http:// and your PC's IP
-  static const String socketUrl = 'http://10.222.49.205:3000';
+  static const String socketUrl = 'http://192.168.18.5:3000';
   // static const String socketUrl = 'https://smart-parcel-dropbox.onrender.com';  // production
   
   static const String users = '$baseUrl/users';

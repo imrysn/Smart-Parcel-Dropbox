@@ -195,7 +195,7 @@ class _PickupScreenState extends State<PickupScreen> {
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
             itemCount: pickups.length,
             itemBuilder: (context, index) {
               final pickup = pickups[index];

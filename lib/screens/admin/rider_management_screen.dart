@@ -178,6 +178,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           : _riders.isEmpty
               ? const Center(child: Text('No riders registered yet.'))
               : ListView.builder(
+                  padding: const EdgeInsets.only(top: 8, bottom: 100),
                   itemCount: _riders.length,
                   itemBuilder: (context, index) {
                     final rider = _riders[index];

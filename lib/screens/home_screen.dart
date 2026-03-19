@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
@@ -16,6 +17,7 @@ import 'pickup_screen.dart';
 import 'owner_verify_screen.dart';
 import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
+import '../widgets/weekly_activity_chart.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -116,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      extendBody: true,
       appBar: AppBar(
         title: Text(_getAppBarTitle()),
         centerTitle: false, // Ensures the title is aligned to the left
@@ -129,44 +132,74 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: _getFloatingActionButton(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _selectedIndex = index;
-            // Proactively refresh data when switching back to main tabs (Home, Orders, Pickup)
-            if (index <= 2 && _userId != null) {
-              _databaseService.refreshTracking(_userId!);
-            }
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.only(left: 24, right: 24, bottom: 24),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(35),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(35),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.3),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: NavigationBar(
+                backgroundColor: Colors.transparent,
+              elevation: 0,
+              height: 70,
+              indicatorColor: const Color(0xFFFFB74D), // Soft Amber matching user theme
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (index) {
+                setState(() {
+                  _selectedIndex = index;
+                  // Proactively refresh data when switching back to main tabs (Home, Orders, Pickup)
+                  if (index <= 2 && _userId != null) {
+                    _databaseService.refreshTracking(_userId!);
+                  }
+                });
+              },
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.inventory_2_outlined),
+                  selectedIcon: Icon(Icons.inventory_2),
+                  label: 'Orders',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.outbox_outlined),
+                  selectedIcon: Icon(Icons.outbox),
+                  label: 'Pickup',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.dns_outlined),
+                  selectedIcon: Icon(Icons.dns),
+                  label: 'Dropbox',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person),
+                  label: 'Profile',
+                ),
+                ],
+              ),
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.inventory_2_outlined),
-            selectedIcon: Icon(Icons.inventory_2),
-            label: 'Orders',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.outbox_outlined),
-            selectedIcon: Icon(Icons.outbox),
-            label: 'Pickup',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.dns_outlined),
-            selectedIcon: Icon(Icons.dns),
-            label: 'Dropbox',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
+        ),
       ),
       body: _getSelectedTab(),
     );
@@ -202,47 +235,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
-  Widget _buildGreetingHeader() {
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: _userDataFuture,
-      builder: (context, snapshot) {
-        String name = 'User';
-        if (snapshot.hasData && snapshot.data != null) {
-          name = snapshot.data!['fullName'] ?? snapshot.data!['name'] ?? 'User';
-          if (name.contains(' ')) {
-            name = name.split(' ')[0]; // Use first name
-          }
-        }
-        
-        final hour = DateTime.now().hour;
-        String greeting = 'Good Morning';
-        if (hour >= 12 && hour < 17) greeting = 'Good Afternoon';
-        else if (hour >= 17) greeting = 'Good Evening';
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '$greeting, $name! 👋',
-              style: const TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Here is your dropbox activity summary',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   List<int> _calculateWeeklyData(List<TrackingModel> orders, bool Function(TrackingModel) filter) {
     final now = DateTime.now();
@@ -269,11 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String value,
     required IconData icon,
     required Color color,
-    required List<int> weeklyData,
   }) {
-    final maxVal = weeklyData.isEmpty ? 0 : weeklyData.reduce((a, b) => a > b ? a : b);
-    final yMax = maxVal < 5 ? 5 : maxVal + 1;
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       decoration: BoxDecoration(
@@ -289,20 +277,15 @@ class _HomeScreenState extends State<HomeScreen> {
         border: Border.all(color: color.withOpacity(0.08)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Icon(icon, color: color, size: 20),
-              Icon(Icons.trending_up, color: color.withOpacity(0.4), size: 14),
-            ],
-          ),
+          Icon(icon, color: color, size: 24),
           const SizedBox(height: 8),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 22,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
               color: Colors.black87,
             ),
@@ -312,32 +295,9 @@ class _HomeScreenState extends State<HomeScreen> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: Colors.grey[600],
-            ),
-          ),
-          const Spacer(),
-          SizedBox(
-            height: 24,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: List.generate(7, (index) {
-                final val = weeklyData[index];
-                final heightFactor = val / yMax;
-                return FractionallySizedBox(
-                  heightFactor: heightFactor > 0 ? heightFactor : 0.1,
-                  alignment: Alignment.bottomCenter,
-                  child: Container(
-                    width: 6,
-                    decoration: BoxDecoration(
-                      color: index == 6 ? color : color.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                );
-              }),
             ),
           ),
         ],
@@ -492,12 +452,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_userId == null) return const Center(child: Text('Not logged in'));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildGreetingHeader(),
-          const SizedBox(height: 24),
 
           StreamBuilder<List<TrackingModel>>(
             stream: _databaseService.getUserTrackingIds(_userId!),
@@ -518,7 +476,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               final dropOffWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off');
               final pickUpWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup');
-              final deliveredWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off' && o.status == 'delivered');
+              final deliveredWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off' && ['delivered', 'done'].contains(o.status));
               final readyPickupWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup' && o.status == 'ready_for_pickup');
 
               return Column(
@@ -533,62 +491,56 @@ class _HomeScreenState extends State<HomeScreen> {
                       letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                   
-                  SizedBox(
-                    height: 140,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildMiniStatCard(
-                            title: 'Active',
-                            value: '$activeDropOffCount',
-                            icon: Icons.local_shipping_rounded,
-                            color: const Color(0xFF4C51F0),
-                            weeklyData: dropOffWeekly,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildMiniStatCard(
-                            title: 'Drop Bin',
-                            value: '$dropOffBinCount',
-                            icon: Icons.inbox_rounded,
-                            color: const Color(0xFF10B981),
-                            weeklyData: deliveredWeekly,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildMiniStatCard(
-                            title: 'Pickups',
-                            value: '$activePickupCount',
-                            icon: Icons.outbox_rounded,
-                            color: const Color(0xFFF59E0B),
-                            weeklyData: pickUpWeekly,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildMiniStatCard(
-                            title: 'Pick Bin',
-                            value: '$pickUpBinCount',
-                            icon: Icons.inventory_2_rounded,
-                            color: const Color(0xFF8B5CF6),
-                            weeklyData: readyPickupWeekly,
-                          ),
-                        ),
-                      ],
-                    ),
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 1.4,
+                    children: [
+                      _buildMiniStatCard(
+                        title: 'Active',
+                        value: '$activeDropOffCount',
+                        icon: Icons.local_shipping_rounded,
+                        color: const Color(0xFF4C51F0),
+                      ),
+                      _buildMiniStatCard(
+                        title: 'Drop Bin',
+                        value: '$dropOffBinCount',
+                        icon: Icons.inbox_rounded,
+                        color: const Color(0xFF10B981),
+                      ),
+                      _buildMiniStatCard(
+                        title: 'Pickups',
+                        value: '$activePickupCount',
+                        icon: Icons.outbox_rounded,
+                        color: const Color(0xFFF59E0B),
+                      ),
+                      _buildMiniStatCard(
+                        title: 'Pick Bin',
+                        value: '$pickUpBinCount',
+                        icon: Icons.inventory_2_rounded,
+                        color: const Color(0xFF8B5CF6),
+                      ),
+                    ],
                   ),
                   
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 12),
+                  WeeklyActivityChart(
+                    receivedData: dropOffWeekly,
+                    deliveredData: deliveredWeekly,
+                  ),
+                  
+                  const SizedBox(height: 12),
                   _buildRetailerJungle(allOrders),
                 ],
               );
             },
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 100), // Bottom padding for floating nav bar
         ],
       ),
     );
@@ -917,7 +869,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
           itemCount: allOrders.length,
           itemBuilder: (context, index) {
             final order = allOrders[index];
@@ -1303,7 +1255,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 100), // Bottom padding for floating nav bar
                   ],
                 ),
               ),
