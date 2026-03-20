@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 /// Distinct from admin's light slate blue theme
 class UserTheme {
   // Primary Colors - Deep Orange
-  static const Color primaryOrange = Color(0xFFF4511E); // Deep Orange 600
-  static const Color primaryOrangeLight = Color(0xFFFF7043); // Deep Orange 400
-  static const Color primaryOrangeDark = Color(0xFFE64A19); // Deep Orange 700
+  static const Color primaryOrange = Color(0xFFFF9800); // Orange 500 (Vibrant Orange sample)
+  static const Color primaryOrangeLight = Color(0xFFFFB74D); // Orange 300
+  static const Color primaryOrangeDark = Color(0xFFF57C00); // Orange 700
   
   // Accent Colors - Amber
   static const Color accentAmber = Color(0xFFFFA726); // Amber 400

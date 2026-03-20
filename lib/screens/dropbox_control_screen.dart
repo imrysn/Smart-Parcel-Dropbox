@@ -248,6 +248,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 const SizedBox(height: 20),
 
                 // Footer removed per request
+                const SizedBox(height: 100), // Bottom padding for floating nav bar
               ],
             ),
           ),
