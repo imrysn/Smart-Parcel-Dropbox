@@ -75,13 +75,36 @@ class UserService {
 
   /// Get all users (Admin)
   Stream<List<UserModel>> getAllUsers() {
-    // Seed stream with cached data
-    if (_cachedUsers.isNotEmpty) {
-      _usersController.add(_cachedUsers);
-    } else if (!_isFetching) {
-      refreshAllUsers();
+    // Important: do not trigger the initial fetch until a listener is attached.
+    // Otherwise, the first `add`/`addError` can happen before `StreamBuilder`
+    // subscribes, leaving the UI stuck in the initial loading spinner state.
+    final controller = StreamController<List<UserModel>>();
+    StreamSubscription<List<UserModel>>? subscription;
+
+    void forwardError(Object error, StackTrace st) {
+      controller.addError(error, st);
     }
-    return _usersController.stream;
+
+    controller.onListen = () {
+      subscription = _usersController.stream.listen(
+        controller.add,
+        onError: forwardError,
+      );
+
+      if (_cachedUsers.isNotEmpty) {
+        controller.add(_cachedUsers);
+      } else {
+        // This will no-op if another refresh is already in-flight.
+        refreshAllUsers();
+      }
+    };
+
+    controller.onCancel = () async {
+      await subscription?.cancel();
+      await controller.close();
+    };
+
+    return controller.stream;
   }
 
   /// Refresh all users list
@@ -93,6 +116,10 @@ class UserService {
       final users = await _fetchAllUsers();
       _cachedUsers = users;
       _usersController.add(users);
+    } catch (e, st) {
+      // Let the UI stop showing the endless spinner and show an actionable error state.
+      debugPrint('Error refreshing all users: $e');
+      _usersController.addError(e, st);
     } finally {
       _isFetching = false;
     }
@@ -100,15 +127,24 @@ class UserService {
 
   Future<List<UserModel>> _fetchAllUsers() async {
     try {
-      final response = await http.get(Uri.parse(ApiConfig.users));
-      if (response.statusCode == 200) {
-        final List data = jsonDecode(response.body);
-        return data.map((e) => UserModel.fromMap(e)).toList();
+      final response =
+          await http.get(Uri.parse(ApiConfig.users)).timeout(
+                const Duration(seconds: 10),
+              );
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Failed to fetch all users: HTTP ${response.statusCode}',
+        );
       }
-      return [];
+
+      final decoded = jsonDecode(response.body);
+      final List data = decoded as List;
+      return data.map((e) => UserModel.fromMap(e)).toList();
     } catch (e) {
+      // Re-throw so refreshAllUsers can send the error to the StreamBuilder.
       debugPrint('Error fetching all users: $e');
-      return [];
+      rethrow;
     }
   }
 

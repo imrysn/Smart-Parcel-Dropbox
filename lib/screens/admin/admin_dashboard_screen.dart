@@ -260,14 +260,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return StreamBuilder<List<UserModel>>(
       stream: _usersStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _buildErrorState('Error loading users: ${snapshot.error}');
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
             child: CircularProgressIndicator(color: AdminTheme.primaryBlue),
           );
-        }
-
-        if (snapshot.hasError) {
-          return _buildErrorState('Error loading users: ${snapshot.error}');
         }
 
         final users = snapshot.data ?? [];
