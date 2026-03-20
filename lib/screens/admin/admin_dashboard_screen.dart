@@ -36,27 +36,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _initData();
-  }
-
-  Future<void> _initData() async {
-    _userId = await _authService.currentUserId;
-    if (_userId != null) {
-      _databaseService.initSocket(_userId!);
-      _currentUserDataFuture = _databaseService.getUserData(_userId!);
-    } else {
-      _currentUserDataFuture = Future.value(null);
-    }
-
-    // Initialize streams once
+    // Initialize streams immediately so tab content has valid streams even
+    // before the user auth lookup finishes.
     _usersStream = _databaseService.getAllUsers();
     _trackingStream = _databaseService.getAllTrackingIds();
     _scanLogsStream = _databaseService.getScanLogs();
     _deliveryLogsStream = _databaseService.getAllDeliveryLogs();
 
-    if (mounted) {
-      setState(() {});
-    }
+    // Drive the auth-dependent parts (socket + user data) via FutureBuilder.
+    _currentUserDataFuture = _authService.currentUserId.then((userId) {
+      _userId = userId;
+      if (_userId == null) return Future.value(null);
+      _databaseService.initSocket(_userId!);
+      return _databaseService.getUserData(_userId!);
+    });
   }
 
   @override
@@ -487,7 +480,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _buildTrackingTab() {
-    const statuses = ['pending', 'in_transit', 'delivered', 'retrieved'];
+    // Include all known statuses so DropdownButton value is always present
+    // in its `items` list (otherwise Flutter throws an assertion error).
+    const statuses = [
+      'pending',
+      'in_transit',
+      'delivered',
+      'awaiting_pickup',
+      'ready_for_pickup',
+      'retrieved',
+      'done',
+    ];
 
     return StreamBuilder<List<TrackingModel>>(
       stream: _trackingStream,
@@ -572,6 +575,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildTrackingCard(TrackingModel tracking, List<String> statuses) {
     final statusColor = AdminTheme.getStatusColor(tracking.status);
+    final effectiveStatuses = <String>[
+      ...statuses,
+      if (!statuses.contains(tracking.status)) tracking.status,
+    ];
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -626,7 +633,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     dropdownColor: AdminTheme.backgroundCard,
                     icon: Icon(Icons.arrow_drop_down, color: statusColor),
                     style: TextStyle(color: statusColor, fontSize: 13),
-                    items: statuses
+                    items: effectiveStatuses
                         .map(
                           (status) => DropdownMenuItem(
                             value: status,
