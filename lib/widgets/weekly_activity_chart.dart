@@ -22,7 +22,7 @@ class WeeklyActivityChart extends StatelessWidget {
     double yMax = (maxVal < 28) ? 28 : (maxVal + 7 - (maxVal % 7)).toDouble();
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -38,28 +38,31 @@ class WeeklyActivityChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+          Padding(
+            padding: const EdgeInsets.only(left: 17), // Precise alignment with Y-Axis Labels
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.inventory_2_rounded, color: Colors.blue, size: 20),
                 ),
-                child: const Icon(Icons.inventory_2_rounded, color: Colors.blue, size: 20),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Weekly Activity',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B),
+                const SizedBox(width: 12),
+                const Text(
+                  'Weekly Activity',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E293B),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
           AspectRatio(
             aspectRatio: 1.5,
             child: BarChart(

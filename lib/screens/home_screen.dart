@@ -452,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_userId == null) return const Center(child: Text('Not logged in'));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
