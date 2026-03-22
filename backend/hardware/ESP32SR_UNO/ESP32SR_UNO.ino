@@ -27,6 +27,7 @@
 #include <SocketIOclient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h> // ESP32 Task Watchdog Timer
+#include <Preferences.h>  // NVS (Non-Volatile Storage) for persisting credentials
 
 #define WDT_TIMEOUT 8 // Watchdog timeout in seconds
 
@@ -80,6 +81,10 @@ const int US_DROPOFF[2]  = {18,  8};  // TRIG: 18, ECHO: 8
 //  STATE MACHINE
 // ============================================================
 enum SystemState {
+  // ── Device Setup (first boot / factory reset) ────────
+  DEVICE_UNREGISTERED,      // First boot: no WiFi/registration in NVS
+  SHOWING_REGISTRATION_QR,  // Displaying QR + code for in-app registration
+  // ── Normal operation ──────────────────────────────────
   IDLE,
   // ── Pick Up sub-menu states ─────────────────────────────
   SELECTING_PICKUP_TYPE,    // ATM sub-menu: [Owner | Rider]
@@ -130,6 +135,17 @@ bool   ownerApprovalReceived = false;
 bool   ownerApprovalValid    = false;
 bool   ownerQrDrawn          = false; // Reset each session so QR redraws correctly
 bool   ownerVerifyTimedOut   = false; // True when scan window expired — show Retry/Exit
+
+// ── Device Registration (NVS-backed) ─────────────────────────────────────
+Preferences nvsPrefs;
+String nvsWifiSSID      = "";
+String nvsWifiPassword  = "";
+bool   deviceRegistered = false;  // true = NVS has registration flag
+// Registration session state
+String registrationToken = ""; // Token received from backend to display as QR
+bool   regTokenReceived  = false;
+bool   regQrDrawn        = false;
+bool   deviceJustRegistered = false; // Set when backend confirms registration
 
 // ============================================================
 //  TRACKING IDs
@@ -194,7 +210,12 @@ void handleOwnerSessionToken(const String& payload);
 void handleOwnerApprovalResult(const String& payload);
 void handleControlDoor(const String& payload);
 float getDistance(const int pins[]);
-void checkSerialCommands();
+void emitRequestDeviceRegistration();
+void handleRegistrationToken(const String& payload);
+void handleApplyHardwareConfig(const String& payload);
+void drawDeviceUnregisteredScreen();
+void drawRegistrationQRScreen(const String& token, const String& pin);
+void checkFactoryReset();
 void printSerialMenu();
 void showHomeScreen();
 void drawStatusBar();
@@ -284,7 +305,24 @@ void setup() {
   tft.setRotation(3);
   tft.fillScreen(COLOR_BG);
 
-  // Network
+  // Network — load credentials from NVS first
+  nvsPrefs.begin("smartbox", false); // Namespace: "smartbox"
+  nvsWifiSSID      = nvsPrefs.getString("ssid",     "");
+  nvsWifiPassword  = nvsPrefs.getString("password", "");
+  deviceRegistered = nvsPrefs.getBool("registered", false);
+  nvsPrefs.end();
+
+  Serial.print("[NVS] Registered: "); Serial.println(deviceRegistered ? "YES" : "NO");
+  Serial.print("[NVS] SSID: "); Serial.println(nvsWifiSSID.length() ? nvsWifiSSID : "(none)");
+
+  if (!deviceRegistered || nvsWifiSSID.length() == 0) {
+    // First boot or factory reset: go straight to setup mode
+    Serial.println("[BOOT] No credentials/registration found. Entering DEVICE_UNREGISTERED.");
+    changeState(DEVICE_UNREGISTERED);
+    printSerialMenu();
+    return;
+  }
+
   setupWiFi();
   setupSocketIO();
 
@@ -297,11 +335,12 @@ void setup() {
 // ============================================================
 void loop() {
   yield();
+  // Check factory reset button hold (5s on BTN_PICKUP from any operational state)
+  checkFactoryReset();
   socketIO.loop();        // Keep Socket.IO connection alive
   checkSerialCommands();
-  // Skip status-bar repaints while QR verification screen is up;
-  // the status bar is a dark stripe and would overwrite the white QR background.
-  if (currentState != OWNER_VERIFYING) {
+  // Skip status-bar repaints while QR verification screens are up
+  if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR) {
     updateDynamicIndicators();
   }
 
@@ -325,6 +364,115 @@ void loop() {
   }
 
   switch (currentState) {
+
+    // ── DEVICE UNREGISTERED ───────────────────────────────
+    // First boot or factory reset state.
+    // Waits for user to press BTN1 to request a registration QR from the server.
+    case DEVICE_UNREGISTERED:
+      if (!stateInitialized) {
+        drawDeviceUnregisteredScreen();
+        Serial.println("[SETUP] Device not registered. Press BTN1 to start registration.");
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == LOW) {  // BTN1 = Start Registration
+        delay(50);
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+          Serial.println("[SETUP] BTN1 pressed. Requesting registration token from server...");
+          triggerBuzzer(1);
+          // Ensure socket is connected (requires WiFi with fallback SSID from config.h)
+          if (nvsWifiSSID.length() == 0) {
+            // Try connecting with compile-time credentials for first setup
+            nvsWifiSSID     = String(WIFI_SSID);
+            nvsWifiPassword = String(WIFI_PASSWORD);
+            setupWiFi();
+            setupSocketIO();
+          }
+          if (socketIO.isConnected()) {
+            emitRequestDeviceRegistration();
+            changeState(SHOWING_REGISTRATION_QR);
+          } else {
+            displayMessage("NO SERVER", "Connect to WiFi first");
+            delay(2000);
+            drawDeviceUnregisteredScreen();
+          }
+        }
+      }
+      break;
+
+    // ── SHOWING REGISTRATION QR ───────────────────────────
+    // Displaying QR code + human-readable code for in-app hardware registration.
+    case SHOWING_REGISTRATION_QR:
+      if (!stateInitialized) {
+        regTokenReceived   = false;
+        regQrDrawn         = false;
+        deviceJustRegistered = false;
+        stateStartTime     = millis();
+        stateInitialized   = true;
+        displayMessage("REGISTRATION", "Requesting code...");
+        Serial.println("[SETUP] Waiting for registration token from server...");
+      }
+
+      // Draw QR once token arrives
+      if (regTokenReceived && !regQrDrawn) {
+        // Extract 6-digit PIN from token (e.g. "SPDB-REG-482913" → "482913")
+        String pin = registrationToken.substring(registrationToken.lastIndexOf('-') + 1);
+        drawRegistrationQRScreen(registrationToken, pin);
+        regQrDrawn    = true;
+        stateStartTime = millis(); // reset 60s countdown from QR draw
+        Serial.println("[SETUP] Registration QR displayed. Waiting for app scan...");
+      }
+
+      // Countdown update
+      if (regQrDrawn && !deviceJustRegistered) {
+        static int lastRegSec = -1;
+        int elapsed   = (millis() - stateStartTime) / 1000;
+        int remaining = max(0, 60 - elapsed);
+        if (remaining != lastRegSec) {
+          lastRegSec = remaining;
+          tft.fillRect(0, 218, 320, 22, COLOR_TEXT);
+          tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+          tft.setCursor(45, 222);
+          tft.print("Expires in "); tft.print(remaining); tft.print(" seconds — scan in app");
+        }
+        // 60s QR timeout
+        if (remaining == 0) {
+          tft.fillScreen(COLOR_BG);
+          tft.setTextSize(2); tft.setTextColor(COLOR_RED);
+          tft.setCursor(70, 80); tft.print("TIMED OUT");
+          tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+          tft.setCursor(50, 110); tft.print("Token expired. Press BTN1 to retry.");
+          regQrDrawn = false;
+          regTokenReceived = false;
+        }
+      }
+
+      // Registration confirmed by backend
+      if (deviceJustRegistered) {
+        nvsPrefs.begin("smartbox", false);
+        nvsPrefs.putBool("registered", true);
+        nvsPrefs.end();
+        deviceRegistered = true;
+        displayMessage("REGISTERED!", "Connect WiFi in app");
+        triggerBuzzer(2);
+        delay(2000);
+        // Stay here until app pushes WiFi config
+        // When applyHardwareConfig is received, firmware reboots
+      }
+
+      // Retry: BTN1 re-requests token
+      if (!regTokenReceived && stateInitialized && !deviceJustRegistered &&
+          millis() - stateStartTime > 10000 && !regQrDrawn) {
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+          delay(50);
+          if (digitalRead(BTN_RECEIVE) == LOW) {
+            Serial.println("[SETUP] Retry: requesting new token.");
+            emitRequestDeviceRegistration();
+            stateStartTime = millis();
+            displayMessage("REGISTRATION", "Requesting code...");
+          }
+        }
+      }
+      break;
 
     // ── IDLE ──────────────────────────────────────────────
     case IDLE:
@@ -1084,7 +1232,135 @@ void loop() {
       showHomeScreen();
       Serial.println("--- [FLOW] SYSTEM RESET TO IDLE ---");
       break;
+  } // end switch
+} // end loop
+
+// ============================================================
+//  HELPER: checkFactoryReset
+//  Hold BTN_PICKUP for 5 seconds from IDLE/normal states to wipe NVS
+// ============================================================
+void checkFactoryReset() {
+  if (currentState == DEVICE_UNREGISTERED || currentState == SHOWING_REGISTRATION_QR) return;
+  static unsigned long holdStart = 0;
+  static bool          holding   = false;
+  if (digitalRead(BTN_PICKUP) == LOW) {
+    if (!holding) { holding = true; holdStart = millis(); }
+    else if (millis() - holdStart > 5000) {
+      Serial.println("[FACTORY RESET] BTN_PICKUP held 5s → wiping NVS and rebooting!");
+      tft.fillScreen(COLOR_BG);
+      tft.setTextSize(2); tft.setTextColor(COLOR_RED);
+      tft.setCursor(50, 90); tft.print("FACTORY RESET");
+      tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+      tft.setCursor(75, 120); tft.print("Wiping settings...");
+      nvsPrefs.begin("smartbox", false);
+      nvsPrefs.clear();
+      nvsPrefs.end();
+      delay(2000);
+      ESP.restart();
+    }
+  } else {
+    holding = false;
   }
+}
+
+// ============================================================
+//  EMIT: Request Device Registration (hardware → backend)
+// ============================================================
+void emitRequestDeviceRegistration() {
+  String macAddr = WiFi.macAddress();
+  StaticJsonDocument<192> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("requestDeviceRegistration");
+  JsonObject data = arr.createNestedObject();
+  data["deviceId"] = macAddr;
+  char output[192];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  Serial.print("[WS] Emitted requestDeviceRegistration: "); Serial.println(macAddr);
+}
+
+// ============================================================
+//  HANDLE: Apply Hardware Config (WiFi credentials from app)
+// ============================================================
+void handleApplyHardwareConfig(const String& payload) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload);
+  String ssid     = doc["ssid"].as<String>();
+  String password = doc["password"].as<String>();
+  Serial.print("[SETUP] Saving WiFi config → SSID: "); Serial.println(ssid);
+  nvsPrefs.begin("smartbox", false);
+  nvsPrefs.putString("ssid",     ssid);
+  nvsPrefs.putString("password", password);
+  nvsPrefs.putBool("registered", true);
+  nvsPrefs.end();
+  // Acknowledge back to backend/app
+  StaticJsonDocument<192> ack;
+  JsonArray arr = ack.to<JsonArray>();
+  arr.add("hardwareConfigApplied");
+  JsonObject d = arr.createNestedObject();
+  d["deviceId"] = WiFi.macAddress();
+  char output[192];
+  serializeJson(ack, output);
+  socketIO.send(sIOtype_EVENT, output);
+  // Show confirmation and reboot
+  displayMessage("WiFi SAVED!", "Rebooting...");
+  triggerBuzzer(2);
+  delay(2000);
+  ESP.restart();
+}
+
+// ============================================================
+//  SCREEN: Device Unregistered (first boot)
+// ============================================================
+void drawDeviceUnregisteredScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setTextSize(2); tft.setTextColor(COLOR_GOLD);
+  tft.setCursor(45, 40); tft.print("SETUP REQUIRED");
+  tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.setCursor(20, 75); tft.print("This device is not registered.");
+  tft.setCursor(20, 92); tft.print("Download the Smart Parcel Dropbox");
+  tft.setCursor(20, 108); tft.print("app and set up your device.");
+  tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+  tft.setCursor(20, 140); tft.print("Then press BTN1 to start registration.");
+  // BTN1 label
+  tft.fillRect(20, 165, 130, 30, COLOR_BLUE);
+  tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+  tft.setCursor(35, 175); tft.print("[BTN1] Register");
+}
+
+// ============================================================
+//  SCREEN: Registration QR Code
+// ============================================================
+void drawRegistrationQRScreen(const String& token, const String& pin) {
+  tft.fillScreen(COLOR_TEXT); // White background for QR readability
+  // Title
+  tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(65, 5);
+  tft.print("HARDWARE REGISTRATION");
+  // QR code (centred left half): version 3, module 4px → 116px wide
+  drawQRCode(5, 18, 4, token);
+  // Human-readable code on the right
+  tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(135, 35);
+  tft.print("Scan QR code");
+  tft.setCursor(135, 50);
+  tft.print("or enter code");
+  tft.setCursor(135, 65);
+  tft.print("in the app:");
+  tft.setTextSize(2); tft.setTextColor(COLOR_BLUE);
+  // Break the pin into two rows if needed
+  tft.setCursor(135, 90);
+  tft.print(pin.substring(0, 3));
+  tft.setCursor(135, 115);
+  tft.print(pin.substring(3));
+  // Instruction at bottom
+  tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(10, 207);
+  tft.print("Open app → Dropbox Management → Register");
+  // Countdown placeholder — overwritten every second by the state loop
+  tft.setCursor(45, 222);
+  tft.print("Expires in 60 seconds — scan in app");
 }
 
 // ============================================================
@@ -1146,23 +1422,28 @@ void drawScannerBg() {
 //  WIFI SETUP
 // ============================================================
 void setupWiFi() {
+  // Load credentials from NVS or fall back to config.h at-compile-time values
+  String ssid;
+  String password;
+  nvsPrefs.begin("smartbox", true); // read-only
+  ssid     = nvsPrefs.getString("ssid",     String(WIFI_SSID));
+  password = nvsPrefs.getString("password", String(WIFI_PASSWORD));
+  nvsPrefs.end();
+
   Serial.print("[WiFi] Connecting to: ");
-  Serial.println(WIFI_SSID);
+  Serial.println(ssid);
 
   // ── Connecting screen ──────────────────────────────────────
   tft.fillScreen(COLOR_BG);
-  // Icon area: simple WiFi arc hint using concentric arcs (3 filled rects)
   tft.fillCircle(160, 90, 6, COLOR_ACCENT);
   tft.drawCircle(160, 90, 18, COLOR_ACCENT);
   tft.drawCircle(160, 90, 30, COLOR_GREY);
-  // Primary label
   tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
   tft.setCursor(55, 118); tft.print("Getting Online");
-  // Subtitle
   tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
   tft.setCursor(108, 142); tft.print("Please wait...");
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(ssid.c_str(), password.c_str());
 
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
@@ -1305,6 +1586,23 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
 
       } else if (eventName == "getStatus") {
         emitDoorState();
+
+      } else if (eventName == "registrationToken") {
+        // Server responded to requestDeviceRegistration — hardware shows QR
+        registrationToken = doc[1]["token"].as<String>();
+        regTokenReceived  = true;
+        Serial.print("[SETUP] registrationToken received: "); Serial.println(registrationToken);
+
+      } else if (eventName == "deviceRegistered") {
+        // App successfully scanned the QR and registered the device
+        deviceJustRegistered = true;
+        Serial.println("[SETUP] deviceRegistered confirmed by server.");
+
+      } else if (eventName == "applyHardwareConfig") {
+        // App sent WiFi credentials via pushHardwareConfig → backend relayed here
+        String data;
+        serializeJson(doc[1], data);
+        handleApplyHardwareConfig(data);
       }
       break;
     }
@@ -1615,8 +1913,28 @@ void checkSerialCommands() {
       Serial.print("  Server     : ws://"); Serial.print(SERVER_HOST); Serial.print(":"); Serial.println(SERVER_PORT);
       Serial.print("  Socket.IO  : "); Serial.println(socketIO.isConnected() ? "Connected" : "Disconnected");
     } else if (cmd == 'N') {
-      Serial.println("[MANUAL] Bypassing current step...");
-      forceNextStep();
+      // N alone → forceNextStep (bypass current state)
+      // N:<token> → simulate scanning that token (for registration or owner verify)
+      if (input.length() > 2 && input.charAt(1) == ':') {
+        String token = input.substring(2);
+        token.trim();
+        if (currentState == DEVICE_UNREGISTERED || currentState == SHOWING_REGISTRATION_QR) {
+          // Simulate receiving a registration token (e.g. N:SPDB-REG-482913)
+          registrationToken = token;
+          regTokenReceived  = true;
+          Serial.print("[DEV] Simulated registrationToken: "); Serial.println(token);
+        } else if (currentState == OWNER_VERIFYING) {
+          // Simulate owner approve via token entry
+          ownerApprovalValid    = true;
+          ownerApprovalReceived = true;
+          Serial.print("[DEV] Simulated ownerVerifyResult APPROVED for token: "); Serial.println(token);
+        } else {
+          Serial.println("[DEV] N:<token> not applicable in current state.");
+        }
+      } else {
+        Serial.println("[MANUAL] Bypassing current step...");
+        forceNextStep();
+      }
     } else if (cmd == 'T') {
       Serial.println("[MANUAL] Re-initializing TFT Display...");
       reinitTFT();
@@ -1758,6 +2076,9 @@ void printSerialMenu() {
   Serial.println("  V=View IDs & Status   | W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");
   Serial.println("  R2:<id> = Register Pick Up ID  (offline)");
+  Serial.println("  N:<token>  = Simulate QR scan (dev bypass)");
+  Serial.println("     e.g.  N:SPDB-REG-482913  (registration)");
+  Serial.println("           N:OWN-482913        (owner verify)");
   Serial.println("  IDs auto-registered via mobile app (online)");
   Serial.println("==========================================");
   Serial.println();

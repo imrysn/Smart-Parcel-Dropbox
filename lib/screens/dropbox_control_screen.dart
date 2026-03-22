@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../services/service_locator.dart';
 import '../services/websocket_service.dart';
+import '../services/auth_service.dart';
+import '../services/dropbox_service.dart';
+import 'hardware_registration_screen.dart';
 
 // ─── Door type constants matching ESP32 firmware ───────────────────────────
 const String kDoorTop      = 'top';      // LOCK_TOP / REED_TOP
@@ -57,6 +60,10 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
 
   String? _userId;
 
+  // Dropbox registration state
+  bool _hasDropbox          = false;
+  bool _registrationChecked = false;
+
   // Pulse animation for ESP32 connected indicator
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
@@ -78,6 +85,23 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   }
 
   Future<void> _init() async {
+    final auth = getIt<AuthService>();
+    _userId = await auth.currentUserId;
+
+    // Check if a dropbox is already registered for this user
+    if (_userId != null) {
+      final dropboxService = getIt<DropboxService>();
+      final dropbox = await dropboxService.getUserDropbox(_userId!);
+      if (mounted) {
+        setState(() {
+          _hasDropbox          = dropbox != null;
+          _registrationChecked = true;
+        });
+      }
+    } else {
+      if (mounted) setState(() => _registrationChecked = true);
+    }
+
     // Listen for ESP32 connection events
     _esp32Sub = _ws.esp32StatusUpdates.listen((data) {
       if (mounted) {
@@ -175,6 +199,12 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // ── Registration Banner (shown when no dropbox registered) ──
+                if (_registrationChecked && !_hasDropbox)
+                  _buildRegistrationBanner(),
+                if (_registrationChecked && !_hasDropbox)
+                  const SizedBox(height: 16),
+
                 // ── ESP32 Connection Banner ──────────────────────────────
                 _buildConnectionBanner(),
                 const SizedBox(height: 20),
@@ -255,6 +285,72 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
         ),
       );
     }
+
+  // ─── Registration Banner ─────────────────────────────────────────────────
+  Widget _buildRegistrationBanner() {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.new_releases, color: primaryColor, size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Unregistered Device Detected',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'You haven\'t registered a Smart Parcel Dropbox yet. '
+            'Register your hardware device to control it from the app.',
+            style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const HardwareRegistrationScreen(),
+                  ),
+                ).then((_) {
+                  // Re-check registration when returning
+                  _init();
+                });
+              },
+              icon: const Icon(Icons.qr_code_scanner, size: 18),
+              label: const Text('Register Smart Parcel Dropbox'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   // ─── ESP32 Connection Banner ─────────────────────────────────────────────
   Widget _buildConnectionBanner() {

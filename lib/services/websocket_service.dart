@@ -35,6 +35,13 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _ownerAccessAlertController =
       StreamController<Map<String, dynamic>>.broadcast();
+  // Device registration streams
+  final _deviceRegisteredController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _deviceRegistrationFailedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _hardwareConfigAppliedController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -56,9 +63,19 @@ class WebSocketService {
   /// Fires when the hardware shows the owner QR code (prompts owner to verify)
   Stream<Map<String, dynamic>> get ownerAccessAlerts =>
       _ownerAccessAlertController.stream;
+  /// Fires when backend confirms device registration (after QR scan in app)
+  Stream<Map<String, dynamic>> get deviceRegisteredStream =>
+      _deviceRegisteredController.stream;
+  /// Fires when device registration token is invalid or expired
+  Stream<Map<String, dynamic>> get deviceRegistrationFailedStream =>
+      _deviceRegistrationFailedController.stream;
+  /// Fires when the hardware has saved WiFi config and is rebooting
+  Stream<Map<String, dynamic>> get hardwareConfigAppliedStream =>
+      _hardwareConfigAppliedController.stream;
 
 
   bool get isConnected => _socket?.connected ?? false;
+  IO.Socket? get socket => _socket;
 
   /// Initialize WebSocket connection for a user
   void connect(String userId) {
@@ -149,6 +166,24 @@ class WebSocketService {
       _ownerAccessAlertController.add(
           (data as Map<String, dynamic>? ?? {'timestamp': DateTime.now().toIso8601String()}));
     });
+
+    // Device registration confirmed (after app QR scan)
+    _socket!.on('deviceRegistered', (data) {
+      debugPrint('✅ deviceRegistered: $data');
+      _deviceRegisteredController.add(data as Map<String, dynamic>);
+    });
+
+    // Device registration failed (invalid/expired token)
+    _socket!.on('deviceRegistrationFailed', (data) {
+      debugPrint('❌ deviceRegistrationFailed: $data');
+      _deviceRegistrationFailedController.add(data as Map<String, dynamic>);
+    });
+
+    // Hardware saved WiFi config (device will reboot)
+    _socket!.on('hardwareConfigApplied', (data) {
+      debugPrint('⚙️ hardwareConfigApplied: $data');
+      _hardwareConfigAppliedController.add(data as Map<String, dynamic>);
+    });
   }
 
   /// Emit an event to the server
@@ -234,6 +269,9 @@ class WebSocketService {
     _binStatusController.close();
     _ownerVerifyAckController.close();
     _ownerAccessAlertController.close();
+    _deviceRegisteredController.close();
+    _deviceRegistrationFailedController.close();
+    _hardwareConfigAppliedController.close();
   }
 
   /// Reset singleton instance
