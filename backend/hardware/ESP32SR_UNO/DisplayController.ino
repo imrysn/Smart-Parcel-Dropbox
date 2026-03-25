@@ -289,3 +289,49 @@ void drawIconX(int x, int y, uint16_t color) {
   tft.drawLine(x + 20, y - 20, x - 20, y + 20, color);
   tft.drawLine(x + 21, y - 20, x - 19, y + 20, color);
 }
+
+// ── LOCKSCREEN ANIMATIONS ────────────────────────────────────
+void drawRobotEyeLockscreen(int x, int y, int offsetX, bool blink, RobotEmotion emotion) {
+  // Center is x, but we shift by offsetX
+  int lx = x - 45 + offsetX;
+  int rx = x + 45 + offsetX;
+  
+  if (blink) {
+    // Two horizontal rounded lines for eyes (blinking)
+    tft.fillRoundRect(lx - 25, y - 5, 50, 8, 4, COLOR_ACCENT);
+    tft.fillRoundRect(rx - 25, y - 5, 50, 8, 4, COLOR_ACCENT);
+  } else {
+    if (emotion == HAPPY) {
+      // Archer/Happy eyes (semi-circles)
+      tft.fillCircle(lx, y-5, 25, COLOR_ACCENT);
+      tft.fillRect(lx - 25, y, 50, 25, COLOR_BG);
+      tft.fillCircle(rx, y-5, 25, COLOR_ACCENT);
+      tft.fillRect(rx - 25, y, 50, 25, COLOR_BG);
+    } else if (emotion == WINK) {
+      // Left eye blink, right eye neutral
+      tft.fillRoundRect(lx - 25, y - 5, 50, 8, 4, COLOR_ACCENT);
+      tft.fillRoundRect(rx - 25, y - 25, 50, 40, 20, COLOR_ACCENT);
+    } else if (emotion == SQUINT) {
+      tft.fillRoundRect(lx - 25, y - 12, 50, 24, 12, COLOR_ACCENT);
+      tft.fillRoundRect(rx - 25, y - 12, 50, 24, 12, COLOR_ACCENT);
+    } else {
+      // NEUTRAL: Two rounded "pill" style eyes
+      tft.fillRoundRect(lx - 25, y - 25, 50, 40, 20, COLOR_ACCENT);
+      tft.fillRoundRect(rx - 25, y - 25, 50, 40, 20, COLOR_ACCENT);
+    }
+  }
+  
+  // Cute mouth
+  if (emotion == HAPPY) {
+     tft.fillCircle(x, y + 25, 15, COLOR_ACCENT);
+     tft.fillRect(x - 15, y + 15, 30, 15, COLOR_BG);
+  } else {
+     tft.fillRoundRect(x - 15, y + 25, 30, 12, 6, COLOR_ACCENT);
+  }
+}
+
+void drawLockscreenText(const char* line1, const char* line2) {
+  tft.fillScreen(COLOR_BG);
+  _boldText(line1, 160, 100, COLOR_ACCENT);
+  _boldText(line2, 160, 140, COLOR_TEXT);
+}

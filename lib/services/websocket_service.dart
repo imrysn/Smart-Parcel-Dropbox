@@ -44,6 +44,8 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _deviceUnregisteredController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _connectionStatusController =
+      StreamController<bool>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -78,6 +80,9 @@ class WebSocketService {
   Stream<Map<String, dynamic>> get deviceUnregisteredStream =>
       _deviceUnregisteredController.stream;
 
+  /// Fires when the app's WebSocket connection status changes: true=connected, false=disconnected
+  Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
+
 
   bool get isConnected => _socket?.connected ?? false;
   IO.Socket? get socket => _socket;
@@ -111,15 +116,18 @@ class WebSocketService {
   void _setupEventHandlers(String userId) {
     _socket!.onConnect((_) {
       debugPrint('✅ WebSocket connected');
+      _connectionStatusController.add(true);
       _socket!.emit('join', userId);
     });
 
     _socket!.onDisconnect((_) {
       debugPrint('❌ WebSocket disconnected');
+      _connectionStatusController.add(false);
     });
 
     _socket!.onConnectError((data) {
       debugPrint('⚠️ WebSocket connection error: $data');
+      _connectionStatusController.add(false);
     });
 
     // Tracking updates
@@ -285,6 +293,7 @@ class WebSocketService {
     _deviceRegistrationFailedController.close();
     _hardwareConfigAppliedController.close();
     _deviceUnregisteredController.close();
+    _connectionStatusController.close();
   }
 
   /// Reset singleton instance

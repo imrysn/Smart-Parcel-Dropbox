@@ -1,8 +1,10 @@
 import 'dart:ui';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/dropbox_service.dart';
+import '../services/websocket_service.dart';
 import '../services/service_locator.dart';
 import '../services/error_handler.dart';
 import '../models/tracking_model.dart';
@@ -43,6 +45,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Stream<List<TrackingModel>>? _activePickupsStream;
   Stream<int>? _notificationsCountStream;
   Stream<Map<String, dynamic>?>? _doorStateStream;
+  StreamSubscription<bool>? _connectionSub;
+  StreamSubscription<Map<String, dynamic>>? _registrationSub;
+
+  bool _appConnected = false;
 
   // Current user ID
   String? _userId;
@@ -58,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _initUser() async {
     _userId = await _authService.currentUserId;
+    _appConnected = getIt<WebSocketService>().isConnected;
     if (mounted) {
       _setupStreams();
       // Cache user data future once
@@ -89,6 +96,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _activeOrdersStream = null;
     _activePickupsStream = null;
     _notificationsCountStream = null;
+    _connectionSub?.cancel();
+    _registrationSub?.cancel();
     super.dispose();
   }
 
@@ -104,8 +113,24 @@ class _HomeScreenState extends State<HomeScreen> {
           _databaseService.getUnreadNotificationsCount(_userId!);
       _doorStateStream = _databaseService.getDropBoxDoorState();
 
-      // Note: Account deletion check was removed as it relied on Firestore.
-      // In the MongoDB branch, account status is handled via the Node.js API and WebSockets.
+      // ── WebSocket Connectivity & Auto-Refresh ──
+      _connectionSub?.cancel();
+      _connectionSub = _databaseService.connectionStatusStream.listen((connected) {
+        if (mounted) {
+          setState(() => _appConnected = connected);
+          if (connected) {
+            debugPrint('🔄 WebSocket reconnected, auto-refreshing data');
+            _databaseService.refreshTracking(_userId!);
+            _checkDropbox();
+          }
+        }
+      });
+
+      // ── Real-time Registration Sync ──
+      _registrationSub?.cancel();
+      // Listen to both registration and unregistration to update _hasDropbox
+      _registrationSub = _databaseService.deviceRegisteredStream.listen((_) => _checkDropbox());
+      _databaseService.deviceUnregisteredStream.listen((_) => _checkDropbox());
     }
   }
 
@@ -135,6 +160,42 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildConnectivityIndicator() {
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: (_appConnected ? Colors.green : Colors.red).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (_appConnected ? Colors.green : Colors.red).withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _appConnected ? Colors.green : Colors.red,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            _appConnected ? 'LIVE' : 'OFFLINE',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: _appConnected ? Colors.green : Colors.red,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -150,6 +211,8 @@ class _HomeScreenState extends State<HomeScreen> {
               userId: _userId!,
               databaseService: _databaseService,
             ),
+          _buildConnectivityIndicator(),
+          const SizedBox(width: 8),
         ],
       ),
       floatingActionButton: _getFloatingActionButton(),

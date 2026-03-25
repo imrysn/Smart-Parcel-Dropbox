@@ -195,8 +195,8 @@ void loop() {
   checkFactoryReset();
   socketIO.loop();        // Keep Socket.IO connection alive
   checkSerialCommands();
-  // Skip status-bar repaints while QR verification screens are up
-  if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR) {
+  // Skip status-bar repaints while QR verification screens or lockscreen are up
+  if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR && currentState != LOCKSCREEN) {
     updateDynamicIndicators();
   }
 
@@ -396,6 +396,11 @@ void loop() {
           triggerBuzzer(1);
           changeState(SELECTING_PICKUP_TYPE);
         }
+      }
+
+      // Added: 30s Inactivity Timeout to Lockscreen
+      if (millis() - stateStartTime > IDLE_TIMEOUT_MS) {
+        changeState(LOCKSCREEN);
       }
       break;
 
@@ -1196,6 +1201,90 @@ void loop() {
         if (digitalRead(BTN_PICKUP) == LOW) {
           triggerBuzzer(2);
           changeState(RESETTING);
+        }
+      }
+      break;
+
+    // ── LOCKSCREEN ────────────────────────────────────────
+    case LOCKSCREEN:
+      if (!stateInitialized) {
+        tft.fillScreen(COLOR_BG);
+        stateInitialized = true;
+        showingText   = false;
+        isBlinking    = false;
+        currentEmotion = NEUTRAL;
+        currentOffsetX = 0;
+        targetOffsetX = 0;
+        nextBlinkTime = millis() + random(3000, 10000);
+        lastEmotionTime = millis() + 5000;
+        nextTextTime  = millis() + 60000; // Face for 60s
+        lastMoveTime  = millis() + 2000; 
+        drawRobotEyeLockscreen(160, 120, 0, false, NEUTRAL);
+      }
+      
+      // ANY button press wakes it up
+      if (digitalRead(BTN_RECEIVE) == LOW || digitalRead(BTN_PICKUP) == LOW) {
+        delay(50); // Debounce
+        triggerBuzzer(1);
+        changeState(IDLE);
+        break;
+      }
+
+      if (showingText) {
+        if (millis() > nextTextTime) {
+          showingText = false;
+          nextTextTime = millis() + 60000; 
+          tft.fillScreen(COLOR_BG);
+          drawRobotEyeLockscreen(160, 120, currentOffsetX, false, currentEmotion);
+        }
+      } else {
+        // Face Mode: Check if it's time for text (after 60s)
+        if (millis() > nextTextTime) {
+          showingText = true;
+          nextTextTime = millis() + 5000; 
+          drawLockscreenText("Smart Parcel", "Dropbox");
+        } else {
+          // Central Animation Tick (10 FPS for Zero Flicker)
+          if (millis() - lastLockscreenUpdate > 100) {
+            lastLockscreenUpdate = millis();
+            bool needsRedraw = false;
+
+            // 1. Random Emotion change
+            if (millis() > lastEmotionTime) {
+              lastEmotionTime = millis() + random(7000, 15000);
+              currentEmotion = (RobotEmotion)random(4);
+              needsRedraw = true;
+            }
+
+            // 2. Slow Blink (300ms duration)
+            bool blinkNow = (millis() >= nextBlinkTime && millis() < nextBlinkTime + 300);
+            if (blinkNow != isBlinking) {
+              isBlinking = blinkNow;
+              needsRedraw = true;
+              if (!isBlinking) nextBlinkTime = millis() + random(5000, 15000);
+            }
+
+            // 3. Slow Scan Logic (only move if NOT blinking)
+            if (!isBlinking && currentEmotion != WINK) {
+              if (millis() > lastMoveTime) {
+                 int r = random(3);
+                 targetOffsetX = (r == 0) ? -25 : (r == 1) ? 25 : 0; 
+                 lastMoveTime = millis() + random(3000, 7000);
+              }
+              if (currentOffsetX != targetOffsetX) {
+                // Calm, visible steps
+                if (currentOffsetX < targetOffsetX) currentOffsetX += 5;
+                else if (currentOffsetX > targetOffsetX) currentOffsetX -= 5;
+                needsRedraw = true;
+              }
+            }
+
+            // 4. Redraw Face area (only if changed)
+            if (needsRedraw) {
+              tft.fillRect(160-95, 120-40, 190, 85, COLOR_BG); 
+              drawRobotEyeLockscreen(160, 120, currentOffsetX, isBlinking, currentEmotion);
+            }
+          }
         }
       }
       break;

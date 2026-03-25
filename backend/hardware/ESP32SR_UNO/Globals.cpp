@@ -59,6 +59,24 @@ unsigned long lastIndicatorUpdate = 0;
 String offlineQueue[MAX_OFFLINE_QUEUE];
 int offlineQueueCount = 0;
 
+unsigned long lastLockscreenUpdate = 0;
+int eyeX = 160; 
+int eyeY = 120;
+int pupilX = 160;
+int pupilY = 120;
+int targetPupilX = 160;
+int targetPupilY = 120;
+bool isBlinking = false;
+unsigned long nextBlinkTime = 0;
+unsigned long nextTextTime = 0;
+bool showingText = false;
+int textX = 320;
+int currentOffsetX = 0;
+int targetOffsetX = 0;
+unsigned long lastMoveTime = 0;
+RobotEmotion  currentEmotion = NEUTRAL;
+unsigned long lastEmotionTime = 0;
+
 unsigned long dropOffRegisterTime = 0;
 unsigned long pickupRegisterTime  = 0;
 const unsigned long TIMEOUT_MS    = 300000;

@@ -74,8 +74,20 @@ enum SystemState {
   SCAN_TIMEOUT_PROMPT,
   WAITING_FOR_WIFI_CONFIG,
   SETUP_NO_SERVER,
-  RESETTING
+  RESETTING,
+  LOCKSCREEN
 };
+
+#define IDLE_TIMEOUT_MS 30000
+
+enum RobotEmotion {
+  NEUTRAL,
+  HAPPY,
+  WINK,
+  SQUINT
+};
+
+extern RobotEmotion currentEmotion;
 
 // ============================================================
 //  EXTERN GLOBALS (Defined in Globals.cpp)
@@ -138,6 +150,20 @@ extern unsigned long lastIndicatorUpdate;
 #define MAX_OFFLINE_QUEUE 20
 extern String offlineQueue[MAX_OFFLINE_QUEUE];
 extern int offlineQueueCount;
+
+extern unsigned long lastLockscreenUpdate;
+extern int eyeX, eyeY;
+extern int pupilX, pupilY;
+extern int targetPupilX, targetPupilY;
+extern bool isBlinking;
+extern unsigned long nextBlinkTime;
+extern unsigned long nextTextTime;
+extern bool showingText;
+extern int textX;
+extern int currentOffsetX;
+extern int targetOffsetX;
+extern unsigned long lastMoveTime;
+extern unsigned long lastEmotionTime;
 
 extern unsigned long dropOffRegisterTime;
 extern unsigned long pickupRegisterTime;
