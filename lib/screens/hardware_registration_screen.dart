@@ -83,8 +83,14 @@ class _HardwareRegistrationScreenState
   }
 
   Future<void> _submitToken(String token) async {
-    final trimmed = token.trim().toUpperCase();
+    String trimmed = token.trim().toUpperCase();
     if (trimmed.isEmpty) return;
+
+    // Gracefully handle if user only types the 6-digit PIN shown on LCD
+    if (trimmed.length == 6 && int.tryParse(trimmed) != null) {
+      trimmed = 'SPDB-REG-$trimmed';
+    }
+
     setState(() {
       _processing = true;
       _errorMsg   = null;

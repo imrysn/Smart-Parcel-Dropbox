@@ -560,6 +560,50 @@ io.on('connection', (socket) => {
       socket.emit('deviceRegistrationFailed', { reason: 'server_error' });
     }
   });
+  
+  // ── Unregister Device (mobile app → backend) ─────────────────────────────
+  // App emits this to manually remove/unregister a dropbox from an account.
+  // Payload: { userId: "..." }
+  socket.on('unregisterDevice', async ({ userId }) => {
+    console.log(`📱 unregisterDevice → userId: ${userId}`);
+    if (!userId) return;
+    try {
+      const dropbox = await Dropbox.findOne({ userId });
+      if (!dropbox) {
+        console.log(`  ❌ No dropbox found for userId: ${userId}`);
+        socket.emit('deviceUnregistrationFailed', { reason: 'no_device_found' });
+        return;
+      }
+      
+      const { deviceId } = dropbox;
+      
+      // 1. Reset the document in MongoDB
+      await Dropbox.updateOne(
+        { userId },
+        { 
+          $set: { 
+            isRegistered: false, 
+            userId: 'unregistered_' + Date.now(), // clear while keeping it unique or just set to a placeholder
+            name: 'Unregistered Device',
+            status: 'unregistered',
+            wifiSSID: null
+          } 
+        }
+      );
+      
+      console.log(`  ✅ Device ${deviceId} unregistered for user ${userId}`);
+      
+      // 2. Notify hardware to revert to setup mode
+      io.to('esp32_device').emit('deviceUnregistered', { deviceId });
+      
+      // 3. Notify app user that it's done
+      socket.emit('deviceUnregistered', { deviceId, success: true });
+      
+    } catch (err) {
+      console.error('❌ unregisterDevice error:', err.message);
+      socket.emit('deviceUnregistrationFailed', { reason: 'server_error' });
+    }
+  });
 
   // ── Push WiFi Config (app → backend → hardware) ─────────────────────────
   // App emits this after registration to send WiFi credentials to the device.

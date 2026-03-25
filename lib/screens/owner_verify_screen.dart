@@ -127,10 +127,16 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
   }
 
   void _submitPin() {
-    final pin = _pinController.text.trim();
-    if (pin.length != 6) {
+    String pin = _pinController.text.trim().toUpperCase();
+    
+    // Auto-fix if they just typed the 6 numbers
+    if (pin.length == 6 && int.tryParse(pin) != null) {
+      pin = 'OWN-$pin';
+    }
+
+    if (!pin.startsWith('OWN-') || pin.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a 6-digit PIN')),
+        const SnackBar(content: Text('Please enter a valid 6-digit PIN or full CODE')),
       );
       return;
     }
@@ -143,8 +149,8 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
       _statusMsg = 'Verifying...';
     });
     
-    // The server verifies 'token', so we prepend 'OWN-' expected format
-    _ws.emitVerifyOwnerQR('OWN-$pin');
+    // The server verifies 'token', so we send the exact formatted pin
+    _ws.emitVerifyOwnerQR(pin);
 
     _ackTimer = Timer(const Duration(seconds: 65), () {
       if (!mounted || !_waiting) return;
@@ -291,17 +297,19 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                    children: [
                      Icon(Icons.dialpad, size: 48, color: primaryColor),
                      const SizedBox(height: 16),
-                     const Text('Enter 6-Digit PIN', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                     const Text('Enter Code Manually', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
                      const SizedBox(height: 8),
-                     const Text('Check the dropbox LCD screen for the PIN', style: TextStyle(color: Colors.black54), textAlign: TextAlign.center),
+                     const Text('Check the dropbox LCD screen for the full code or PIN', style: TextStyle(color: Colors.black54), textAlign: TextAlign.center),
                      const SizedBox(height: 24),
                      TextField(
                        controller: _pinController,
-                       keyboardType: TextInputType.number,
-                       maxLength: 6,
+                       keyboardType: TextInputType.text,
+                       textCapitalization: TextCapitalization.characters,
                        textAlign: TextAlign.center,
-                       style: const TextStyle(fontSize: 28, letterSpacing: 10, fontWeight: FontWeight.bold, color: Colors.black87),
+                       style: const TextStyle(fontSize: 24, letterSpacing: 4, fontWeight: FontWeight.bold, color: Colors.black87),
                        decoration: InputDecoration(
+                         hintText: 'e.g. OWN-123456',
+                         hintStyle: const TextStyle(fontSize: 16, letterSpacing: 1, color: Colors.black26),
                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryColor, width: 2)),
                          filled: true,

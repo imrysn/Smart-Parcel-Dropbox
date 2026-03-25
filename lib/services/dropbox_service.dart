@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../config/api_config.dart';
@@ -33,6 +34,30 @@ class DropboxService {
     });
   }
 
+  /// Unregister device via both Socket.IO and REST (for redundancy).
+  Future<void> unregisterDevice(String userId) async {
+    // 1. Socket emission
+    debugPrint('📤 Socket: Requesting unregisterDevice for $userId');
+    _ws.emit('unregisterDevice', {
+      'userId': userId,
+    });
+
+    // 2. REST fallback
+    try {
+      debugPrint('📤 REST: Falling back to DELETE /api/dropbox/$userId');
+      final response = await http.delete(
+        Uri.parse('${ApiConfig.baseUrl}/api/dropbox/$userId'),
+      );
+      if (response.statusCode == 200) {
+        debugPrint('✅ REST: Unregistered successfully');
+      } else {
+        debugPrint('⚠️ REST: Unregistration failed with status ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ REST Error: $e');
+    }
+  }
+
   /// Emit pushHardwareConfig event to send WiFi credentials to the device.
   void pushHardwareConfig({required String ssid, required String password}) {
     _ws.socket?.emit('pushHardwareConfig', {
@@ -52,4 +77,8 @@ class DropboxService {
   /// Stream of hardware config applied confirmation from the device.
   Stream<Map<String, dynamic>> get hardwareConfigAppliedStream =>
       _ws.hardwareConfigAppliedStream;
+
+  /// Stream of device unregistration confirmation.
+  Stream<Map<String, dynamic>> get deviceUnregisteredStream =>
+      _ws.deviceUnregisteredStream;
 }

@@ -42,6 +42,8 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _hardwareConfigAppliedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _deviceUnregisteredController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -72,6 +74,9 @@ class WebSocketService {
   /// Fires when the hardware has saved WiFi config and is rebooting
   Stream<Map<String, dynamic>> get hardwareConfigAppliedStream =>
       _hardwareConfigAppliedController.stream;
+  /// Fires when backend confirms device unregistration
+  Stream<Map<String, dynamic>> get deviceUnregisteredStream =>
+      _deviceUnregisteredController.stream;
 
 
   bool get isConnected => _socket?.connected ?? false;
@@ -184,11 +189,18 @@ class WebSocketService {
       debugPrint('⚙️ hardwareConfigApplied: $data');
       _hardwareConfigAppliedController.add(data as Map<String, dynamic>);
     });
+
+    // Device unregistration confirmed
+    _socket!.on('deviceUnregistered', (data) {
+      debugPrint('🗑️ deviceUnregistered: $data');
+      _deviceUnregisteredController.add(data as Map<String, dynamic>);
+    });
   }
 
   /// Emit an event to the server
   void emit(String event, dynamic data) {
     if (_socket?.connected ?? false) {
+      debugPrint('📤 Emitting event: $event ($data)');
       _socket!.emit(event, data);
     } else {
       debugPrint('⚠️ Cannot emit event: WebSocket not connected');
@@ -272,6 +284,7 @@ class WebSocketService {
     _deviceRegisteredController.close();
     _deviceRegistrationFailedController.close();
     _hardwareConfigAppliedController.close();
+    _deviceUnregisteredController.close();
   }
 
   /// Reset singleton instance

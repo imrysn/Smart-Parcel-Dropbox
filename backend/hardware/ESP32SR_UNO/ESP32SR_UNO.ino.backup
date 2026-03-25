@@ -24,8 +24,6 @@
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h> // Required for WSS
-#include <WebServer.h>        // Required for Captive Portal
-#include <DNSServer.h>        // Required for Captive Portal
 #include <SocketIOclient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h> // ESP32 Task Watchdog Timer
@@ -38,7 +36,160 @@
 // ============================================================
 #include "config.h"  // ⚠ Add config.h to .gitignore — contains WiFi password
 
-#include "StateMetrics.h"
+// ============================================================
+//  PINOUT
+// ============================================================
+#define TFT_CS    10
+#define TFT_DC    21
+#define TFT_RST   20
+#define TFT_MOSI  11
+#define TFT_SCK   12
+#define TFT_MISO  13
+
+#define BTN_RECEIVE      40
+#define BTN_PICKUP       2
+#define BUZZER_PIN       3
+
+#define LOCK_TOP         1
+#define LOCK_PICKUP      38
+#define LOCK_RECEIVED    39
+
+#define REED_TOP         9
+#define REED_PICKUP      35
+#define REED_RECEIVED    45
+
+const int US_PLATFORM[2] = {15,  4};  // TRIG: 15, ECHO: 4
+const int US_PICKUP[2]   = { 7, 16};  // TRIG: 7,  ECHO: 16
+const int US_DROPOFF[2]  = {18,  8};  // TRIG: 18, ECHO: 8
+
+#define SERVO_PIN        14
+
+// ============================================================
+//  DISPLAY COLORS
+// ============================================================
+#define COLOR_BG      0x0000
+#define COLOR_TEXT    0xFFFF
+#define COLOR_ACCENT  0x3DFF  // Cyan
+#define COLOR_BLUE    0x001F  // Primary Blue
+#define COLOR_PURPLE  0x780F  // Deep Purple
+#define COLOR_GREEN   0x07E0
+#define COLOR_RED     0xF800
+#define COLOR_GREY    0x7BEF
+#define COLOR_GOLD    0xFDE0
+
+// ============================================================
+//  STATE MACHINE
+// ============================================================
+enum SystemState {
+  // ── Device Setup (first boot / factory reset) ────────
+  DEVICE_UNREGISTERED,      // First boot: no WiFi/registration in NVS
+  SHOWING_REGISTRATION_QR,  // Displaying QR + code for in-app registration
+  // ── Normal operation ──────────────────────────────────
+  IDLE,
+  // ── Pick Up sub-menu states ─────────────────────────────
+  SELECTING_PICKUP_TYPE,    // ATM sub-menu: [Owner | Rider]
+  OWNER_VERIFYING,          // LCD shows QR code; owner must scan via mobile app
+  OWNER_SELECTING_MODE,     // ATM sub-menu: [Single | Multiple]
+  OWNER_SCANNING,           // Owner scans tracking ID(s) to register
+  OWNER_ADD_MORE_PROMPT,    // ATM prompt: [Add More | Done]
+  RIDER_VERIFYING,          // Rider scans their QR → server check
+  RIDER_DOOR_OPEN,          // Pickup bin door unlocked, wait for open+close
+  RIDER_SCANNING_PARCELS,   // Rider scans each parcel → status=done
+  RIDER_PICKUP_PROMPT,      // ATM prompt: [Pick Up More | Done]
+  // ── Drop Off states (unchanged) ─────────────────────────
+  WAITING_FOR_SCAN,
+  VERIFYING_SCAN,
+  UNLOCKING_ENTRY,
+  WAITING_PLACEMENT_STABLE,
+  TILTING_PLATFORM,
+  CONFIRMING_DROP,
+  SCAN_FAILED_PROMPT,
+  RESETTING
+};
+
+SystemState currentState = IDLE;
+bool isReceivingMode     = true;
+bool isRiderMode         = false;  // true = Rider Collect flow
+bool isMultiMode         = false;  // true = Owner multiple parcels
+int  scannedCount        = 0;      // parcels processed in current session
+int  consecutiveScanFails= 0;      // tracks consecutive WAITING_FOR_SCAN fails
+bool stateInitialized    = false;
+bool doorWasOpened       = false;
+unsigned long stateStartTime     = 0;
+unsigned long stabilityStartTime = 0;
+unsigned long lastDebugTime      = 0;
+
+// Non-blocking action delay helper
+unsigned long actionDelayStart  = 0;
+bool          actionDelayActive = false;
+SystemState   pendingNextState  = IDLE;
+
+// Rider verification result
+bool   riderVerifyReceived = false;
+bool   riderVerifyValid    = false;
+String serial2Buffer       = ""; // Non-blocking Serial2 accumulator (fixes WDT starvation)
+
+// Owner QR verification
+String ownerSessionToken     = "";   // Token received from server to render as QR
+bool   ownerApprovalReceived = false;
+bool   ownerApprovalValid    = false;
+bool   ownerQrDrawn          = false; // Reset each session so QR redraws correctly
+bool   ownerVerifyTimedOut   = false; // True when scan window expired — show Retry/Exit
+
+// ── Device Registration (NVS-backed) ─────────────────────────────────────
+Preferences nvsPrefs;
+String nvsWifiSSID      = "";
+String nvsWifiPassword  = "";
+bool   deviceRegistered = false;  // true = NVS has registration flag
+// Registration session state
+String registrationToken = ""; // Token received from backend to display as QR
+bool   regTokenReceived  = false;
+bool   regQrDrawn        = false;
+bool   deviceJustRegistered = false; // Set when backend confirms registration
+
+// ============================================================
+//  TRACKING IDs
+// ============================================================
+String registeredDropOff  = "";  // Set via server 'registerTracking' or Serial R1:<id>
+String registeredPickup   = "";  // Set via server 'registerTracking' or Serial R2:<id>
+String currentTrackingId  = "";  // The ID that was scanned and verified this cycle
+
+// Scan verification result from server
+bool scanResultReceived = false;
+bool scanResultValid    = false;
+
+// Door / lock states (mirrors to app via emitDoorState)
+// These track the logical state the solenoids are in
+bool lockTopOpen      = false;  // true = unlocked (parcel entry door)
+bool lockPickupOpen   = false;  // true = unlocked (pickup bin door)
+bool lockReceivedOpen = false;  // true = unlocked (received bin door)
+
+// UI Indicator states
+bool lastWifiState = false;
+bool lastSocketState = false;
+bool lastDoorState = false;
+unsigned long lastIndicatorUpdate = 0;
+
+// Feature #10: Offline Queue for pick-up parcels
+#define MAX_OFFLINE_QUEUE 20
+String offlineQueue[MAX_OFFLINE_QUEUE];
+int offlineQueueCount = 0;
+
+// Tracking ID Timeouts
+unsigned long dropOffRegisterTime = 0;
+unsigned long pickupRegisterTime  = 0;
+const unsigned long TIMEOUT_MS    = 300000; // 5 minutes timeout for registered IDs
+
+// WiFi Auto-Reconnect
+unsigned long previousMillisWiFi = 0;
+const long intervalWiFi = 10000; // 10 seconds check interval
+
+// ============================================================
+//  OBJECTS
+// ============================================================
+Servo            platformServo;
+Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
+SocketIOclient   socketIO;
 
 // ============================================================
 //  FORWARD DECLARATIONS
@@ -60,12 +211,10 @@ void handleOwnerApprovalResult(const String& payload);
 void handleControlDoor(const String& payload);
 float getDistance(const int pins[]);
 void emitRequestDeviceRegistration();
+void handleRegistrationToken(const String& payload);
+void handleApplyHardwareConfig(const String& payload);
+void drawDeviceUnregisteredScreen();
 void drawRegistrationQRScreen(const String& token, const String& pin);
-void drawNoServerOptionsScreen();
-void drawWiFiConfigQRScreen(const char* ssid);
-void setupCaptivePortal();
-void loopCaptivePortal();
-void stopCaptivePortal();
 void checkFactoryReset();
 void printSerialMenu();
 void showHomeScreen();
@@ -168,21 +317,18 @@ void setup() {
   Serial.print("[NVS] Registered: "); Serial.println(deviceRegistered ? "YES" : "NO");
   Serial.print("[NVS] SSID: "); Serial.println(nvsWifiSSID.length() ? nvsWifiSSID : "(none)");
 
-  if (nvsWifiSSID.length() > 0) {
-    setupWiFi();
-    setupSocketIO();
-  } else {
-    Serial.println("[BOOT] No saved SSID. WiFi will be set up during registration.");
+  if (!deviceRegistered || nvsWifiSSID.length() == 0) {
+    // First boot or factory reset: go straight to setup mode
+    Serial.println("[BOOT] No credentials/registration found. Entering DEVICE_UNREGISTERED.");
+    changeState(DEVICE_UNREGISTERED);
+    printSerialMenu();
+    return;
   }
 
-  if (!deviceRegistered) {
-    // Go to setup mode but don't return early if we have WiFi to attempt
-    Serial.println("[BOOT] Device UNREGISTERED. Entering setup mode.");
-    changeState(DEVICE_UNREGISTERED);
-  } else {
-    showHomeScreen();
-  }
-  
+  setupWiFi();
+  setupSocketIO();
+
+  showHomeScreen();
   printSerialMenu();
 }
 
@@ -235,69 +381,22 @@ void loop() {
         if (digitalRead(BTN_RECEIVE) == LOW) {
           Serial.println("[SETUP] BTN1 pressed. Requesting registration token from server...");
           triggerBuzzer(1);
-          // Ensure network is connected before requesting registration
-          if (!socketIO.isConnected()) {
-            if (nvsWifiSSID.length() == 0) {
-              // Try connecting with compile-time credentials for first ever setup
-              nvsWifiSSID     = String(WIFI_SSID);
-              nvsWifiPassword = String(WIFI_PASSWORD);
-            }
-            Serial.println("[SETUP] Not connected. Attempting WiFi/Socket setup...");
-            displayMessage("CONNECTING", "Please wait...");
+          // Ensure socket is connected (requires WiFi with fallback SSID from config.h)
+          if (nvsWifiSSID.length() == 0) {
+            // Try connecting with compile-time credentials for first setup
+            nvsWifiSSID     = String(WIFI_SSID);
+            nvsWifiPassword = String(WIFI_PASSWORD);
             setupWiFi();
             setupSocketIO();
           }
-
           if (socketIO.isConnected()) {
             emitRequestDeviceRegistration();
             changeState(SHOWING_REGISTRATION_QR);
           } else {
-            // New V4.0 flow: Go to No Server screen with options
-            triggerBuzzer(3);
-            changeState(SETUP_NO_SERVER);
+            displayMessage("NO SERVER", "Connect to WiFi first");
+            delay(2000);
+            drawDeviceUnregisteredScreen();
           }
-        }
-      }
-      break;
-
-    // ── V4.0: SETUP NO SERVER ────────────────────────────
-    case SETUP_NO_SERVER:
-      if (!stateInitialized) {
-        drawNoServerOptionsScreen();
-        Serial.println("[SETUP] No Server. BTN1=Retry, BTN2=Setup WiFi.");
-        stateInitialized = true;
-      }
-      if (digitalRead(BTN_RECEIVE) == LOW) { // BTN1 = Retry
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-           triggerBuzzer(1);
-           changeState(DEVICE_UNREGISTERED); // Go back to try again
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) { // BTN2 = Other (WiFi Setup)
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(WAITING_FOR_WIFI_CONFIG);
-        }
-      }
-      break;
-
-    // ── V4.0: WAITING FOR WIFI CONFIG (Captive Portal) ─────
-    case WAITING_FOR_WIFI_CONFIG:
-      if (!stateInitialized) {
-        setupCaptivePortal();
-        drawWiFiConfigQRScreen("SmartParcelBox_Setup");
-        stateInitialized = true;
-      }
-      loopCaptivePortal();
-      
-      // Allow manual exit/reboot via BTN2
-      if (digitalRead(BTN_PICKUP) == LOW) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          triggerBuzzer(2);
-          stopCaptivePortal();
-          ESP.restart();
         }
       }
       break;
@@ -528,7 +627,14 @@ void loop() {
           stateInitialized && millis() - stateStartTime > 8000) {
         Serial.println("[FLOW] Owner QR: Server did not respond. Show Retry/Exit.");
         triggerBuzzer(3);
-        drawTimeoutScreen("TIMED OUT", "Server did not respond");
+        // Draw the timeout/retry screen
+        tft.fillScreen(COLOR_BG);
+        tft.setTextSize(2); tft.setTextColor(COLOR_RED);
+        tft.setCursor(70, 60); tft.print("TIMED OUT");
+        tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+        tft.setCursor(55, 90); tft.print("Server did not respond.");
+        tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+        tft.setCursor(20, 120); tft.print("[BTN1] Retry    [BTN2] Exit");
         ownerVerifyTimedOut = true;
         ownerSessionToken   = "";
         ownerQrDrawn        = false;
@@ -539,7 +645,13 @@ void loop() {
           ownerQrDrawn && millis() - stateStartTime > 60000) {
         Serial.println("[FLOW] Owner QR: 60s scan timeout. Show Retry/Exit.");
         triggerBuzzer(3);
-        drawTimeoutScreen("TIMED OUT", "QR code expired (60s)");
+        tft.fillScreen(COLOR_BG);
+        tft.setTextSize(2); tft.setTextColor(COLOR_RED);
+        tft.setCursor(70, 60); tft.print("TIMED OUT");
+        tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+        tft.setCursor(40, 90); tft.print("QR code expired (60 seconds).");
+        tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+        tft.setCursor(20, 120); tft.print("[BTN1] Retry    [BTN2] Exit");
         ownerVerifyTimedOut = true;
         ownerSessionToken   = "";
         ownerQrDrawn        = false;
@@ -601,24 +713,6 @@ void loop() {
         while (Serial2.available()) Serial2.read(); // Flush stale buffer
         stateInitialized = true;
       }
-      
-      // Feature: 60s Timeout while scanning
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = OWNER_SCANNING;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(IDLE);
-           break;
-        }
-      }
-      
       // Non-blocking Serial2 read: accumulate bytes until '\n'
       while (Serial2.available() && !actionDelayActive) {
         char c = (char)Serial2.read();
@@ -689,24 +783,6 @@ void loop() {
         stateInitialized    = true;
         Serial.println("[FLOW] Rider: Waiting for Rider QR scan...");
       }
-
-      // Feature: 60s Timeout while verifying
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = RIDER_VERIFYING;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(IDLE);
-           break;
-        }
-      }
-
       // Non-blocking Serial2 read: accumulate bytes until '\n'
       while (Serial2.available() && !actionDelayActive) {
         char c = (char)Serial2.read();
@@ -792,24 +868,6 @@ void loop() {
         while (Serial2.available()) Serial2.read(); // Flush stale buffer
         stateInitialized = true;
       }
-
-      // Feature: 60s Timeout while scanning parcels
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = RIDER_SCANNING_PARCELS;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(RIDER_PICKUP_PROMPT);
-           break;
-        }
-      }
-
       // Non-blocking Serial2 read
       while (Serial2.available() && !actionDelayActive) {
         char c = (char)Serial2.read();
@@ -880,24 +938,6 @@ void loop() {
         serial2Buffer = "";  // Clear software accumulator
         stateInitialized = true;
       }
-
-      // Feature: 60s Timeout while dropping off
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = WAITING_FOR_SCAN;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(IDLE);
-           break;
-        }
-      }
-
       // Non-blocking Serial2 read: accumulate bytes each loop tick
       while (Serial2.available() > 0) {
         char c = (char)Serial2.read();
@@ -969,11 +1009,8 @@ void loop() {
             tft.fillScreen(COLOR_BG);
             drawStatusBar();
             drawScannerBg();
-            tft.setFont(&FreeSansBold12pt7b);
-            tft.setTextColor(COLOR_TEXT);
-            tft.setCursor(25, 200);
+            tft.setCursor(40, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
             tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
-            tft.setFont();
             pendingNextState = IDLE;  // reset flag, stay in WAITING_FOR_SCAN
           } else {
             changeState(pendingNextState);
@@ -1176,30 +1213,6 @@ void loop() {
       }
       break;
 
-    // ── SCAN TIMEOUT PROMPT ────────────────────────────────
-    case SCAN_TIMEOUT_PROMPT:
-      if (!stateInitialized) {
-        drawTimeoutScreen("TIMED OUT", "No barcode scanned in 60s");
-        triggerBuzzer(3);
-        Serial.println("[FLOW] Prompt: Scan Timed Out. Retry or Exit?");
-        stateInitialized = true;
-      }
-      if (digitalRead(BTN_RECEIVE) == LOW) {
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          triggerBuzzer(1);
-          consecutiveScanFails = 0;
-          changeState(pendingNextState); // Return to whichever state timed out
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          triggerBuzzer(2);
-          changeState(RESETTING);
-        }
-      }
-      break;
-
     // ── RESETTING ─────────────────────────────────────────
     case RESETTING:
       triggerBuzzer(1);
@@ -1301,20 +1314,548 @@ void handleApplyHardwareConfig(const String& payload) {
 // ============================================================
 //  SCREEN: Device Unregistered (first boot)
 // ============================================================
-// (QR screens moved to DisplayController.ino)
+void drawDeviceUnregisteredScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setTextSize(2); tft.setTextColor(COLOR_GOLD);
+  tft.setCursor(45, 40); tft.print("SETUP REQUIRED");
+  tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.setCursor(20, 75); tft.print("This device is not registered.");
+  tft.setCursor(20, 92); tft.print("Download the Smart Parcel Dropbox");
+  tft.setCursor(20, 108); tft.print("app and set up your device.");
+  tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+  tft.setCursor(20, 140); tft.print("Then press BTN1 to start registration.");
+  // BTN1 label
+  tft.fillRect(20, 165, 130, 30, COLOR_BLUE);
+  tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+  tft.setCursor(35, 175); tft.print("[BTN1] Register");
+}
 
-// (drawScannerBg moved to DisplayController.ino)
+// ============================================================
+//  SCREEN: Registration QR Code
+// ============================================================
+void drawRegistrationQRScreen(const String& token, const String& pin) {
+  tft.fillScreen(COLOR_TEXT); // White background
+  
+  // Title (Centered)
+  tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(97, 10); // 21 chars * 6px = 126px width. (320-126)/2 = 97
+  tft.print("HARDWARE REGISTRATION");
+  
+  // QR Code (Centered: 116px wide -> x=102, y=35)
+  drawQRCode(102, 35, 4, token);
+  
+  // Code output at bottom (Centered)
+  tft.setTextSize(2); tft.setTextColor(COLOR_BLUE);
+  String displayText = "CODE: " + token;
+  int textWidth = displayText.length() * 12; // Approx 12px per char for size 2
+  tft.setCursor((320 - textWidth) / 2, 170);
+  tft.print(displayText);
+  
+  // Instructions
+  tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(76, 205);
+  tft.print("Scan QR or enter full code in app");
+  
+  tft.setCursor(95, 222);
+  tft.print("Expires in 60 seconds");
+}
+
+// ============================================================
+//  SCREEN: Owner Verifying (show session QR code on TFT)
+//  Uses the QRCode library by Richard Moore (already in Arduino/libraries/QRCode)
+// ============================================================
+
+void drawQRCode(int x, int y, int moduleSize, const String& text) {
+  QRCode qrcode;
+  uint8_t qrcodeBytes[qrcode_getBufferSize(3)];
+  qrcode_initText(&qrcode, qrcodeBytes, 3, ECC_MEDIUM, text.c_str());
+
+  for (int row = 0; row < qrcode.size; row++) {
+    for (int col = 0; col < qrcode.size; col++) {
+      // White background: dark module → black (COLOR_BG), quiet zone → white (COLOR_TEXT)
+      uint16_t color = qrcode_getModule(&qrcode, col, row) ? COLOR_BG : COLOR_TEXT;
+      tft.fillRect(x + col * moduleSize, y + row * moduleSize,
+                   moduleSize, moduleSize, color);
+    }
+  }
+}
+
+
+void drawOwnerVerifyingScreen(const String& token) {
+  tft.fillScreen(COLOR_TEXT); // White background
+  
+  // Title (Centered)
+  tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(106, 10); // 18 chars * 6px = 108px width. (320-108)/2 = 106
+  tft.print("OWNER VERIFICATION");
+  
+  // QR Code (Centered: 116px wide -> x=102, y=35)
+  drawQRCode(102, 35, 4, token);
+  
+  // Code output at bottom (Centered)
+  tft.setTextSize(2); tft.setTextColor(COLOR_BLUE);
+  String displayText = "CODE: " + token;
+  int textWidth = displayText.length() * 12;
+  tft.setCursor((320 - textWidth) / 2, 170);
+  tft.print(displayText);
+  
+  // Instructions
+  tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(76, 205);
+  tft.print("Scan QR or enter full code in app");
+  
+  tft.setCursor(95, 222);
+  tft.print("Expires in 60 seconds");
+}
+
+void drawScannerBg() {
+  tft.drawRect(60, 60, 200, 100, COLOR_GREY);
+  tft.drawRect(58, 58, 204, 104, COLOR_ACCENT);
+  tft.fillRect(70, 110, 180, 2, COLOR_RED); // red scanner line
+  tft.setTextSize(2); tft.setTextColor(COLOR_GREY);
+  tft.setCursor(85, 75); tft.print("SCAN BARCODE");
+}
 
 
 // ============================================================
 //  WIFI SETUP
 // ============================================================
-// (Network logic moved to NetworkController*.ino)
+void setupWiFi() {
+  // Load credentials from NVS or fall back to config.h at-compile-time values
+  String ssid;
+  String password;
+  nvsPrefs.begin("smartbox", true); // read-only
+  ssid     = nvsPrefs.getString("ssid",     String(WIFI_SSID));
+  password = nvsPrefs.getString("password", String(WIFI_PASSWORD));
+  nvsPrefs.end();
+
+  Serial.print("[WiFi] Connecting to: ");
+  Serial.println(ssid);
+
+  // ── Connecting screen ──────────────────────────────────────
+  tft.fillScreen(COLOR_BG);
+  tft.fillCircle(160, 90, 6, COLOR_ACCENT);
+  tft.drawCircle(160, 90, 18, COLOR_ACCENT);
+  tft.drawCircle(160, 90, 30, COLOR_GREY);
+  tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.setCursor(55, 118); tft.print("Getting Online");
+  tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.setCursor(108, 142); tft.print("Please wait...");
+
+  WiFi.begin(ssid.c_str(), password.c_str());
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    esp_task_wdt_reset();
+    delay(500);
+    Serial.print(".");
+    attempts++;
+    // Animate dots on the BLUE screen
+    tft.fillRect(68, 155, 185, 10, COLOR_BLUE);  // clear on blue
+    tft.setCursor(68, 155); tft.setTextColor(COLOR_TEXT); tft.setTextSize(1);
+    for (int d = 0; d < (attempts % 4); d++) tft.print(". ");
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.print("[WiFi] Connected! IP: ");
+    Serial.println(WiFi.localIP());   // IP stays in Serial Monitor only
+
+    // ── Connected screen ────────────────────────────────────
+    tft.fillScreen(COLOR_BG);
+    tft.fillCircle(160, 85, 22, COLOR_GREEN);
+    tft.setTextSize(2); tft.setTextColor(COLOR_GREEN);
+    tft.setCursor(82, 118); tft.print("Connected!");
+    tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+    tft.setCursor(88, 142); tft.print("System is ready");
+    delay(1500);
+  } else {
+    Serial.println();
+    Serial.println("[WiFi] FAILED to connect. Running offline.");
+
+    // ── Offline screen ──────────────────────────────────────
+    tft.fillScreen(COLOR_BG);
+    tft.fillCircle(160, 85, 22, COLOR_RED);
+    tft.setTextSize(2); tft.setTextColor(COLOR_RED);
+    tft.setCursor(70, 118); tft.print("Offline Mode");
+    tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+    tft.setCursor(52, 142); tft.print("Some features unavailable");
+    delay(2000);
+  }
+
+}
+
+// ============================================================
+//  SOCKET.IO SETUP
+// ============================================================
+void setupSocketIO() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WS] Skipping Socket.IO — no WiFi.");
+    return;
+  }
+
+  Serial.print("[WS] Connecting to server: ");
+  Serial.print(SERVER_HOST); Serial.print(":"); Serial.println(SERVER_PORT);
+
+  // Use begin() for local HTTP WebSockets
+  // Render.com runs WSS, but local server runs HTTP
+  socketIO.onEvent(socketIOEvent);
+  socketIO.begin(SERVER_HOST, SERVER_PORT, SERVER_PATH);
+  socketIO.setReconnectInterval(5000);  // Retry every 5 seconds until connected
+
+  Serial.println("[WS] Socket.IO initiated — connecting in background...");
+  Serial.println("[WS] (Render.com may take up to 60s on cold start)");
+}
+
+// ============================================================
+//  SOCKET.IO EVENT HANDLER
+// ============================================================
+void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) {
+  switch (type) {
+
+    case sIOtype_CONNECT:
+      Serial.println("[WS] Socket.IO connected.");
+      // Identify as hardware device to the server
+      socketIO.send(sIOtype_EVENT, "[\"join\",\"esp32_device\"]");
+      
+      // Feature #10: Send queued pickups on reconnect
+      if (offlineQueueCount > 0) {
+        Serial.print("[OFFLINE] Processing queue of "); 
+        Serial.print(offlineQueueCount); 
+        Serial.println(" items...");
+        
+        for (int i = 0; i < offlineQueueCount; i++) {
+           // Calls the original emit function, but this time socketIO.isConnected() is true
+           emitRegisterOwnerPickup(offlineQueue[i]);
+           delay(100); // Small delay to prevent network flood
+        }
+        offlineQueueCount = 0;
+      }
+      break;
+
+    case sIOtype_DISCONNECT:
+      Serial.println("[WS] Socket.IO disconnected.");
+      break;
+
+    case sIOtype_EVENT: {
+      // Parse the incoming event array: ["eventName", { ...data... }]
+      String msg = String((char*)payload, length);
+      if (DEBUG_WS) { Serial.print("[WS] Event: "); Serial.println(msg); }
+
+      StaticJsonDocument<1024> doc;
+      DeserializationError err = deserializeJson(doc, payload, length);
+      if (err) {
+        Serial.print("[WS] JSON parse error: "); Serial.println(err.c_str());
+        break;
+      }
+
+      String eventName = doc[0].as<String>();
+
+      if (eventName == "scanResult") {
+        String data;
+        serializeJson(doc[1], data);
+        handleScanResult(data);
+
+      } else if (eventName == "riderVerifyResult") {
+        // Server responded to our verifyRider request
+        String data;
+        serializeJson(doc[1], data);
+        handleRiderVerifyResult(data);
+
+      } else if (eventName == "registerTracking") {
+        String data;
+        serializeJson(doc[1], data);
+        handleRegisterTracking(data);
+
+      } else if (eventName == "controlDoor") {
+        String data;
+        serializeJson(doc[1], data);
+        handleControlDoor(data);
+
+      } else if (eventName == "ownerSessionToken") {
+        // Server sent back the session token to render as QR
+        ownerSessionToken = doc[1]["token"].as<String>();
+        Serial.print("[WS] ownerSessionToken received: "); Serial.println(ownerSessionToken);
+
+      } else if (eventName == "ownerVerifyResult") {
+        // Mobile app scanned the QR and backend relayed the result
+        ownerApprovalValid    = doc[1]["approved"].as<bool>();
+        ownerApprovalReceived = true;
+        Serial.print("[WS] ownerVerifyResult: "); Serial.println(ownerApprovalValid ? "APPROVED" : "DENIED");
+
+      } else if (eventName == "getStatus") {
+        emitDoorState();
+
+      } else if (eventName == "registrationToken") {
+        // Server responded to requestDeviceRegistration — hardware shows QR
+        registrationToken = doc[1]["token"].as<String>();
+        regTokenReceived  = true;
+        Serial.print("[SETUP] registrationToken received: "); Serial.println(registrationToken);
+
+      } else if (eventName == "deviceRegistered") {
+        // App successfully scanned the QR and registered the device
+        deviceJustRegistered = true;
+        Serial.println("[SETUP] deviceRegistered confirmed by server.");
+
+      } else if (eventName == "applyHardwareConfig") {
+        // App sent WiFi credentials via pushHardwareConfig → backend relayed here
+        String data;
+        serializeJson(doc[1], data);
+        handleApplyHardwareConfig(data);
+      }
+      break;
+    }
+
+    case sIOtype_ERROR:
+      Serial.println("[WS] Socket.IO error.");
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ============================================================
+//  EMIT: Send verifyScan to server
+// ============================================================
+void emitVerifyScan(const String& trackingId, const String& mode) {
+  StaticJsonDocument<256> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("verifyScan");
+  JsonObject data = arr.createNestedObject();
+  data["trackingId"] = trackingId;
+  data["mode"]       = mode;
+
+  // Reduced fragmentation by pre-allocating char buffer instead of String
+  char output[256];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted verifyScan: "); Serial.println(output); }
+}
+
+// ============================================================
+//  EMIT: Send verifyRider to server
+// ============================================================
+void emitVerifyRider(const String& riderId) {
+  StaticJsonDocument<256> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("verifyRider");
+  JsonObject data = arr.createNestedObject();
+  data["riderId"] = riderId;
+
+  char output[256];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted verifyRider: "); Serial.println(output); }
+}
+
+// ============================================================
+//  EMIT: Request owner QR session token from server
+// ============================================================
+void emitRequestOwnerSession() {
+  StaticJsonDocument<128> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("requestOwnerSession");
+  arr.createNestedObject(); // empty payload
+
+  char output[128];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  Serial.println("[WS] Emitted requestOwnerSession");
+}
+
+void emitRegisterOwnerPickup(const String& trackingId) {
+  // Feature #10: Queue locally if offline
+  if (!socketIO.isConnected()) {
+    if (offlineQueueCount < MAX_OFFLINE_QUEUE) {
+      offlineQueue[offlineQueueCount++] = trackingId;
+      Serial.print("[OFFLINE] Queued owner pickup: "); Serial.println(trackingId);
+    } else {
+      Serial.println("[OFFLINE] ERROR: Queue full. Cannot queue more pickups.");
+    }
+    return;
+  }
+
+  StaticJsonDocument<256> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("registerOwnerPickup");
+  JsonObject data = arr.createNestedObject();
+  data["trackingId"] = trackingId;
+
+  char output[256];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted registerOwnerPickup: "); Serial.println(output); }
+}
+
+// ============================================================
+//  EMIT: Send statusUpdate to server (→ updates DB → notifies app)
+// ============================================================
+void emitStatusUpdate(const String& trackingId, const String& status, const String& mode) {
+  StaticJsonDocument<256> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("statusUpdate");
+  JsonObject data = arr.createNestedObject();
+  data["trackingId"] = trackingId;
+  data["status"]     = status;
+  data["mode"]       = mode;
+
+  char output[256];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted statusUpdate: "); Serial.println(output); }
+}
+
+// ============================================================
+//  EMIT: Broadcast all door/lock states + parcel sensor to app
+//  This is what the Flutter app's doorStateUpdates stream receives.
+//  Mirrors what ESP32_DoorControl.ino's GET /status endpoint returned,
+//  but via Socket.IO instead of HTTP.
+// ============================================================
+void emitDoorState() {
+  // Read parcel detection from the platform ultrasonic sensor
+  float platformDist = getDistance(US_PLATFORM);
+  bool parcelOnPlatform = (platformDist > 1.0 && platformDist < 18.0);
+  bool parcelInDropOff  = (getDistance(US_DROPOFF) < 25.0);
+  bool parcelInPickup   = (getDistance(US_PICKUP)  < 25.0);
+
+  StaticJsonDocument<256> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("doorStateUpdate");
+  JsonObject data = arr.createNestedObject();
+  data["parcelDoorOpen"]    = lockTopOpen;       // parcel entry lock
+  data["pickupDoorOpen"]    = lockPickupOpen;    // pickup bin lock
+  data["receivedDoorOpen"]  = lockReceivedOpen;  // received bin lock
+  data["parcelDetected"]    = parcelOnPlatform;  // parcel on tray
+  data["parcelInDropOff"]   = parcelInDropOff;   // parcel in drop-off bin
+  data["parcelInPickup"]    = parcelInPickup;    // parcel in pickup bin
+  data["systemState"]       = (int)currentState; // current FSM state index
+
+  char output[256];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted doorStateUpdate: "); Serial.println(output); }
+}
+
+// ============================================================
+//  HANDLE: controlDoor from server (app-triggered manual control)
+//  Replaces ESP32_DoorControl.ino's POST /door HTTP endpoint.
+//  Payload: { "type": "top"|"pickup"|"received", "action": "open"|"close" }
+//  Use for admin overrides / emergency access only — does NOT
+//  change the state machine; it directly drives the solenoid.
+// ============================================================
+void handleControlDoor(const String& payload) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload);
+
+  String type   = doc["type"].as<String>();    // "top", "pickup", "received"
+  String action = doc["action"].as<String>();  // "open", "close"
+
+  Serial.print("[DOOR] Manual control: "); Serial.print(type);
+  Serial.print(" → "); Serial.println(action);
+
+  bool isOpen = (action == "open");
+
+  if (type == "top") {
+    digitalWrite(LOCK_TOP, isOpen ? LOW : HIGH);
+    lockTopOpen = isOpen;
+  } else if (type == "pickup") {
+    digitalWrite(LOCK_PICKUP, isOpen ? LOW : HIGH);
+    lockPickupOpen = isOpen;
+  } else if (type == "received") {
+    digitalWrite(LOCK_RECEIVED, isOpen ? LOW : HIGH);
+    lockReceivedOpen = isOpen;
+  } else {
+    Serial.println("[DOOR] Unknown door type. Use: top, pickup, received");
+    return;
+  }
+
+  // Pre-allocate char buffer instead of heavy String concatenation
+  char displayMsg[32];
+  snprintf(displayMsg, sizeof(displayMsg), "%s door %s", type.c_str(), isOpen ? "opened" : "closed");
+  
+  displayMessage(isOpen ? "UNLOCKED" : "LOCKED", displayMsg);
+  triggerBuzzer(isOpen ? 2 : 1);
+
+  // Immediately broadcast the new state to the app
+  emitDoorState();
+}
+
+// ============================================================
+//  HANDLE: scanResult from server
+// ============================================================
+void handleScanResult(const String& payload) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload);
+
+  bool valid = doc["valid"].as<bool>();
+  Serial.print("[WS] scanResult → valid: "); Serial.println(valid ? "YES" : "NO");
+
+  scanResultValid    = valid;
+  scanResultReceived = true;
+}
+
+// ============================================================
+//  HANDLE: riderVerifyResult from server
+// ============================================================
+void handleRiderVerifyResult(const String& payload) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload);
+
+  bool valid = doc["valid"].as<bool>();
+  Serial.print("[WS] riderVerifyResult → valid: "); Serial.println(valid ? "YES" : "NO");
+
+  riderVerifyValid    = valid;
+  riderVerifyReceived = true;
+}
+
+// ============================================================
+//  HANDLE: registerTracking from server (relayed from mobile app)
+// ============================================================
+void handleRegisterTracking(const String& payload) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload);
+
+  String trackingId = doc["trackingId"].as<String>();
+  String mode       = doc["mode"].as<String>();  // "drop_off" or "pick_up"
+
+  if (mode == "drop_off") {
+    registeredDropOff = trackingId;
+    dropOffRegisterTime = millis();
+    Serial.print("[REG] Drop Off ID registered via app: "); Serial.println(registeredDropOff);
+    displayMessage("ID REGISTERED", ("Drop Off: " + trackingId.substring(0, 10)).c_str());
+  } else if (mode == "pick_up") {
+    registeredPickup = trackingId;
+    pickupRegisterTime = millis();
+    Serial.print("[REG] Pick Up ID registered via app: "); Serial.println(registeredPickup);
+    displayMessage("ID REGISTERED", ("Pick Up: " + trackingId.substring(0, 10)).c_str());
+  } else {
+    Serial.print("[REG] Unknown mode: "); Serial.println(mode);
+    return;
+  }
+
+  triggerBuzzer(1);
+  delay(1500);
+  if (currentState == IDLE) showHomeScreen();
+}
 
 // ============================================================
 //  UTILS
 // ============================================================
-// (getDistance moved to HardwareController.ino)
+float getDistance(const int pins[]) {
+  // Increased timeout to 30000 microsecs (30ms) to fix false "OUT OF RANGE" (999.0)
+  // Some HC-SR04 sensors take longer to respond or settle than 8ms.
+  digitalWrite(pins[0], LOW);
+  delayMicroseconds(2);
+  digitalWrite(pins[0], HIGH);
+  delayMicroseconds(10);
+  digitalWrite(pins[0], LOW);
+  long dur = pulseIn(pins[1], HIGH, 30000); // 30ms timeout
+
+  if (dur == 0) return 999.0;
+  return (dur * 0.034) / 2.0;
+}
 
 void checkSerialCommands() {
   if (Serial.available()) {
@@ -1401,7 +1942,52 @@ void checkSerialCommands() {
   }
 }
 
-// (TFT reinit and update indicators moved to DisplayController3.ino)
+void reinitTFT() {
+  digitalWrite(TFT_RST, LOW);
+  delay(100);
+  digitalWrite(TFT_RST, HIGH);
+  delay(150);
+  tft.begin();
+  tft.setRotation(3);
+  showHomeScreen();
+}
+
+void updateDynamicIndicators() {
+  if (millis() - lastIndicatorUpdate < 1000) return; // check every 1 second
+  lastIndicatorUpdate = millis();
+
+  bool currentWifi = (WiFi.status() == WL_CONNECTED);
+  bool currentSocket = socketIO.isConnected();
+  bool currentDoorOpen = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
+
+  if (currentWifi != lastWifiState || 
+      currentSocket != lastSocketState || 
+      currentDoorOpen != lastDoorState) {
+    
+    // 1. WiFi
+    if (currentWifi != lastWifiState) {
+      tft.fillRect(10, 10, 15, 15, 0x2104); // clear wifi icon area
+      drawWiFiSignal(10, 10, currentWifi ? COLOR_GREEN : COLOR_RED);
+      lastWifiState = currentWifi;
+    }
+
+    // 2. Padlock (Security)
+    if (currentDoorOpen != lastDoorState) {
+      tft.fillRect(50, 6, 20, 24, 0x2104); // clear padlock area
+      drawSmallPadlock(56, 14, currentDoorOpen ? COLOR_RED : COLOR_GREEN, currentDoorOpen);
+      lastDoorState = currentDoorOpen;
+    }
+
+    // 3. Server
+    if (currentSocket != lastSocketState) {
+      tft.fillRect(235, 10, 65, 15, 0x2104); // clear text and dot area
+      tft.fillCircle(300, 16, 5, currentSocket ? COLOR_GREEN : COLOR_RED);
+      tft.setCursor(240, 12); tft.setTextSize(1); tft.setTextColor(COLOR_TEXT);
+      tft.print(currentSocket ? "ONLINE " : "OFFLINE");
+      lastSocketState = currentSocket;
+    }
+  }
+}
 
 void forceNextStep() {
   switch (currentState) {
@@ -1470,7 +2056,14 @@ void forceNextStep() {
   }
 }
 
-// (drawButtonLabel moved)
+void drawButtonLabel(int x, int y, uint16_t color, const char* label) {
+  tft.fillCircle(x, y + 3, 6, color);
+  tft.drawCircle(x, y + 3, 6, COLOR_TEXT);
+  tft.setCursor(x + 12, y);
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT);
+  tft.print(label);
+}
 
 void printSerialMenu() {
   Serial.println();
@@ -1496,12 +2089,310 @@ void changeState(SystemState newState) {
   stateStartTime   = millis();
   stateInitialized = false;
   tft.fillScreen(COLOR_BG);
+}
+
+// Global state for non-blocking servo movement
+int currentServoPos = -1;
+int targetServoPos = -1;
+unsigned long lastServoStepTime = 0;
+bool isServoMoving = false;
+
+// Smoothly steps the servo from `from` to `to` angle using a blocking loop.
+// Call attach() before this and detach() after if you want idle-safe behavior.
+void moveServoSmoothly(int from, int to) {
+  // Constrain targets to strict 180-degree servo limits
+  from = constrain(from, 0, 180);
+  to   = constrain(to,   0, 180);
+
+  // Re-attach with standard 1000-2000µs pulse range each time
+  platformServo.attach(SERVO_PIN, 1000, 2000);
+
+  int step = (from < to) ? 1 : -1;
+  int current = from;
+  unsigned long lastStep = millis();
   
-  if (newState == IDLE) {
-    showHomeScreen();
+  // Immediately write the start position so servo knows where to begin
+  platformServo.write(current);
+  delay(15);
+  
+  while (current != to) {
+    if (millis() - lastStep >= 15) {
+      current += step;
+      platformServo.write(current);
+      lastStep = millis();
+      esp_task_wdt_reset(); // Feed WDT inside the loop
+      socketIO.loop();      // Keep socket alive
+    }
+  }
+  // Note: caller is responsible for calling platformServo.detach() when done
+}
+
+void triggerBuzzer(int beeps) {
+  for (int i = 0; i < beeps; i++) {
+    digitalWrite(BUZZER_PIN, HIGH); delay(100);
+    digitalWrite(BUZZER_PIN, LOW);  delay(100);
   }
 }
 
-// (moveServoSmoothly and triggerBuzzer moved to HardwareController.ino)
+void displayMessage(const char* title, const char* msg) {
+  uint16_t bgColor = (strstr(title, "SUCCESS") || strstr(title, "VALID"))                                         ? COLOR_GREEN :
+                     (strstr(title, "ERROR")   || strstr(title, "INVALID") || strstr(title, "REJECTED") ||
+                      strstr(title, "TIMEOUT") || strstr(title, "WARN"))                                          ? COLOR_RED   : COLOR_BLUE;
 
-// (All displayMessage and drawScreen routines moved to DisplayController.ino)
+  tft.fillScreen(bgColor);
+  drawStatusBar();
+  
+  if (bgColor == COLOR_GREEN) drawIconCheck(160, 100, COLOR_TEXT);
+  else if (bgColor == COLOR_RED) drawIconX(160, 100, COLOR_TEXT);
+  else drawIconBox(160, 100, COLOR_TEXT);
+
+  tft.setCursor(0, 160);  tft.setTextSize(3); tft.setTextColor(COLOR_TEXT); 
+  tft.setTextWrap(false);
+  
+  // Center alignment logic (approximate for 320px width)
+  int titleX = 160 - (strlen(title) * 9); 
+  tft.setCursor(max(0, titleX), 160);
+  tft.println(title);
+
+  tft.setTextSize(2);
+  int msgX = 160 - (strlen(msg) * 6);
+  tft.setCursor(max(0, msgX), 200);
+  tft.println(msg);
+}
+
+
+void showHomeScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+
+  // Draw Mode Selection Tiles
+  // Left: Drop Off (Blue)
+  tft.fillRoundRect(10, 50, 145, 170, 10, COLOR_BLUE);
+  drawIconBox(82, 110, COLOR_TEXT);
+  tft.setCursor(35, 180); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("DROP OFF");
+  drawButtonLabel(45, 205, COLOR_BLUE, "BLUE");
+
+  // Right: Pick Up (Purple)
+  tft.fillRoundRect(165, 50, 145, 170, 10, COLOR_PURPLE);
+  drawIconLock(237, 110, COLOR_TEXT, true);
+  tft.setCursor(195, 180); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("PICK UP");
+  drawButtonLabel(215, 205, COLOR_RED, "RED");
+  
+  printSerialMenu();
+}
+
+void drawStatusBar() {
+  tft.fillRect(0, 0, 320, 32, 0x2104); // Dark grey bar
+  tft.drawFastHLine(0, 32, 320, COLOR_GREY);
+  
+  // Force update by ensuring states don't match initially on complete redraws
+  lastWifiState = !(WiFi.status() == WL_CONNECTED);
+  lastSocketState = !socketIO.isConnected();
+  lastDoorState = !(lockTopOpen || lockPickupOpen || lockReceivedOpen);
+
+  updateDynamicIndicators(); // Resyncs indicators without redrawing the whole bar
+
+  // Mode Text
+  tft.setCursor(90, 10); tft.setTextSize(1); tft.setTextColor(COLOR_ACCENT);
+  tft.print("SMART PARCEL DROPBOX");
+}
+
+void drawWiFiSignal(int x, int y, uint16_t color) {
+  for(int i=0; i<4; i++) {
+    tft.fillRect(x + (i*4), y + (12 - (i*3)), 3, (i*3) + 3, color);
+  }
+}
+
+void drawSmallPadlock(int x, int y, uint16_t color, bool open) {
+  if (open) {
+    tft.drawCircle(x, y-3, 5, color);
+    tft.fillRect(x+3, y-6, 4, 8, 0x2104); // break circle
+  } else {
+    tft.drawCircle(x, y-2, 5, color);
+  }
+  tft.fillRoundRect(x-6, y+2, 12, 10, 2, color);
+  tft.fillCircle(x, y+6, 2, COLOR_BG); // small keyhole
+}
+
+void drawIconLock(int x, int y, uint16_t color, bool open) {
+  // Shackle
+  if (open) {
+    tft.drawCircle(x, y-5, 10, color);
+    tft.fillRect(x+5, y-5, 10, 10, COLOR_BG); // break the circle
+  } else {
+    tft.drawCircle(x, y, 10, color);
+  }
+  // Body
+  tft.fillRoundRect(x-12, y+2, 24, 18, 3, color);
+  tft.fillCircle(x, y+11, 3, COLOR_BG); // keyhole
+}
+
+void drawIconBox(int x, int y, uint16_t color) {
+  tft.drawRect(x-15, y-10, 30, 25, color);
+  tft.drawRect(x-16, y-11, 32, 27, color);
+  tft.drawLine(x-15, y-10, x+15, y+15, color); 
+  tft.drawLine(x-15, y+15, x+15, y-10, color);
+}
+
+void drawIconCheck(int x, int y, uint16_t color) {
+  tft.drawLine(x-20, y, x-5, y+15, color);
+  tft.drawLine(x-21, y, x-6, y+15, color);
+  tft.drawLine(x-5, y+15, x+25, y-20, color);
+  tft.drawLine(x-6, y+15, x+24, y-20, color);
+}
+
+void drawIconX(int x, int y, uint16_t color) {
+  tft.drawLine(x-20, y-20, x+20, y+20, color);
+  tft.drawLine(x-21, y-20, x+19, y+20, color);
+  tft.drawLine(x+20, y-20, x-20, y+20, color);
+  tft.drawLine(x+21, y-20, x-19, y+20, color);
+}
+
+// ============================================================
+//  ATM SCREEN: Pick Up Type Selection [Owner | Rider]
+// ============================================================
+void drawPickupSelectScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setCursor(50, 38); tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print("SELECT PICK UP TYPE");
+  // Left tile: Owner (Blue)
+  tft.fillRoundRect(8, 58, 147, 155, 10, COLOR_BLUE);
+  drawIconLock(82, 108, COLOR_TEXT, true);
+  tft.setCursor(25, 178); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("OWNER");
+  drawButtonLabel(22, 200, COLOR_BLUE, "BLUE");
+  // Right tile: Rider (Purple)
+  tft.fillRoundRect(165, 58, 147, 155, 10, COLOR_PURPLE);
+  drawIconBox(238, 108, COLOR_TEXT);
+  tft.setCursor(187, 178); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("RIDER");
+  drawButtonLabel(178, 200, COLOR_RED, "RED");
+}
+
+// ============================================================
+//  ATM SCREEN: Owner Mode Selection [Single | Multiple]
+// ============================================================
+void drawOwnerModeScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setCursor(60, 38); tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print("OWNER PICK UP");
+  // Left tile: Single (Blue)
+  tft.fillRoundRect(8, 58, 147, 155, 10, COLOR_BLUE);
+  drawIconBox(82, 108, COLOR_TEXT);
+  tft.setCursor(32, 175); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("SINGLE");
+  tft.setCursor(25, 197); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("1 parcel");
+  drawButtonLabel(22, 210, COLOR_BLUE, "BLUE");
+  // Right tile: Multiple (Purple)
+  tft.fillRoundRect(165, 58, 147, 155, 10, COLOR_PURPLE);
+  drawIconBox(238, 98, COLOR_TEXT);
+  drawIconBox(238, 118, COLOR_TEXT);
+  tft.setCursor(175, 175); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("MULTIPLE");
+  tft.setCursor(187, 197); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("2+ parcels");
+  drawButtonLabel(178, 210, COLOR_RED, "RED");
+}
+
+// ============================================================
+//  ATM SCREEN: Add More Parcel Prompt [Add More | Done]
+// ============================================================
+void drawAddMorePrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  String countStr = "Parcel #" + String(scannedCount) + " registered!";
+  tft.setCursor(max(0, (int)(160 - countStr.length() * 6)), 40);
+  tft.setTextSize(2); tft.setTextColor(COLOR_GREEN);
+  tft.print(countStr);
+  // Left tile: Add More (Blue)
+  tft.fillRoundRect(8, 70, 147, 145, 10, COLOR_BLUE);
+  tft.setCursor(22, 120); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("ADD MORE");
+  drawButtonLabel(22, 185, COLOR_BLUE, "BLUE");
+  // Right tile: Done (Green)
+  tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_GREEN);
+  drawIconCheck(238, 120, COLOR_TEXT);
+  tft.setCursor(190, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("DONE");
+  drawButtonLabel(178, 185, COLOR_RED, "RED");
+}
+
+// ============================================================
+//  SCREEN: Rider Scan ID
+// ============================================================
+void drawRiderScanIdScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  drawScannerBg();
+  tft.setCursor(55, 185); tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print("Scan Rider ID");
+  tft.setCursor(40, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("Scan your rider QR code");
+}
+
+// ============================================================
+//  SCREEN: Rider Scan Parcel
+// ============================================================
+void drawRiderScanParcelScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  drawScannerBg();
+  String prompt = "Scan Parcel #" + String(scannedCount + 1);
+  tft.setCursor(max(0, (int)(160 - prompt.length() * 6)), 185);
+  tft.setTextSize(2); tft.setTextColor(COLOR_ACCENT);
+  tft.print(prompt);
+  tft.setCursor(30, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+  tft.print("Scan each parcel barcode");
+}
+
+// ============================================================
+//  ATM SCREEN: Rider Pickup More Prompt [Pick Up More | Done]
+// ============================================================
+void drawRiderPickupMorePrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  String countStr = "#" + String(scannedCount) + " marked DONE";
+  tft.setCursor(max(0, (int)(160 - countStr.length() * 6)), 40);
+  tft.setTextSize(2); tft.setTextColor(COLOR_GREEN);
+  tft.print(countStr);
+  // Left tile: Pick Up More (Purple)
+  tft.fillRoundRect(8, 70, 147, 145, 10, COLOR_PURPLE);
+  tft.setCursor(15, 110); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("PICK UP");
+  tft.setCursor(22, 132); tft.setTextSize(2);
+  tft.print("MORE");
+  drawButtonLabel(22, 185, COLOR_BLUE, "BLUE");
+  // Right tile: Done (Green)
+  tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_GREEN);
+  drawIconCheck(238, 120, COLOR_TEXT);
+  tft.setCursor(190, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("DONE");
+  drawButtonLabel(178, 185, COLOR_RED, "RED");
+}
+
+// ============================================================
+//  ATM SCREEN: Scan Failed Prompt [Retry | Exit]
+// ============================================================
+void drawScanFailedPrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  tft.setCursor(35, 40); tft.setTextSize(2); tft.setTextColor(COLOR_RED);
+  tft.print("SCAN FAILED 3 TIMES");
+  // Left tile: Retry (Blue)
+  tft.fillRoundRect(8, 70, 147, 145, 10, COLOR_BLUE);
+  drawIconBox(82, 115, COLOR_TEXT); // re-use box icon as a generic 'retry scan' symbol
+  tft.setCursor(45, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("RETRY");
+  drawButtonLabel(35, 185, COLOR_BLUE, "BLUE");
+  // Right tile: Exit (Red)
+  tft.fillRoundRect(165, 70, 147, 145, 10, COLOR_RED);
+  drawIconX(238, 120, COLOR_TEXT);
+  tft.setCursor(215, 165); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+  tft.print("EXIT");
+  drawButtonLabel(195, 185, COLOR_RED, "RED");
+}

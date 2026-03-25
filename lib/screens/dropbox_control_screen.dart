@@ -31,6 +31,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   // Stream subscriptions
   StreamSubscription<Map<String, dynamic>>? _esp32Sub;
   StreamSubscription<Map<String, dynamic>>? _binSub;
+  StreamSubscription<Map<String, dynamic>>? _unregSub;
 
   // Live state
   bool _esp32Connected = false;
@@ -102,10 +103,22 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       if (mounted) setState(() => _registrationChecked = true);
     }
 
+    _esp32Sub?.cancel();
+    _binSub?.cancel();
+    _unregSub?.cancel();
+
     // Listen for ESP32 connection events
     _esp32Sub = _ws.esp32StatusUpdates.listen((data) {
       if (mounted) {
         setState(() => _esp32Connected = data['connected'] == true);
+      }
+    });
+
+    // Listen for unregistration confirmation from backend
+    _unregSub = getIt<DropboxService>().deviceUnregisteredStream.listen((data) {
+      if (data['success'] == true) {
+        debugPrint('🗑️ Unregistration confirmed by backend, refreshing UI');
+        _init();
       }
     });
 
@@ -146,6 +159,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   void dispose() {
     _esp32Sub?.cancel();
     _binSub?.cancel();
+    _unregSub?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -179,6 +193,41 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     );
   }
 
+  void _showUnregisterConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Dropbox?'),
+        content: const Text(
+          'This will unregister the device from your account. '
+          'You will need to scan the registration QR code again to reconnect it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (_userId != null) {
+                debugPrint('🗑️ UI: User triggered unregistration for $_userId');
+                getIt<DropboxService>().unregisterDevice(_userId!);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Unregistering device...'),
+                    duration: Duration(seconds: 5),
+                  ),
+                );
+              }
+            },
+            child: const Text('REMOVE', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _doorLabel(String doorType) {
     switch (doorType) {
       case kDoorTop:      return 'Parcel Door';
@@ -193,92 +242,100 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        title: const Text('Device Management'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 0.5,
+      ),
       body: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── Registration Banner (shown when no dropbox registered) ──
-                if (_registrationChecked && !_hasDropbox)
-                  _buildRegistrationBanner(),
-                if (_registrationChecked && !_hasDropbox)
-                  const SizedBox(height: 16),
-
-                // ── ESP32 Connection Banner ──────────────────────────────
-                _buildConnectionBanner(),
+                // ── ⚙️ DEVICE SETTINGS (Always Visible) ──────────────────────────
+                _buildManagementSection(),
                 const SizedBox(height: 20),
 
-                // ── Door Cards ──────────────────────────────────────────
-                _buildDoorCard(
-                  doorType: kDoorTop,
-                  title: 'Parcel Door',
-                  subtitle: 'Courier drop-off entry (Top)',
-                  icon: Icons.local_shipping_outlined,
-                  reedKey: 'REED_TOP',
-                  accentColor: Colors.orange.shade600,
-                ),
-                const SizedBox(height: 14),
+                if (_hasDropbox) ...[
+                  // ── ESP32 Connection Banner ──────────────────────────────
+                  _buildConnectionBanner(),
+                  const SizedBox(height: 20),
 
-                _buildDoorCard(
-                  doorType: kDoorPickup,
-                  title: 'Pick Up Door',
-                  subtitle: 'Front bottom — owner retrieves parcel',
-                  icon: Icons.outbox_outlined,
-                  reedKey: 'REED_PICKUP',
-                  accentColor: Colors.deepOrange.shade600,
-                ),
-                const SizedBox(height: 14),
-
-                _buildDoorCard(
-                  doorType: kDoorReceived,
-                  title: 'Drop Off Door',
-                  subtitle: 'Back — owner deposits outgoing parcel',
-                  icon: Icons.move_to_inbox_outlined,
-                  reedKey: 'REED_RECEIVED',
-                  accentColor: Colors.orange.shade400,
-                ),
-                const SizedBox(height: 24),
-
-                // ── Bin Status ──────────────────────────────────────────
-                Text(
-                  'BIN STATUS',
-                  style: TextStyle(
-                    color: Colors.grey.shade800,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
+                  // ── Door Cards ──────────────────────────────────────────
+                  _buildDoorCard(
+                    doorType: kDoorTop,
+                    title: 'Parcel Door',
+                    subtitle: 'Courier drop-off entry (Top)',
+                    icon: Icons.local_shipping_outlined,
+                    reedKey: 'REED_TOP',
+                    accentColor: Colors.orange.shade600,
                   ),
-                ),
-                const SizedBox(height: 10),
+                  const SizedBox(height: 14),
 
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildBinCard(
-                        label: 'Pick Up Bin',
-                        sublabel: 'US_PICKUP',
-                        fill: _pickupFill,
-                        color: Colors.deepOrange.shade600,
-                        icon: Icons.outbox_outlined,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: _buildBinCard(
-                        label: 'Drop Off Bin',
-                        sublabel: 'US_DROPOFF',
-                        fill: _dropoffFill,
-                        color: Colors.orange.shade600,
-                        icon: Icons.move_to_inbox_outlined,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
+                  _buildDoorCard(
+                    doorType: kDoorPickup,
+                    title: 'Pick Up Door',
+                    subtitle: 'Front bottom — owner retrieves parcel',
+                    icon: Icons.outbox_outlined,
+                    reedKey: 'REED_PICKUP',
+                    accentColor: Colors.deepOrange.shade600,
+                  ),
+                  const SizedBox(height: 14),
 
-                // Footer removed per request
-                const SizedBox(height: 100), // Bottom padding for floating nav bar
+                  _buildDoorCard(
+                    doorType: kDoorReceived,
+                    title: 'Drop Off Door',
+                    subtitle: 'Back — owner deposits outgoing parcel',
+                    icon: Icons.move_to_inbox_outlined,
+                    reedKey: 'REED_RECEIVED',
+                    accentColor: Colors.orange.shade400,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ── Bin Status ──────────────────────────────────────────
+                  Text(
+                    'BIN STATUS',
+                    style: TextStyle(
+                      color: Colors.grey.shade800,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildBinCard(
+                          label: 'Pick Up Bin',
+                          sublabel: 'US_PICKUP',
+                          fill: _pickupFill,
+                          color: Colors.deepOrange.shade600,
+                          icon: Icons.outbox_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: _buildBinCard(
+                          label: 'Drop Off Bin',
+                          sublabel: 'US_DROPOFF',
+                          fill: _dropoffFill,
+                          color: Colors.orange.shade600,
+                          icon: Icons.move_to_inbox_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 40),
+                ],
+
+                if (!_hasDropbox && _registrationChecked)
+                  _buildEmptyState(),
+
+                const SizedBox(height: 60), 
               ],
             ),
           ),
@@ -286,71 +343,196 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       );
     }
 
-  // ─── Registration Banner ─────────────────────────────────────────────────
-  Widget _buildRegistrationBanner() {
+  // ─── Management Section (Always Visible) ──────────────────────────────────
+  Widget _buildManagementSection() {
     final primaryColor = Theme.of(context).colorScheme.primary;
+    
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.08),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.new_releases, color: primaryColor, size: 24),
+              Icon(Icons.settings_suggest_outlined, color: primaryColor),
               const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Unregistered Device Detected',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
+              Text(
+                'DEVICE MANAGEMENT',
+                style: TextStyle(
+                  color: Colors.grey.shade800,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'You haven\'t registered a Smart Parcel Dropbox yet. '
-            'Register your hardware device to control it from the app.',
-            style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const HardwareRegistrationScreen(),
-                  ),
-                ).then((_) {
-                  // Re-check registration when returning
-                  _init();
-                });
-              },
-              icon: const Icon(Icons.qr_code_scanner, size: 18),
-              label: const Text('Register Smart Parcel Dropbox'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+          const SizedBox(height: 16),
+          if (!_hasDropbox) ...[
+            const Text(
+              'No smart dropbox registered.',
+              style: TextStyle(color: Colors.black54, fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const HardwareRegistrationScreen())
+                ).then((_) => _init()),
+                icon: const Icon(Icons.qr_code_scanner, size: 18),
+                label: const Text('REGISTER NEW DEVICE'),
               ),
             ),
+          ] else ...[
+            Row(
+              children: [
+                const Icon(Icons.inventory_2_outlined, color: Colors.black54, size: 20),
+                const SizedBox(width: 8),
+                const Text('Registered Dropbox', style: TextStyle(fontWeight: FontWeight.w500)),
+                const Spacer(),
+                _buildStatusIndicator(),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _showWiFiConfigDialog,
+                    icon: const Icon(Icons.wifi, size: 16),
+                    label: const Text('WIFI CONFIG'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _showUnregisterConfirmation,
+                    icon: const Icon(Icons.delete_forever, size: 16),
+                    label: const Text('REMOVE'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusIndicator() {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _esp32Connected ? Colors.green : Colors.red,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          _esp32Connected ? 'Online' : 'Offline',
+          style: TextStyle(
+            color: _esp32Connected ? Colors.green : Colors.red,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        Icon(Icons.inbox_outlined, size: 64, color: Colors.grey.shade300),
+        const SizedBox(height: 16),
+        Text(
+          'Device Controls Hidden',
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Register your hardware to see door controls and bin status.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
+  void _showWiFiConfigDialog() {
+    final ssidController = TextEditingController();
+    final passController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Update Device WiFi'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Sending new credentials to your dropbox. Make sure the device is powered on.'),
+            const SizedBox(height: 20),
+            TextField(
+              controller: ssidController,
+              decoration: const InputDecoration(labelText: 'WiFi SSID (Name)', prefixIcon: Icon(Icons.wifi)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'WiFi Password', prefixIcon: Icon(Icons.lock_outline)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          ElevatedButton(
+            onPressed: () {
+              final ssid = ssidController.text.trim();
+              if (ssid.isNotEmpty) {
+                getIt<DropboxService>().pushHardwareConfig(ssid: ssid, password: passController.text);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Pushing WiFi config to device...')),
+                );
+              }
+            },
+            child: const Text('PUSH CONFIG'),
           ),
         ],
       ),
     );
   }
+
+  // Legacy Banner Removed
+  Widget _buildRegistrationBanner() => const SizedBox.shrink();
 
   // ─── ESP32 Connection Banner ─────────────────────────────────────────────
   Widget _buildConnectionBanner() {
