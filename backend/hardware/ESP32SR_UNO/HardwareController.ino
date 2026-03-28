@@ -21,7 +21,6 @@ void moveServoSmoothly(int from, int to) {
       current += step;
       platformServo.write(current);
       lastStep = millis();
-      esp_task_wdt_reset(); 
       socketIO.loop();      
     }
   }

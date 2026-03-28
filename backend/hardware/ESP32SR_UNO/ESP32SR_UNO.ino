@@ -1097,7 +1097,7 @@ void loop() {
         displayMessage("SORTING", isReceivingMode ? "To DROP OFF Bin" : "To PICK UP Bin");
         Serial.println("[FLOW] Action: Tilting Tray...");
         triggerBuzzer(1);
-        int tiltAngle = isReceivingMode ? 20 : 160;
+        int tiltAngle = isReceivingMode ? 0 : 180;
         moveServoSmoothly(90, tiltAngle); // Tilt out
         delay(500);                       // Settle at tilt position
         moveServoSmoothly(tiltAngle, 90); // Return to center
@@ -1486,6 +1486,20 @@ void checkSerialCommands() {
     } else if (cmd == 'T') {
       Serial.println("[MANUAL] Re-initializing TFT Display...");
       reinitTFT();
+    } else if (cmd == '1') {
+      Serial.println("[TEST] Tilting to DROP OFF bin (0°)...");
+      moveServoSmoothly(90, 0);
+      delay(1000);
+      moveServoSmoothly(0, 90);
+      platformServo.detach();
+      Serial.println("[TEST] Done.");
+    } else if (cmd == '2') {
+      Serial.println("[TEST] Tilting to PICKUP bin (180°)...");
+      moveServoSmoothly(90, 180);
+      delay(1000);
+      moveServoSmoothly(180, 90);
+      platformServo.detach();
+      Serial.println("[TEST] Done.");
     }
   }
 }
@@ -1569,6 +1583,7 @@ void printSerialMenu() {
   Serial.println("  [BLUE] Drop Off     [RED] Pick Up");
   Serial.println("------------------------------------------");
   Serial.println("  S=Reset  | U=Unlock All | D=US Diag | N=Next | T=TFT Reset");
+  Serial.println("  1=Test DropOff (0°)  | 2=Test Pickup (180°)");
   Serial.println("  V=View IDs & Status   | W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");
   Serial.println("  R2:<id> = Register Pick Up ID  (offline)");

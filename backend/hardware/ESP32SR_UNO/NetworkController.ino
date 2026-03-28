@@ -44,7 +44,6 @@ void setupWiFi() {
 
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    esp_task_wdt_reset();
     delay(500);
     Serial.print(".");
     attempts++;
