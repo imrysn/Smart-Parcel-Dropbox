@@ -68,23 +68,34 @@ void drawNoServerOptionsScreen() {
 }
 
 void drawWiFiConfigQRScreen(const char* apSSID) {
-  tft.fillScreen(COLOR_BG);
-  drawStatusBar();
+  tft.fillScreen(COLOR_TEXT); // White Background
+  // drawStatusBar(); // Hidden for full-screen setup feel
   
-  // Draw large QR code for http://192.168.4.1
-  drawQRCode(110, 50, 4, "http://192.168.4.1");
-  
-  _smallText("Scan to setup WiFi", 160, 185, COLOR_TEXT);
-  
-  tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-  tft.setCursor(60, 205);
+  // 1. Instructions at the top
+  tft.setFont();
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_GREY);
+  tft.setCursor(45, 18);
   tft.print("Connect to: ");
   tft.setTextColor(COLOR_GOLD);
   tft.print(apSSID);
+
+  // 2. WiFi Auto-Connect QR Code (WIFI:S:<SSID>;T:nopass;;)
+  // This allows the phone to connect automatically without manual selection
+  String wifiQR = "WIFI:S:";
+  wifiQR += apSSID;
+  wifiQR += ";T:nopass;;";
   
-  // Manual Exit/Reboot indicator
-  _buttonIndicator(300, 232, COLOR_RED);
-  _smallText("EXIT", 300, 218, COLOR_TEXT);
+  // Center X: (320 - 174) / 2 = 73.
+  drawQRCode(73, 40, 6, wifiQR.c_str());
+  
+  // 3. Hint below QR
+  _smallText("Scan to connect & setup WiFi", 160, 225, COLOR_BG);
+  
+  // 4. Manual Exit/Reboot indicator
+  _buttonIndicator(300, 235, COLOR_RED);
+  tft.setFont(); tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(290, 222); tft.print("EXIT");
   
   tft.setFont();
 }

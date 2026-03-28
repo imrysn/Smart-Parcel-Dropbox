@@ -112,7 +112,7 @@ void setup() {
   ESP32PWM::allocateTimer(2);
   ESP32PWM::allocateTimer(3);
   platformServo.setPeriodHertz(50); // Standard 50Hz servo
-  platformServo.attach(SERVO_PIN, 1000, 2000); // Standard 180° servo pulse range
+  platformServo.attach(SERVO_PIN, 500, 2500); // Expanded 180° servo pulse range
   platformServo.write(90);          // Drive to center to stabilize
   delay(500);                       // Give it time to reach center
   platformServo.detach();           // Detach: stops PWM output → servo holds position passively
@@ -132,13 +132,14 @@ void setup() {
   // reconnection attempts when the server is offline, which causes the WDT to panic 
   // and reboot the ESP32. By not adding the main loop to the WDT, it survives offline periods.
 
-  // Ultrasonic sensors
-  pinMode(US_PLATFORM[0], OUTPUT); pinMode(US_PLATFORM[1], INPUT);
-  pinMode(US_PICKUP[0],   OUTPUT); pinMode(US_PICKUP[1],   INPUT);
-  pinMode(US_DROPOFF[0],  OUTPUT); pinMode(US_DROPOFF[1],  INPUT);
+  // Ultrasonic sensors - Ensure pins start in a stable state
+  pinMode(US_PLATFORM[0], OUTPUT); pinMode(US_PLATFORM[1], INPUT_PULLDOWN);
+  pinMode(US_PICKUP[0],   OUTPUT); pinMode(US_PICKUP[1],   INPUT_PULLDOWN);
+  pinMode(US_DROPOFF[0],  OUTPUT); pinMode(US_DROPOFF[1],  INPUT_PULLDOWN);
   digitalWrite(US_PLATFORM[0], LOW);
   digitalWrite(US_PICKUP[0],   LOW);
   digitalWrite(US_DROPOFF[0],  LOW);
+  delay(50); // Give the sensors and pull-downs time to stabilize
 
   // Scanner serial: Arduino Uno TX → GPIO17 (ESP32 RX). TX=-1 frees GPIO18.
   // We use a pullup on RX to prevent floating noise from being interpreted as data.
@@ -195,8 +196,9 @@ void loop() {
   checkFactoryReset();
   socketIO.loop();        // Keep Socket.IO connection alive
   checkSerialCommands();
-  // Skip status-bar repaints while QR verification screens or lockscreen are up
-  if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR && currentState != LOCKSCREEN) {
+  // Skip status-bar repaints while QR verification screens, WiFi setup, or lockscreen are up
+  if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR && 
+      currentState != WAITING_FOR_WIFI_CONFIG && currentState != LOCKSCREEN) {
     updateDynamicIndicators();
   }
 
@@ -334,7 +336,7 @@ void loop() {
           lastRegSec = remaining;
           tft.fillRect(0, 218, 320, 22, COLOR_TEXT);
           tft.setTextSize(1); tft.setTextColor(COLOR_BG);
-          tft.setCursor(45, 222);
+          tft.setCursor(100, 222);
           tft.print("Expires in "); tft.print(remaining); tft.print(" seconds — scan in app");
         }
         // 60s QR timeout
@@ -502,7 +504,7 @@ void loop() {
           // Overwrite just the bottom line — white bg, black text (QR screen colors)
           tft.fillRect(0, 218, 320, 22, COLOR_TEXT);
           tft.setTextSize(1); tft.setTextColor(COLOR_BG);
-          tft.setCursor(55, 222);
+          tft.setCursor(100, 222);
           tft.print("Expires in "); tft.print(remaining); tft.print(" seconds");
         }
       }
@@ -544,7 +546,7 @@ void loop() {
           ownerQrDrawn && millis() - stateStartTime > 60000) {
         Serial.println("[FLOW] Owner QR: 60s scan timeout. Show Retry/Exit.");
         triggerBuzzer(3);
-        drawTimeoutScreen("TIMED OUT", "QR code expired (60s)");
+        drawTimeoutScreen("TIMED OUT", "");
         ownerVerifyTimedOut = true;
         ownerSessionToken   = "";
         ownerQrDrawn        = false;
@@ -878,7 +880,7 @@ void loop() {
         tft.fillScreen(COLOR_BG);
         drawStatusBar();
         drawScannerBg();
-        tft.setCursor(40, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+        tft.setCursor(65, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
         tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
         Serial.println("[FLOW] Waiting for scan data on Serial2...");
         while (Serial2.available()) Serial2.read(); // Flush hardware buffer
@@ -1100,6 +1102,7 @@ void loop() {
         int tiltAngle = isReceivingMode ? 0 : 180;
         moveServoSmoothly(90, tiltAngle); // Tilt out
         delay(500);                       // Settle at tilt position
+        shakeServo(tiltAngle);            // Shake to release stuck parcels
         moveServoSmoothly(tiltAngle, 90); // Return to center
         platformServo.detach();           // Detach: stop PWM to prevent idle drift
         actionDelayStart  = millis();
@@ -1184,7 +1187,7 @@ void loop() {
     // ── SCAN TIMEOUT PROMPT ────────────────────────────────
     case SCAN_TIMEOUT_PROMPT:
       if (!stateInitialized) {
-        drawTimeoutScreen("TIMED OUT", "No barcode scanned in 60s");
+        drawTimeoutScreen("TIMED OUT", "");
         triggerBuzzer(3);
         Serial.println("[FLOW] Prompt: Scan Timed Out. Retry or Exit?");
         stateInitialized = true;
@@ -1357,35 +1360,7 @@ void emitRequestDeviceRegistration() {
   Serial.print("[WS] Emitted requestDeviceRegistration: "); Serial.println(macAddr);
 }
 
-// ============================================================
-//  HANDLE: Apply Hardware Config (WiFi credentials from app)
-// ============================================================
-void handleApplyHardwareConfig(const String& payload) {
-  StaticJsonDocument<256> doc;
-  deserializeJson(doc, payload);
-  String ssid     = doc["ssid"].as<String>();
-  String password = doc["password"].as<String>();
-  Serial.print("[SETUP] Saving WiFi config → SSID: "); Serial.println(ssid);
-  nvsPrefs.begin("smartbox", false);
-  nvsPrefs.putString("ssid",     ssid);
-  nvsPrefs.putString("password", password);
-  nvsPrefs.putBool("registered", true);
-  nvsPrefs.end();
-  // Acknowledge back to backend/app
-  StaticJsonDocument<192> ack;
-  JsonArray arr = ack.to<JsonArray>();
-  arr.add("hardwareConfigApplied");
-  JsonObject d = arr.createNestedObject();
-  d["deviceId"] = WiFi.macAddress();
-  char output[192];
-  serializeJson(ack, output);
-  socketIO.send(sIOtype_EVENT, output);
-  // Show confirmation and reboot
-  displayMessage("WiFi SAVED!", "Rebooting...");
-  triggerBuzzer(2);
-  delay(2000);
-  ESP.restart();
-}
+// (Redundant handleApplyHardwareConfig removed; now centralized in NetworkController2.ino)
 
 // ============================================================
 //  SCREEN: Device Unregistered (first boot)
@@ -1486,17 +1461,23 @@ void checkSerialCommands() {
     } else if (cmd == 'T') {
       Serial.println("[MANUAL] Re-initializing TFT Display...");
       reinitTFT();
+    } else if (cmd == 'C') {
+      Serial.println("[MANUAL] Triggering WiFi Captive Portal...");
+      triggerBuzzer(2);
+      changeState(WAITING_FOR_WIFI_CONFIG);
     } else if (cmd == '1') {
-      Serial.println("[TEST] Tilting to DROP OFF bin (0°)...");
+      Serial.println("[TEST] Tilting to DROP OFF bin (0°) + Shake...");
       moveServoSmoothly(90, 0);
-      delay(1000);
+      delay(500);
+      shakeServo(0);
       moveServoSmoothly(0, 90);
       platformServo.detach();
       Serial.println("[TEST] Done.");
     } else if (cmd == '2') {
-      Serial.println("[TEST] Tilting to PICKUP bin (180°)...");
+      Serial.println("[TEST] Tilting to PICKUP bin (180°) + Shake...");
       moveServoSmoothly(90, 180);
-      delay(1000);
+      delay(500);
+      shakeServo(180);
       moveServoSmoothly(180, 90);
       platformServo.detach();
       Serial.println("[TEST] Done.");
@@ -1582,7 +1563,7 @@ void printSerialMenu() {
   Serial.println("==========================================");
   Serial.println("  [BLUE] Drop Off     [RED] Pick Up");
   Serial.println("------------------------------------------");
-  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | N=Next | T=TFT Reset");
+  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | N=Next | T=TFT Reset | C=WiFi");
   Serial.println("  1=Test DropOff (0°)  | 2=Test Pickup (180°)");
   Serial.println("  V=View IDs & Status   | W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");

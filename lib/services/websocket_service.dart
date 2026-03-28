@@ -203,7 +203,18 @@ class WebSocketService {
       debugPrint('🗑️ deviceUnregistered: $data');
       _deviceUnregisteredController.add(data as Map<String, dynamic>);
     });
+
+    // WiFi scan results from ESP32
+    _socket!.on('wifiScanResult', (data) {
+      debugPrint('📡 wifiScanResult: $data');
+      _wifiScanResultController.add(data as Map<String, dynamic>);
+    });
   }
+
+  final _wifiScanResultController = 
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get wifiScanResults => 
+      _wifiScanResultController.stream;
 
   /// Emit an event to the server
   void emit(String event, dynamic data) {
@@ -268,6 +279,12 @@ class WebSocketService {
   void emitVerifyOwnerQR(String token) {
     emit('verifyOwnerQR', {'token': token});
     debugPrint('🔑 Emitted verifyOwnerQR: $token');
+  }
+
+  /// Trigger a remote WiFi scan on the ESP32 hardware.
+  void requestWiFiScan() {
+    emit('requestWiFiScan', null);
+    debugPrint('📡 Emitted requestWiFiScan request');
   }
 
   /// Disconnect and cleanup

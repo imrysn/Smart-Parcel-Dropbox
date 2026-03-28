@@ -487,47 +487,19 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   }
 
   void _showWiFiConfigDialog() {
-    final ssidController = TextEditingController();
-    final passController = TextEditingController();
-    
+    if (!_esp32Connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Device must be online to scan for WiFi.')),
+      );
+      return;
+    }
+
+    _ws.requestWiFiScan();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Update Device WiFi'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Sending new credentials to your dropbox. Make sure the device is powered on.'),
-            const SizedBox(height: 20),
-            TextField(
-              controller: ssidController,
-              decoration: const InputDecoration(labelText: 'WiFi SSID (Name)', prefixIcon: Icon(Icons.wifi)),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: passController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'WiFi Password', prefixIcon: Icon(Icons.lock_outline)),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
-          ElevatedButton(
-            onPressed: () {
-              final ssid = ssidController.text.trim();
-              if (ssid.isNotEmpty) {
-                getIt<DropboxService>().pushHardwareConfig(ssid: ssid, password: passController.text);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Pushing WiFi config to device...')),
-                );
-              }
-            },
-            child: const Text('PUSH CONFIG'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (context) => _WiFiScannerDialog(ws: _ws),
     );
   }
 
@@ -851,6 +823,199 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Native-Style WiFi Scanner Dialog (Android-Style) ───────────────────────
+class _WiFiScannerDialog extends StatefulWidget {
+  final WebSocketService ws;
+  const _WiFiScannerDialog({required this.ws});
+
+  @override
+  State<_WiFiScannerDialog> createState() => _WiFiScannerDialogState();
+}
+
+class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
+  List<dynamic> _networks = [];
+  bool _isLoading = true;
+  StreamSubscription? _scanSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _scanSub = widget.ws.wifiScanResults.listen((data) {
+      if (mounted) {
+        setState(() {
+          _networks = data['networks'] ?? [];
+          _isLoading = false;
+        });
+      }
+    });
+
+    // Timeout if no results in 10s
+    Future.delayed(const Duration(seconds: 10), () {
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scanSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.all(20),
+      child: Container(
+        width: double.infinity,
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  const Icon(Icons.wifi, color: Colors.blueAccent),
+                  const SizedBox(width: 12),
+                  const Text('Select WiFi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  if (_isLoading)
+                    const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  if (!_isLoading)
+                    IconButton(
+                      icon: const Icon(Icons.refresh, size: 20),
+                      onPressed: () {
+                        setState(() => _isLoading = true);
+                        widget.ws.requestWiFiScan();
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 30),
+            if (_networks.isEmpty && _isLoading)
+              const Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.wifi_find_outlined, size: 48, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('Scanning for networks...', style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              )
+            else if (_networks.isEmpty && !_isLoading)
+              const Expanded(
+                child: Center(child: Text('No networks found')),
+              )
+            else
+              Expanded(
+                child: ListView.separated(
+                  itemCount: _networks.length + 1,
+                  separatorBuilder: (_, __) => const Divider(height: 1, indent: 64),
+                  itemBuilder: (context, index) {
+                    if (index == _networks.length) {
+                      return ListTile(
+                        leading: const SizedBox(width: 40, child: Icon(Icons.add, color: Colors.grey)),
+                        title: const Text('Manual Entry', style: TextStyle(color: Colors.grey)),
+                        onTap: () => _promptPassword('', isManual: true),
+                      );
+                    }
+                    final net = _networks[index];
+                    final ssid = net['ssid'] ?? 'Unknown';
+                    final rssi = net['rssi'] ?? -100;
+                    final isSecure = net['secure'] ?? true;
+
+                    return ListTile(
+                      leading: SizedBox(width: 40, child: _getWifiIcon(rssi)),
+                      title: Text(ssid, style: const TextStyle(fontWeight: FontWeight.w500)),
+                      trailing: isSecure ? const Icon(Icons.lock_outline, size: 16, color: Colors.grey) : null,
+                      onTap: () => _promptPassword(ssid),
+                    );
+                  },
+                ),
+              ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('CANCEL'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _getWifiIcon(int rssi) {
+    IconData iconData;
+    if (rssi > -50) iconData = Icons.wifi; // 4 bars
+    else if (rssi > -65) iconData = Icons.wifi; // Still high
+    else if (rssi > -80) iconData = Icons.wifi_2_bar;
+    else iconData = Icons.wifi_1_bar;
+    
+    return Icon(iconData, size: 22, color: rssi > -70 ? Colors.green : Colors.orange);
+  }
+
+  void _promptPassword(String ssid, {bool isManual = false}) {
+    final ssidController = TextEditingController(text: ssid);
+    final passController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isManual ? 'Manual Setup' : 'Connect to $ssid'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isManual)
+              TextField(
+                controller: ssidController,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'WiFi Name (SSID)'),
+              ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passController,
+              obscureText: true,
+              autofocus: !isManual,
+              decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          ElevatedButton(
+            onPressed: () {
+              final finalSsid = ssidController.text.trim();
+              if (finalSsid.isNotEmpty) {
+                getIt<DropboxService>().pushHardwareConfig(ssid: finalSsid, password: passController.text);
+                Navigator.pop(context); // Close password dialog
+                Navigator.pop(context); // Close scanner dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Pushing WiFi configuration...')),
+                );
+              }
+            },
+            child: const Text('CONNECT'),
           ),
         ],
       ),

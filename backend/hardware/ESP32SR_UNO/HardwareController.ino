@@ -7,7 +7,7 @@ void moveServoSmoothly(int from, int to) {
   from = constrain(from, 0, 180);
   to   = constrain(to,   0, 180);
 
-  platformServo.attach(SERVO_PIN, 1000, 2000);
+  platformServo.attach(SERVO_PIN, 500, 2500);
 
   int step = (from < to) ? 1 : -1;
   int current = from;
@@ -26,6 +26,19 @@ void moveServoSmoothly(int from, int to) {
   }
 }
 
+void shakeServo(int targetAngle) {
+  Serial.println("[PHYS] Breaking static friction (shake)...");
+  platformServo.attach(SERVO_PIN, 500, 2500);
+  
+  for (int i = 0; i < 3; i++) {
+    int jitter = (targetAngle == 0) ? 15 : -15; // Jitter towards center
+    platformServo.write(targetAngle + jitter);
+    delay(150);
+    platformServo.write(targetAngle);
+    delay(150);
+  }
+}
+
 void triggerBuzzer(int beeps) {
   for (int i = 0; i < beeps; i++) {
     digitalWrite(BUZZER_PIN, HIGH); delay(100);
@@ -34,15 +47,26 @@ void triggerBuzzer(int beeps) {
 }
 
 float getDistance(const int pins[]) {
-  digitalWrite(pins[0], LOW);
-  delayMicroseconds(2);
-  digitalWrite(pins[0], HIGH);
-  delayMicroseconds(10);
-  digitalWrite(pins[0], LOW);
-  long dur = pulseIn(pins[1], HIGH, 30000); // 30ms timeout
+  // Ensure the Echo pin is pulled LOW when inactive to prevent ghost 0.1cm readings
+  pinMode(pins[1], INPUT_PULLDOWN);
+  
+  for (int attempt = 0; attempt < 3; attempt++) {
+    digitalWrite(pins[0], LOW);
+    delayMicroseconds(5);
+    digitalWrite(pins[0], HIGH);
+    delayMicroseconds(20); // Longer trigger pulse (20us) to ensure 3.3V->5V wake-up
+    digitalWrite(pins[0], LOW);
+    
+    // Increased timeout for better detection in deep bins
+    long dur = pulseIn(pins[1], HIGH, 50000); 
 
-  if (dur == 0) return 999.0;
-  return (dur * 0.034) / 2.0;
+    if (dur > 0 && dur < 40000) { // Valid reading found
+        return (dur * 0.034) / 2.0;
+    }
+    delay(20); // Wait for echoes to clear before retry
+  }
+
+  return 999.0; // OOR
 }
 
 // ============================================================

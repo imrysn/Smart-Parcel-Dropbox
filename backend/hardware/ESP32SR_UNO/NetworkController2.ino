@@ -104,6 +104,71 @@ void emitDoorState() {
   if (DEBUG_WS) { Serial.print("[WS] Emitted doorStateUpdate: "); Serial.println(output); }
 }
 
+void handleRequestWiFiScan() {
+  Serial.println("[WS] WiFi Scan request received.");
+  int n = WiFi.scanNetworks();
+  Serial.print("[WS] Scan complete. Found "); Serial.print(n); Serial.println(" networks.");
+  emitWifiScanResult(n);
+}
+
+void emitWifiScanResult(int n) {
+  StaticJsonDocument<2048> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("wifiScanResult");
+  JsonObject data = arr.createNestedObject();
+  JsonArray networks = data.createNestedArray("networks");
+
+  // Limit to top 15 networks to avoid hitting memory/packet limits
+  int count = min(n, 15);
+  for (int i = 0; i < count; i++) {
+    JsonObject net = networks.createNestedObject();
+    net["ssid"]   = WiFi.SSID(i);
+    net["rssi"]   = WiFi.RSSI(i);
+    net["secure"] = (WiFi.encryptionType(i) != WIFI_OFF);
+  }
+
+  char output[2048];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted wifiScanResult: "); Serial.println(output); }
+}
+
+void handleApplyHardwareConfig(const String& payload) {
+  StaticJsonDocument<512> doc;
+  deserializeJson(doc, payload);
+
+  String ssid = doc["ssid"].as<String>();
+  String pass = doc["password"].as<String>();
+
+  if (ssid == "") {
+    Serial.println("[WS] Error: Received empty SSID.");
+    return;
+  }
+
+  Serial.print("[WS] Applying new WiFi config. SSID: "); Serial.println(ssid);
+  
+  nvsPrefs.begin("smartbox", false);
+  nvsPrefs.putString("ssid", ssid);
+  nvsPrefs.putString("password", pass);
+  nvsPrefs.putBool("registered", true); // Device is already registered if we are here
+  nvsPrefs.end();
+
+  displayMessage("WIFI SAVED", "Rebooting...");
+  triggerBuzzer(2);
+  // Notify backend before we reboot
+  StaticJsonDocument<128> ack;
+  JsonArray ackArr = ack.to<JsonArray>();
+  ackArr.add("hardwareConfigApplied");
+  JsonObject ackData = ackArr.createNestedObject();
+  ackData["deviceId"] = WiFi.macAddress();
+  char ackOutput[128];
+  serializeJson(ack, ackOutput);
+  socketIO.send(sIOtype_EVENT, ackOutput);
+  
+  delay(1000);
+  ESP.restart();
+}
+
 void handleScanResult(const String& payload) {
   StaticJsonDocument<256> doc;
   deserializeJson(doc, payload);

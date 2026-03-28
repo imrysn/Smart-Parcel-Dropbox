@@ -180,6 +180,8 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
       } else if (eventName == "applyHardwareConfig") {
         String data; serializeJson(doc[1], data);
         handleApplyHardwareConfig(data);
+      } else if (eventName == "requestWiFiScan") {
+        handleRequestWiFiScan();
       }
       break;
     }

@@ -618,6 +618,18 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── WiFi Scanning (app ↔ backend ↔ hardware) ─────────────────────────────
+  socket.on('requestWiFiScan', () => {
+    console.log(`📡 requestWiFiScan requested by ${socket.id}`);
+    io.to('esp32_device').emit('requestWiFiScan');
+  });
+
+  socket.on('wifiScanResult', (data) => {
+    console.log(`📡 wifiScanResult received from hardware: ${data.networks ? data.networks.length : 0} networks`);
+    // Relay to all app clients
+    socket.broadcast.emit('wifiScanResult', data);
+  });
+
   // ── Hardware confirms config saved (hardware → backend → app) ───────────
   socket.on('hardwareConfigApplied', async ({ deviceId }) => {
     console.log(`✅ hardwareConfigApplied → device: ${deviceId}`);
