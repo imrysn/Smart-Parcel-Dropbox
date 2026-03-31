@@ -127,10 +127,16 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
   }
 
   void _submitPin() {
-    final pin = _pinController.text.trim();
-    if (pin.length != 6) {
+    String pin = _pinController.text.trim().toUpperCase();
+    
+    // Auto-fix if they just typed the 6 numbers
+    if (pin.length == 6 && int.tryParse(pin) != null) {
+      pin = 'OWN-$pin';
+    }
+
+    if (!pin.startsWith('OWN-') || pin.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a 6-digit PIN')),
+        const SnackBar(content: Text('Please enter a valid 6-digit PIN or full CODE')),
       );
       return;
     }
@@ -143,8 +149,8 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
       _statusMsg = 'Verifying...';
     });
     
-    // The server verifies 'token', so we prepend 'OWN-' expected format
-    _ws.emitVerifyOwnerQR('OWN-$pin');
+    // The server verifies 'token', so we send the exact formatted pin
+    _ws.emitVerifyOwnerQR(pin);
 
     _ackTimer = Timer(const Duration(seconds: 65), () {
       if (!mounted || !_waiting) return;
@@ -172,42 +178,11 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Feature #8: Guard against unsupported platforms (Windows desktop)
-    if (!_isMobile) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
-          title: const Text('Verify Owner Access'),
-          centerTitle: true,
-        ),
-        body: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.smartphone, size: 80, color: Colors.white38),
-                SizedBox(height: 24),
-                Text(
-                  'Camera scanning is only available on Android or iOS.\n\n'
-                  'Please open the Smart Parcel app on your phone to verify access.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70, fontSize: 16),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
+    final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.grey[50], // Light background
       appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
         title: const Text('Verify Owner Access'),
         centerTitle: true,
       ),
@@ -215,10 +190,12 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
         children: [
           // Live camera view
           if (!_waiting && !_scanned && !_timedOut && !_manualEntry)
-            MobileScanner(
-              controller: _scannerController,
-              onDetect: _onDetect,
-            ),
+            _isMobile 
+                ? MobileScanner(
+                    controller: _scannerController,
+                    onDetect: _onDetect,
+                  )
+                : _buildMockScanner(),
 
           // Scan frame + countdown overlay
           if (!_waiting && !_scanned && !_timedOut && !_manualEntry)
@@ -231,48 +208,68 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                     height: 240,
                     decoration: BoxDecoration(
                       border: Border.all(
-                        // Feature #5: frame turns orange in last 10s
-                        color: _countdown <= 10 ? Colors.orange : Colors.cyanAccent,
+                        // Orange primary normally, Red when <= 10s
+                        color: _countdown <= 10 ? Colors.redAccent : primaryColor,
                         width: 3,
                       ),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Point camera at the QR code\non the dropbox LCD screen',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Point camera at the QR code\non the dropbox LCD screen',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                  const SizedBox(height: 12),
                   // Feature #5: Countdown pill
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: _countdown <= 10
-                          ? Colors.orange.withOpacity(0.85)
-                          : Colors.white12,
+                          ? Colors.redAccent.withOpacity(0.9)
+                          : Colors.black.withOpacity(0.6),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       'Expires in ${_countdown}s',
-                      style: TextStyle(
-                        color: _countdown <= 10 ? Colors.white : Colors.white70,
+                      style: const TextStyle(
+                        color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 13,
+                        fontSize: 14,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 48),
                   // Feature #6: Toggle to Manual Entry
-                  TextButton.icon(
+                  ElevatedButton.icon(
                     onPressed: () {
                       _scannerController.stop();
                       setState(() => _manualEntry = true);
                     },
-                    icon: const Icon(Icons.dialpad),
-                    label: const Text('Enter PIN Manually'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    icon: const Icon(Icons.dialpad, size: 20),
+                    label: const Text('Enter PIN Manually', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black87,
+                      elevation: 2,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    ),
                   ),
                 ],
               ),
@@ -286,24 +283,39 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                  padding: const EdgeInsets.all(32),
                  decoration: BoxDecoration(
                    color: Colors.white,
-                   borderRadius: BorderRadius.circular(20),
+                   borderRadius: BorderRadius.circular(24),
+                   boxShadow: [
+                     BoxShadow(
+                       color: Colors.black.withOpacity(0.05),
+                       blurRadius: 15,
+                       offset: const Offset(0, 5),
+                     )
+                   ],
                  ),
                  child: Column(
                    mainAxisSize: MainAxisSize.min,
                    children: [
-                     const Icon(Icons.dialpad, size: 48, color: Colors.blueAccent),
+                     Icon(Icons.dialpad, size: 48, color: primaryColor),
                      const SizedBox(height: 16),
-                     const Text('Enter 6-Digit PIN', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                     const Text('Enter Code Manually', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
                      const SizedBox(height: 8),
-                     const Text('Check the dropbox LCD screen for the PIN', style: TextStyle(color: Colors.black54), textAlign: TextAlign.center),
+                     const Text('Check the dropbox LCD screen for the full code or PIN', style: TextStyle(color: Colors.black54), textAlign: TextAlign.center),
                      const SizedBox(height: 24),
                      TextField(
                        controller: _pinController,
-                       keyboardType: TextInputType.number,
-                       maxLength: 6,
+                       keyboardType: TextInputType.text,
+                       textCapitalization: TextCapitalization.characters,
                        textAlign: TextAlign.center,
-                       style: const TextStyle(fontSize: 24, letterSpacing: 8),
-                       decoration: const InputDecoration(border: OutlineInputBorder()),
+                       style: const TextStyle(fontSize: 24, letterSpacing: 4, fontWeight: FontWeight.bold, color: Colors.black87),
+                       decoration: InputDecoration(
+                         hintText: 'e.g. OWN-123456',
+                         hintStyle: const TextStyle(fontSize: 16, letterSpacing: 1, color: Colors.black26),
+                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryColor, width: 2)),
+                         filled: true,
+                         fillColor: Colors.grey[50],
+                         counterText: '',
+                       ),
                        onSubmitted: (_) => _submitPin(),
                      ),
                      const SizedBox(height: 24),
@@ -315,15 +327,23 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                              setState(() => _manualEntry = false);
                              _scannerController.start();
                            },
+                           style: TextButton.styleFrom(foregroundColor: Colors.black54),
                            child: const Text('Back to Scanner'),
                          ),
                          ElevatedButton(
                            onPressed: _submitPin,
-                           child: const Text('Verify'),
+                           style: ElevatedButton.styleFrom(
+                             backgroundColor: primaryColor,
+                             foregroundColor: Colors.white,
+                             elevation: 0,
+                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                           ),
+                           child: const Text('Verify', style: TextStyle(fontWeight: FontWeight.bold)),
                          ),
                        ],
                      ),
-                     const SizedBox(height: 16),
+                     const SizedBox(height: 20),
                      Text(
                        'Expires in ${_countdown}s',
                        style: TextStyle(
@@ -345,12 +365,19 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                 padding: const EdgeInsets.all(32),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                     BoxShadow(
+                       color: Colors.black.withOpacity(0.05),
+                       blurRadius: 15,
+                       offset: const Offset(0, 5),
+                     )
+                  ],
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_waiting) const CircularProgressIndicator(),
+                    if (_waiting) CircularProgressIndicator(color: primaryColor),
 
                     if (!_waiting && _statusMsg.isNotEmpty && !_timedOut)
                       Icon(
@@ -366,34 +393,41 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                     if (_timedOut)
                       const Icon(Icons.timer_off, size: 64, color: Colors.orange),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     Text(
                       _statusMsg,
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: _statusMsg.contains('Granted')
                             ? Colors.green[800]
                             : _statusMsg.contains('Denied')
                                 ? Colors.red[800]
-                                : Colors.grey[800],
+                                : Colors.black87,
                       ),
                       textAlign: TextAlign.center,
                     ),
 
                     if (_timedOut) ...[
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 24),
                       Row(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           ElevatedButton.icon(
                             onPressed: _reset,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Try Again'),
+                            icon: const Icon(Icons.refresh, size: 20),
+                            label: const Text('Try Again', style: TextStyle(fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                               backgroundColor: primaryColor,
+                               foregroundColor: Colors.white,
+                               elevation: 0,
+                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
                             onPressed: () => Navigator.of(context).pop(false),
+                            style: TextButton.styleFrom(foregroundColor: Colors.black54),
                             child: const Text('Cancel'),
                           ),
                         ],
@@ -404,6 +438,26 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMockScanner() {
+    return Container(
+      color: Colors.black,
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.videocam_off, color: Colors.white54, size: 48),
+            SizedBox(height: 16),
+            Text(
+              'Camera Disabled on Windows\nUse manual entry/serial bypass to demo',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
       ),
     );
   }

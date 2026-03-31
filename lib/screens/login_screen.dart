@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import '../services/google_auth_service.dart';
 import '../services/database_service.dart';
 import '../services/input_validator.dart';
 import 'register_screen.dart';
@@ -21,7 +20,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
-  final GoogleAuthService _googleAuthService = GoogleAuthService();
   final DatabaseService _databaseService = DatabaseService();
 
   bool _isLoading = false;
@@ -63,69 +61,6 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
   }
-
-  // TEMPORARILY DISABLED - Google Sign-In configuration pending
-  // Future<void> _signInWithGoogle() async {
-  //   setState(() => _isLoading = true);
-
-  //   try {
-  //     // Get Google ID token
-  //     final idToken = await _googleAuthService.signInWithGoogle();
-  //     
-  //     if (idToken == null) {
-  //       // User canceled the sign-in
-  //       if (mounted) {
-  //         setState(() => _isLoading = false);
-  //       }
-  //       return;
-  //     }
-
-  //     // Authenticate with backend
-  //     final response = await _authService.signInWithGoogleToken(idToken);
-  //     
-  //     if (!mounted) return;
-
-  //     final user = response['user'];
-  //     final status = user['status'] ?? 'active';
-
-  //     if (status == 'active') {
-  //       // User is approved, navigate to appropriate screen
-  //       await _navigateAfterLogin(user);
-  //     } else if (status == 'pending') {
-  //       // User is pending approval
-  //       ScaffoldMessenger.of(context).showSnackBar(
-  //         const SnackBar(
-  //           content: Text('Your account is pending admin approval. Please wait for approval to access the app.'),
-  //           backgroundColor: Colors.orange,
-  //           duration: Duration(seconds: 5),
-  //         ),
-  //       );
-  //     } else if (status == 'rejected') {
-  //       // User was rejected
-  //       ScaffoldMessenger.of(context).showSnackBar(
-  //         const SnackBar(
-  //           content: Text('Your account has been rejected. Please contact support for more information.'),
-  //           backgroundColor: Colors.red,
-  //           duration: Duration(seconds: 5),
-  //         ),
-  //       );
-  //     }
-  //   } catch (e) {
-  //     if (mounted) {
-  //       ScaffoldMessenger.of(context).showSnackBar(
-  //         SnackBar(
-  //           content: Text('Google Sign-In failed: $e'),
-  //           backgroundColor: Colors.red,
-  //         ),
-  //       );
-  //     }
-  //   } finally {
-  //     if (mounted) {
-  //       setState(() => _isLoading = false);
-  //     }
-  //   }
-  // }
-
 
   Future<void> _navigateAfterLogin(Map<String, dynamic> user) async {
     if (!mounted) return;
@@ -383,46 +318,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: TextStyle(fontSize: 16),
                           ),
                   ),
-                  // TEMPORARILY DISABLED - Google Sign-In
-                  // const SizedBox(height: 24),
-
-                  // // Divider with "OR"
-                  // Row(
-                  //   children: [
-                  //     const Expanded(child: Divider()),
-                  //     Padding(
-                  //       padding: const EdgeInsets.symmetric(horizontal: 16),
-                  //       child: Text(
-                  //         'OR',
-                  //         style: TextStyle(
-                  //           color: Colors.grey[600],
-                  //           fontWeight: FontWeight.w500,
-                  //         ),
-                  //       ),
-                  //     ),
-                  //     const Expanded(child: Divider()),
-                  //   ],
-                  // ),
-                  // const SizedBox(height: 24),
-
-                  // // Google Sign-In button
-                  // OutlinedButton.icon(
-                  //   onPressed: _isLoading ? null : _signInWithGoogle,
-                  //   style: OutlinedButton.styleFrom(
-                  //     padding: const EdgeInsets.symmetric(vertical: 16),
-                  //     side: BorderSide(color: Colors.grey[300]!),
-                  //   ),
-                  //   icon: const Icon(Icons.g_mobiledata,
-                  //       color: Colors.red), // Google logo alternative
-                  //   label: const Text(
-                  //     'Continue with Google',
-                  //     style: TextStyle(
-                  //       fontSize: 16,
-                  //       color: Colors.black87,
-                  //       fontWeight: FontWeight.w500,
-                  //     ),
-                  //   ),
-                  // ),
                   const SizedBox(height: 32),
 
                   // Register link

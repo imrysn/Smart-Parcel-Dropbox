@@ -1,7 +1,11 @@
 import 'dart:ui';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../services/dropbox_service.dart';
+import '../services/websocket_service.dart';
+import '../services/service_locator.dart';
 import '../services/error_handler.dart';
 import '../models/tracking_model.dart';
 import 'login_screen.dart';
@@ -18,6 +22,7 @@ import 'owner_verify_screen.dart';
 import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
 import '../widgets/weekly_activity_chart.dart';
+import '../widgets/mini_sparkline.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -30,13 +35,20 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
+  final DropboxService _dropboxService = getIt<DropboxService>();
   int _selectedIndex = 0;
+
+  bool _hasDropbox = true;
 
   // Stream subscriptions for cleanup
   Stream<List<TrackingModel>>? _activeOrdersStream;
   Stream<List<TrackingModel>>? _activePickupsStream;
   Stream<int>? _notificationsCountStream;
   Stream<Map<String, dynamic>?>? _doorStateStream;
+  StreamSubscription<bool>? _connectionSub;
+  StreamSubscription<Map<String, dynamic>>? _registrationSub;
+
+  bool _appConnected = false;
 
   // Current user ID
   String? _userId;
@@ -52,13 +64,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _initUser() async {
     _userId = await _authService.currentUserId;
+    _appConnected = getIt<WebSocketService>().isConnected;
     if (mounted) {
       _setupStreams();
       // Cache user data future once
       if (_userId != null) {
         _userDataFuture = _databaseService.getUserData(_userId!);
+        _checkDropbox();
       }
       setState(() {});
+    }
+  }
+
+  Future<void> _checkDropbox() async {
+    if (_userId == null) return;
+    try {
+      final dropbox = await _dropboxService.getUserDropbox(_userId!);
+      if (mounted) {
+        setState(() {
+          _hasDropbox = dropbox != null && dropbox.isRegistered;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking dropbox status on home: $e');
     }
   }
 
@@ -68,6 +96,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _activeOrdersStream = null;
     _activePickupsStream = null;
     _notificationsCountStream = null;
+    _connectionSub?.cancel();
+    _registrationSub?.cancel();
     super.dispose();
   }
 
@@ -83,8 +113,24 @@ class _HomeScreenState extends State<HomeScreen> {
           _databaseService.getUnreadNotificationsCount(_userId!);
       _doorStateStream = _databaseService.getDropBoxDoorState();
 
-      // Note: Account deletion check was removed as it relied on Firestore.
-      // In the MongoDB branch, account status is handled via the Node.js API and WebSockets.
+      // ── WebSocket Connectivity & Auto-Refresh ──
+      _connectionSub?.cancel();
+      _connectionSub = _databaseService.connectionStatusStream.listen((connected) {
+        if (mounted) {
+          setState(() => _appConnected = connected);
+          if (connected) {
+            debugPrint('🔄 WebSocket reconnected, auto-refreshing data');
+            _databaseService.refreshTracking(_userId!);
+            _checkDropbox();
+          }
+        }
+      });
+
+      // ── Real-time Registration Sync ──
+      _registrationSub?.cancel();
+      // Listen to both registration and unregistration to update _hasDropbox
+      _registrationSub = _databaseService.deviceRegisteredStream.listen((_) => _checkDropbox());
+      _databaseService.deviceUnregisteredStream.listen((_) => _checkDropbox());
     }
   }
 
@@ -114,6 +160,42 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildConnectivityIndicator() {
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: (_appConnected ? Colors.green : Colors.red).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (_appConnected ? Colors.green : Colors.red).withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _appConnected ? Colors.green : Colors.red,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            _appConnected ? 'LIVE' : 'OFFLINE',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: _appConnected ? Colors.green : Colors.red,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -129,6 +211,8 @@ class _HomeScreenState extends State<HomeScreen> {
               userId: _userId!,
               databaseService: _databaseService,
             ),
+          _buildConnectivityIndicator(),
+          const SizedBox(width: 8),
         ],
       ),
       floatingActionButton: _getFloatingActionButton(),
@@ -166,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Proactively refresh data when switching back to main tabs (Home, Orders, Pickup)
                   if (index <= 2 && _userId != null) {
                     _databaseService.refreshTracking(_userId!);
+                    if (index == 0) _checkDropbox();
                   }
                 });
               },
@@ -206,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget? _getFloatingActionButton() {
-    if (_selectedIndex == 0) {
+    if (_selectedIndex == 2) {
       return FloatingActionButton(
         onPressed: () {
           Navigator.of(context).push(
@@ -215,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         },
-        heroTag: 'home_verify_fab',
+        heroTag: 'pickup_verify_fab',
         child: const Icon(Icons.qr_code_scanner),
       );
     } else if (_selectedIndex == 1) {
@@ -256,49 +341,130 @@ class _HomeScreenState extends State<HomeScreen> {
     return dailyCounts;
   }
 
+  Widget _buildNoDropboxBanner() {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.new_releases, color: primaryColor, size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Action Required',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'You haven\'t registered a Smart Parcel Dropbox yet. '
+            'Please navigate to the Dropbox tab to set up your device.',
+            style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setState(() => _selectedIndex = 3); // Switch to Dropbox tab
+              },
+              icon: const Icon(Icons.arrow_forward, size: 18),
+              label: const Text('Go to Dropbox Settings'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMiniStatCard({
     required String title,
     required String value,
     required IconData icon,
     required Color color,
+    required List<int> weeklyData,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: color.withOpacity(0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
-        border: Border.all(color: color.withOpacity(0.08)),
+        border: Border.all(color: color.withOpacity(0.05)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Stack(
         children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[600],
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: color, size: 20),
+                  ),
+                  MiniSparkline(
+                    data: weeklyData,
+                    color: color,
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E293B),
+                ),
+              ),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[500],
+                ),
+              ),
+              const Spacer(),
+            ],
           ),
         ],
       ),
@@ -482,6 +648,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (!_hasDropbox) _buildNoDropboxBanner(),
                   Text(
                     'Dashboard Overview',
                     style: TextStyle(
@@ -499,31 +666,35 @@ class _HomeScreenState extends State<HomeScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 1.4,
+                    childAspectRatio: 1.15,
                     children: [
                       _buildMiniStatCard(
-                        title: 'Active',
+                        title: 'Active Orders',
                         value: '$activeDropOffCount',
                         icon: Icons.local_shipping_rounded,
                         color: const Color(0xFF4C51F0),
+                        weeklyData: dropOffWeekly,
                       ),
                       _buildMiniStatCard(
-                        title: 'Drop Bin',
+                        title: 'Drop-Off Bin',
                         value: '$dropOffBinCount',
                         icon: Icons.inbox_rounded,
                         color: const Color(0xFF10B981),
+                        weeklyData: deliveredWeekly,
                       ),
                       _buildMiniStatCard(
-                        title: 'Pickups',
+                        title: 'Active Pickups',
                         value: '$activePickupCount',
                         icon: Icons.outbox_rounded,
                         color: const Color(0xFFF59E0B),
+                        weeklyData: pickUpWeekly,
                       ),
                       _buildMiniStatCard(
-                        title: 'Pick Bin',
+                        title: 'Pick-Up Bin',
                         value: '$pickUpBinCount',
                         icon: Icons.inventory_2_rounded,
                         color: const Color(0xFF8B5CF6),
+                        weeklyData: readyPickupWeekly,
                       ),
                     ],
                   ),
@@ -837,6 +1008,10 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         List<TrackingModel> allOrders = snapshot.data ?? [];
+        
+        // Filter out pickups so this tab only shows incoming orders/drop-offs
+        allOrders = allOrders.where((order) => 
+            order.mode != 'pickup' && order.mode != 'pick_up').toList();
 
         if (allOrders.isEmpty) {
           return Center(

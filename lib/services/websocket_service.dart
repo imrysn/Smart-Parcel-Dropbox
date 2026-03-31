@@ -35,6 +35,17 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _ownerAccessAlertController =
       StreamController<Map<String, dynamic>>.broadcast();
+  // Device registration streams
+  final _deviceRegisteredController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _deviceRegistrationFailedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _hardwareConfigAppliedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _deviceUnregisteredController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _connectionStatusController =
+      StreamController<bool>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -56,9 +67,25 @@ class WebSocketService {
   /// Fires when the hardware shows the owner QR code (prompts owner to verify)
   Stream<Map<String, dynamic>> get ownerAccessAlerts =>
       _ownerAccessAlertController.stream;
+  /// Fires when backend confirms device registration (after QR scan in app)
+  Stream<Map<String, dynamic>> get deviceRegisteredStream =>
+      _deviceRegisteredController.stream;
+  /// Fires when device registration token is invalid or expired
+  Stream<Map<String, dynamic>> get deviceRegistrationFailedStream =>
+      _deviceRegistrationFailedController.stream;
+  /// Fires when the hardware has saved WiFi config and is rebooting
+  Stream<Map<String, dynamic>> get hardwareConfigAppliedStream =>
+      _hardwareConfigAppliedController.stream;
+  /// Fires when backend confirms device unregistration
+  Stream<Map<String, dynamic>> get deviceUnregisteredStream =>
+      _deviceUnregisteredController.stream;
+
+  /// Fires when the app's WebSocket connection status changes: true=connected, false=disconnected
+  Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
 
 
   bool get isConnected => _socket?.connected ?? false;
+  IO.Socket? get socket => _socket;
 
   /// Initialize WebSocket connection for a user
   void connect(String userId) {
@@ -89,15 +116,18 @@ class WebSocketService {
   void _setupEventHandlers(String userId) {
     _socket!.onConnect((_) {
       debugPrint('✅ WebSocket connected');
+      _connectionStatusController.add(true);
       _socket!.emit('join', userId);
     });
 
     _socket!.onDisconnect((_) {
       debugPrint('❌ WebSocket disconnected');
+      _connectionStatusController.add(false);
     });
 
     _socket!.onConnectError((data) {
       debugPrint('⚠️ WebSocket connection error: $data');
+      _connectionStatusController.add(false);
     });
 
     // Tracking updates
@@ -149,11 +179,47 @@ class WebSocketService {
       _ownerAccessAlertController.add(
           (data as Map<String, dynamic>? ?? {'timestamp': DateTime.now().toIso8601String()}));
     });
+
+    // Device registration confirmed (after app QR scan)
+    _socket!.on('deviceRegistered', (data) {
+      debugPrint('✅ deviceRegistered: $data');
+      _deviceRegisteredController.add(data as Map<String, dynamic>);
+    });
+
+    // Device registration failed (invalid/expired token)
+    _socket!.on('deviceRegistrationFailed', (data) {
+      debugPrint('❌ deviceRegistrationFailed: $data');
+      _deviceRegistrationFailedController.add(data as Map<String, dynamic>);
+    });
+
+    // Hardware saved WiFi config (device will reboot)
+    _socket!.on('hardwareConfigApplied', (data) {
+      debugPrint('⚙️ hardwareConfigApplied: $data');
+      _hardwareConfigAppliedController.add(data as Map<String, dynamic>);
+    });
+
+    // Device unregistration confirmed
+    _socket!.on('deviceUnregistered', (data) {
+      debugPrint('🗑️ deviceUnregistered: $data');
+      _deviceUnregisteredController.add(data as Map<String, dynamic>);
+    });
+
+    // WiFi scan results from ESP32
+    _socket!.on('wifiScanResult', (data) {
+      debugPrint('📡 wifiScanResult: $data');
+      _wifiScanResultController.add(data as Map<String, dynamic>);
+    });
   }
+
+  final _wifiScanResultController = 
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get wifiScanResults => 
+      _wifiScanResultController.stream;
 
   /// Emit an event to the server
   void emit(String event, dynamic data) {
     if (_socket?.connected ?? false) {
+      debugPrint('📤 Emitting event: $event ($data)');
       _socket!.emit(event, data);
     } else {
       debugPrint('⚠️ Cannot emit event: WebSocket not connected');
@@ -215,6 +281,12 @@ class WebSocketService {
     debugPrint('🔑 Emitted verifyOwnerQR: $token');
   }
 
+  /// Trigger a remote WiFi scan on the ESP32 hardware.
+  void requestWiFiScan() {
+    emit('requestWiFiScan', null);
+    debugPrint('📡 Emitted requestWiFiScan request');
+  }
+
   /// Disconnect and cleanup
   void disconnect() {
     _socket?.dispose();
@@ -234,6 +306,11 @@ class WebSocketService {
     _binStatusController.close();
     _ownerVerifyAckController.close();
     _ownerAccessAlertController.close();
+    _deviceRegisteredController.close();
+    _deviceRegistrationFailedController.close();
+    _hardwareConfigAppliedController.close();
+    _deviceUnregisteredController.close();
+    _connectionStatusController.close();
   }
 
   /// Reset singleton instance

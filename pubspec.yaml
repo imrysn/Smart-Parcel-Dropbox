@@ -53,8 +53,6 @@ dependencies:
   # Biometric Authentication
   local_auth: ^2.1.8
 
-  # Google Sign-In
-  google_sign_in: ^6.2.1
   qr_flutter: ^4.1.0
 
 dev_dependencies:

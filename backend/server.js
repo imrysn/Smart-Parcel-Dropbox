@@ -17,6 +17,7 @@ const ScanLog = require('./models/ScanLog');
 const Notification = require('./models/Notification');
 const Rider = require('./models/Rider');
 const User = require('./models/User');
+const Dropbox = require('./models/Dropbox');
 
 // In-memory store for one-time owner QR session tokens { token → expiresAtMs }
 const ownerSessions = new Map();
@@ -29,6 +30,9 @@ const SESSION_COOLDOWN_MS = 10000; // 10 seconds
 // Feature #9 — Pending alert re-emit on reconnect
 // Holds an active alert until it expires { userId → expiresAtMs }
 const pendingOwnerAlerts = new Map();
+
+// Device Registration — one-time tokens { token → { deviceId, expiresAtMs } }
+const pendingRegistrations = new Map();
 
 
 // Initialize Express app
@@ -79,6 +83,9 @@ app.use('/api/scan-logs', scanLogRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/delivery-logs', deliveryLogRoutes);
 app.use('/api/riders', riderRoutes);
+
+const dropboxRoutes = require('./routes/dropboxRoutes');
+app.use('/api/dropbox', dropboxRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -503,6 +510,139 @@ io.on('connection', (socket) => {
   socket.on('sensorUpdate', (data) => {
     console.log(`📡 sensorUpdate:`, data);
     io.emit('binStatusUpdate', { ...data, timestamp: new Date() });
+  });
+
+  // ── Device Registration (hardware → backend → app) ─────────────────────
+  // ESP32 emits this when in DEVICE_UNREGISTERED state and user presses BTN1.
+  // Payload: { deviceId: "AA:BB:CC:DD:EE:FF" }  (MAC address)
+  socket.on('requestDeviceRegistration', async ({ deviceId }) => {
+    if (!deviceId) return;
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const token = `SPDB-REG-${pin}`;
+    const expiresAt = Date.now() + 65000; // 65s TTL
+    pendingRegistrations.set(token, { deviceId, expiresAt });
+    setTimeout(() => pendingRegistrations.delete(token), 70000);
+    console.log(`🆕 requestDeviceRegistration → deviceId: ${deviceId}, token: ${token}`);
+    // Send token back to hardware so it can render as QR + readable code
+    socket.emit('registrationToken', { token, pin });
+    // Update lastSeenAt for existing registration if already registered
+    try {
+      await Dropbox.findOneAndUpdate({ deviceId }, { $set: { lastSeenAt: new Date() } });
+    } catch (_) {}
+  });
+
+  // ── User registers device via app QR scan ───────────────────────────────
+  // App emits this after scanning the QR code shown on the LCD.
+  // Payload: { token: "SPDB-REG-123456", userId: "...", deviceName: "Home" }
+  socket.on('registerDevice', async ({ token, userId, deviceName }) => {
+    console.log(`📱 registerDevice → token: ${token}, userId: ${userId}`);
+    const entry = pendingRegistrations.get(token);
+    if (!entry || Date.now() > entry.expiresAt) {
+      console.log('  ❌ Invalid or expired registration token');
+      socket.emit('deviceRegistrationFailed', { reason: 'invalid_or_expired_token' });
+      return;
+    }
+    pendingRegistrations.delete(token);
+    const { deviceId } = entry;
+    try {
+      const dropbox = await Dropbox.findOneAndUpdate(
+        { deviceId },
+        { $set: { userId, name: deviceName || 'My Smart Parcel Dropbox', isRegistered: true, status: 'offline', registeredAt: new Date() } },
+        { upsert: true, new: true }
+      );
+      console.log(`  ✅ Device registered: ${deviceId} → user: ${userId}`);
+      // Notify app
+      socket.emit('deviceRegistered', { deviceId, dropbox });
+      // Notify hardware to save registered flag
+      io.to('esp32_device').emit('deviceRegistered', { deviceId });
+    } catch (err) {
+      console.error('❌ registerDevice DB error:', err.message);
+      socket.emit('deviceRegistrationFailed', { reason: 'server_error' });
+    }
+  });
+  
+  // ── Unregister Device (mobile app → backend) ─────────────────────────────
+  // App emits this to manually remove/unregister a dropbox from an account.
+  // Payload: { userId: "..." }
+  socket.on('unregisterDevice', async ({ userId }) => {
+    console.log(`📱 unregisterDevice → userId: ${userId}`);
+    if (!userId) return;
+    try {
+      const dropbox = await Dropbox.findOne({ userId });
+      if (!dropbox) {
+        console.log(`  ❌ No dropbox found for userId: ${userId}`);
+        socket.emit('deviceUnregistrationFailed', { reason: 'no_device_found' });
+        return;
+      }
+      
+      const { deviceId } = dropbox;
+      
+      // 1. Reset the document in MongoDB
+      await Dropbox.updateOne(
+        { userId },
+        { 
+          $set: { 
+            isRegistered: false, 
+            userId: 'unregistered_' + Date.now(), // clear while keeping it unique or just set to a placeholder
+            name: 'Unregistered Device',
+            status: 'unregistered',
+            wifiSSID: null
+          } 
+        }
+      );
+      
+      console.log(`  ✅ Device ${deviceId} unregistered for user ${userId}`);
+      
+      // 2. Notify hardware to revert to setup mode
+      io.to('esp32_device').emit('deviceUnregistered', { deviceId });
+      
+      // 3. Notify app user that it's done
+      socket.emit('deviceUnregistered', { deviceId, success: true });
+      
+    } catch (err) {
+      console.error('❌ unregisterDevice error:', err.message);
+      socket.emit('deviceUnregistrationFailed', { reason: 'server_error' });
+    }
+  });
+
+  // ── Push WiFi Config (app → backend → hardware) ─────────────────────────
+  // App emits this after registration to send WiFi credentials to the device.
+  // Payload: { ssid: "HomeWiFi", password: "secret" }
+  socket.on('pushHardwareConfig', async ({ ssid, password }) => {
+    console.log(`⚙️  pushHardwareConfig → ssid: ${ssid}`);
+    // Forward to hardware
+    io.to('esp32_device').emit('applyHardwareConfig', { ssid, password });
+    // Update MongoDB with last known SSID
+    if (socket._userId) {
+      await Dropbox.findOneAndUpdate({ userId: socket._userId }, { $set: { wifiSSID: ssid } }).catch(() => {});
+    }
+  });
+
+  // ── WiFi Scanning (app ↔ backend ↔ hardware) ─────────────────────────────
+  socket.on('requestWiFiScan', () => {
+    console.log(`📡 requestWiFiScan requested by ${socket.id}`);
+    io.to('esp32_device').emit('requestWiFiScan');
+  });
+
+  socket.on('wifiScanResult', (data) => {
+    console.log(`📡 wifiScanResult received from hardware: ${data.networks ? data.networks.length : 0} networks`);
+    // Relay to all app clients
+    socket.broadcast.emit('wifiScanResult', data);
+  });
+
+  // ── Hardware confirms config saved (hardware → backend → app) ───────────
+  socket.on('hardwareConfigApplied', async ({ deviceId }) => {
+    console.log(`✅ hardwareConfigApplied → device: ${deviceId}`);
+    try {
+      await Dropbox.findOneAndUpdate({ deviceId }, { $set: { status: 'offline', lastSeenAt: new Date() } });
+      // Find owner and notify app
+      const dropbox = await Dropbox.findOne({ deviceId });
+      if (dropbox) {
+        io.to(dropbox.userId).emit('hardwareConfigApplied', { deviceId });
+      }
+    } catch (err) {
+      console.error('❌ hardwareConfigApplied error:', err.message);
+    }
   });
 
   socket.on('disconnect', () => {

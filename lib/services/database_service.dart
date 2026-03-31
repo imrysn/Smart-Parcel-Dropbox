@@ -91,6 +91,11 @@ class DatabaseService {
     _instance = null;
   }
 
+  // ========== Streams ==========
+  Stream<bool> get connectionStatusStream => _ws.connectionStatusStream;
+  Stream<Map<String, dynamic>> get deviceRegisteredStream => _ws.deviceRegisteredStream;
+  Stream<Map<String, dynamic>> get deviceUnregisteredStream => _ws.deviceUnregisteredStream;
+
   // ========== Tracking Methods ==========
 
   Future<void> registerTrackingId({

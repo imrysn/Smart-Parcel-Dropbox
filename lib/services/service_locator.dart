@@ -2,7 +2,6 @@ import 'package:get_it/get_it.dart';
 import 'auth_service.dart';
 import 'database_service.dart';
 import 'notification_service.dart';
-import 'google_auth_service.dart';
 import 'cache_service.dart';
 import 'secure_storage_service.dart';
 import 'connectivity_service.dart';
@@ -15,6 +14,7 @@ import 'user_service.dart';
 import 'scan_log_service.dart';
 import 'device_control_service.dart';
 import 'biometric_service.dart';
+import 'dropbox_service.dart';
 
 /// Service Locator for Dependency Injection
 /// Provides centralized access to all services
@@ -24,7 +24,6 @@ final getIt = GetIt.instance;
 Future<void> setupServiceLocator() async {
   // Core Services
   getIt.registerLazySingleton(() => AuthService());
-  getIt.registerLazySingleton(() => GoogleAuthService());
 
   // New SRP-compliant services (Phase 1 refactoring)
   getIt.registerLazySingleton(() => WebSocketService());
@@ -33,6 +32,7 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton(() => ScanLogService());
   getIt.registerLazySingleton(() => DeviceControlService());
   getIt.registerLazySingleton(() => NotificationService());
+  getIt.registerLazySingleton(() => DropboxService());
 
   // Legacy DatabaseService (facade for backward compatibility)
   // TODO: Remove after all screens are migrated to new services

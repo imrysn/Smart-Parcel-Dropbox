@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../services/service_locator.dart';
 import '../services/websocket_service.dart';
+import '../services/auth_service.dart';
+import '../services/dropbox_service.dart';
+import 'hardware_registration_screen.dart';
 
 // ─── Door type constants matching ESP32 firmware ───────────────────────────
 const String kDoorTop      = 'top';      // LOCK_TOP / REED_TOP
@@ -28,6 +31,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   // Stream subscriptions
   StreamSubscription<Map<String, dynamic>>? _esp32Sub;
   StreamSubscription<Map<String, dynamic>>? _binSub;
+  StreamSubscription<Map<String, dynamic>>? _unregSub;
 
   // Live state
   bool _esp32Connected = false;
@@ -57,6 +61,10 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
 
   String? _userId;
 
+  // Dropbox registration state
+  bool _hasDropbox          = false;
+  bool _registrationChecked = false;
+
   // Pulse animation for ESP32 connected indicator
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
@@ -78,10 +86,39 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   }
 
   Future<void> _init() async {
+    final auth = getIt<AuthService>();
+    _userId = await auth.currentUserId;
+
+    // Check if a dropbox is already registered for this user
+    if (_userId != null) {
+      final dropboxService = getIt<DropboxService>();
+      final dropbox = await dropboxService.getUserDropbox(_userId!);
+      if (mounted) {
+        setState(() {
+          _hasDropbox          = dropbox != null;
+          _registrationChecked = true;
+        });
+      }
+    } else {
+      if (mounted) setState(() => _registrationChecked = true);
+    }
+
+    _esp32Sub?.cancel();
+    _binSub?.cancel();
+    _unregSub?.cancel();
+
     // Listen for ESP32 connection events
     _esp32Sub = _ws.esp32StatusUpdates.listen((data) {
       if (mounted) {
         setState(() => _esp32Connected = data['connected'] == true);
+      }
+    });
+
+    // Listen for unregistration confirmation from backend
+    _unregSub = getIt<DropboxService>().deviceUnregisteredStream.listen((data) {
+      if (data['success'] == true) {
+        debugPrint('🗑️ Unregistration confirmed by backend, refreshing UI');
+        _init();
       }
     });
 
@@ -122,6 +159,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   void dispose() {
     _esp32Sub?.cancel();
     _binSub?.cancel();
+    _unregSub?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -155,6 +193,41 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     );
   }
 
+  void _showUnregisterConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Dropbox?'),
+        content: const Text(
+          'This will unregister the device from your account. '
+          'You will need to scan the registration QR code again to reconnect it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (_userId != null) {
+                debugPrint('🗑️ UI: User triggered unregistration for $_userId');
+                getIt<DropboxService>().unregisterDevice(_userId!);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Unregistering device...'),
+                    duration: Duration(seconds: 5),
+                  ),
+                );
+              }
+            },
+            child: const Text('REMOVE', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _doorLabel(String doorType) {
     switch (doorType) {
       case kDoorTop:      return 'Parcel Door';
@@ -169,92 +242,269 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        title: const Text('Device Management'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 0.5,
+      ),
       body: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── ESP32 Connection Banner ──────────────────────────────
-                _buildConnectionBanner(),
+                // ── ⚙️ DEVICE SETTINGS (Always Visible) ──────────────────────────
+                _buildManagementSection(),
                 const SizedBox(height: 20),
 
-                // ── Door Cards ──────────────────────────────────────────
-                _buildDoorCard(
-                  doorType: kDoorTop,
-                  title: 'Parcel Door',
-                  subtitle: 'Courier drop-off entry (Top)',
-                  icon: Icons.local_shipping_outlined,
-                  reedKey: 'REED_TOP',
-                  accentColor: Colors.orange.shade600,
-                ),
-                const SizedBox(height: 14),
+                if (_hasDropbox) ...[
+                  // ── ESP32 Connection Banner ──────────────────────────────
+                  _buildConnectionBanner(),
+                  const SizedBox(height: 20),
 
-                _buildDoorCard(
-                  doorType: kDoorPickup,
-                  title: 'Pick Up Door',
-                  subtitle: 'Front bottom — owner retrieves parcel',
-                  icon: Icons.outbox_outlined,
-                  reedKey: 'REED_PICKUP',
-                  accentColor: Colors.deepOrange.shade600,
-                ),
-                const SizedBox(height: 14),
-
-                _buildDoorCard(
-                  doorType: kDoorReceived,
-                  title: 'Drop Off Door',
-                  subtitle: 'Back — owner deposits outgoing parcel',
-                  icon: Icons.move_to_inbox_outlined,
-                  reedKey: 'REED_RECEIVED',
-                  accentColor: Colors.orange.shade400,
-                ),
-                const SizedBox(height: 24),
-
-                // ── Bin Status ──────────────────────────────────────────
-                Text(
-                  'BIN STATUS',
-                  style: TextStyle(
-                    color: Colors.grey.shade800,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
+                  // ── Door Cards ──────────────────────────────────────────
+                  _buildDoorCard(
+                    doorType: kDoorTop,
+                    title: 'Parcel Door',
+                    subtitle: 'Courier drop-off entry (Top)',
+                    icon: Icons.local_shipping_outlined,
+                    reedKey: 'REED_TOP',
+                    accentColor: Colors.orange.shade600,
                   ),
-                ),
-                const SizedBox(height: 10),
+                  const SizedBox(height: 14),
 
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildBinCard(
-                        label: 'Pick Up Bin',
-                        sublabel: 'US_PICKUP',
-                        fill: _pickupFill,
-                        color: Colors.deepOrange.shade600,
-                        icon: Icons.outbox_outlined,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: _buildBinCard(
-                        label: 'Drop Off Bin',
-                        sublabel: 'US_DROPOFF',
-                        fill: _dropoffFill,
-                        color: Colors.orange.shade600,
-                        icon: Icons.move_to_inbox_outlined,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
+                  _buildDoorCard(
+                    doorType: kDoorPickup,
+                    title: 'Pick Up Door',
+                    subtitle: 'Front bottom — owner retrieves parcel',
+                    icon: Icons.outbox_outlined,
+                    reedKey: 'REED_PICKUP',
+                    accentColor: Colors.deepOrange.shade600,
+                  ),
+                  const SizedBox(height: 14),
 
-                // Footer removed per request
-                const SizedBox(height: 100), // Bottom padding for floating nav bar
+                  _buildDoorCard(
+                    doorType: kDoorReceived,
+                    title: 'Drop Off Door',
+                    subtitle: 'Back — owner deposits outgoing parcel',
+                    icon: Icons.move_to_inbox_outlined,
+                    reedKey: 'REED_RECEIVED',
+                    accentColor: Colors.orange.shade400,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ── Bin Status ──────────────────────────────────────────
+                  Text(
+                    'BIN STATUS',
+                    style: TextStyle(
+                      color: Colors.grey.shade800,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildBinCard(
+                          label: 'Pick Up Bin',
+                          sublabel: 'US_PICKUP',
+                          fill: _pickupFill,
+                          color: Colors.deepOrange.shade600,
+                          icon: Icons.outbox_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: _buildBinCard(
+                          label: 'Drop Off Bin',
+                          sublabel: 'US_DROPOFF',
+                          fill: _dropoffFill,
+                          color: Colors.orange.shade600,
+                          icon: Icons.move_to_inbox_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 40),
+                ],
+
+                if (!_hasDropbox && _registrationChecked)
+                  _buildEmptyState(),
+
+                const SizedBox(height: 60), 
               ],
             ),
           ),
         ),
       );
     }
+
+  // ─── Management Section (Always Visible) ──────────────────────────────────
+  Widget _buildManagementSection() {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.settings_suggest_outlined, color: primaryColor),
+              const SizedBox(width: 10),
+              Text(
+                'DEVICE MANAGEMENT',
+                style: TextStyle(
+                  color: Colors.grey.shade800,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (!_hasDropbox) ...[
+            const Text(
+              'No smart dropbox registered.',
+              style: TextStyle(color: Colors.black54, fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const HardwareRegistrationScreen())
+                ).then((_) => _init()),
+                icon: const Icon(Icons.qr_code_scanner, size: 18),
+                label: const Text('REGISTER NEW DEVICE'),
+              ),
+            ),
+          ] else ...[
+            Row(
+              children: [
+                const Icon(Icons.inventory_2_outlined, color: Colors.black54, size: 20),
+                const SizedBox(width: 8),
+                const Text('Registered Dropbox', style: TextStyle(fontWeight: FontWeight.w500)),
+                const Spacer(),
+                _buildStatusIndicator(),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _showWiFiConfigDialog,
+                    icon: const Icon(Icons.wifi, size: 16),
+                    label: const Text('WIFI CONFIG'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _showUnregisterConfirmation,
+                    icon: const Icon(Icons.delete_forever, size: 16),
+                    label: const Text('REMOVE'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusIndicator() {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _esp32Connected ? Colors.green : Colors.red,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          _esp32Connected ? 'Online' : 'Offline',
+          style: TextStyle(
+            color: _esp32Connected ? Colors.green : Colors.red,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        Icon(Icons.inbox_outlined, size: 64, color: Colors.grey.shade300),
+        const SizedBox(height: 16),
+        Text(
+          'Device Controls Hidden',
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Register your hardware to see door controls and bin status.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
+  void _showWiFiConfigDialog() {
+    if (!_esp32Connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Device must be online to scan for WiFi.')),
+      );
+      return;
+    }
+
+    _ws.requestWiFiScan();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _WiFiScannerDialog(ws: _ws),
+    );
+  }
+
+  // Legacy Banner Removed
+  Widget _buildRegistrationBanner() => const SizedBox.shrink();
 
   // ─── ESP32 Connection Banner ─────────────────────────────────────────────
   Widget _buildConnectionBanner() {
@@ -573,6 +823,199 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Native-Style WiFi Scanner Dialog (Android-Style) ───────────────────────
+class _WiFiScannerDialog extends StatefulWidget {
+  final WebSocketService ws;
+  const _WiFiScannerDialog({required this.ws});
+
+  @override
+  State<_WiFiScannerDialog> createState() => _WiFiScannerDialogState();
+}
+
+class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
+  List<dynamic> _networks = [];
+  bool _isLoading = true;
+  StreamSubscription? _scanSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _scanSub = widget.ws.wifiScanResults.listen((data) {
+      if (mounted) {
+        setState(() {
+          _networks = data['networks'] ?? [];
+          _isLoading = false;
+        });
+      }
+    });
+
+    // Timeout if no results in 10s
+    Future.delayed(const Duration(seconds: 10), () {
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scanSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.all(20),
+      child: Container(
+        width: double.infinity,
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  const Icon(Icons.wifi, color: Colors.blueAccent),
+                  const SizedBox(width: 12),
+                  const Text('Select WiFi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  if (_isLoading)
+                    const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  if (!_isLoading)
+                    IconButton(
+                      icon: const Icon(Icons.refresh, size: 20),
+                      onPressed: () {
+                        setState(() => _isLoading = true);
+                        widget.ws.requestWiFiScan();
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 30),
+            if (_networks.isEmpty && _isLoading)
+              const Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.wifi_find_outlined, size: 48, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('Scanning for networks...', style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              )
+            else if (_networks.isEmpty && !_isLoading)
+              const Expanded(
+                child: Center(child: Text('No networks found')),
+              )
+            else
+              Expanded(
+                child: ListView.separated(
+                  itemCount: _networks.length + 1,
+                  separatorBuilder: (_, __) => const Divider(height: 1, indent: 64),
+                  itemBuilder: (context, index) {
+                    if (index == _networks.length) {
+                      return ListTile(
+                        leading: const SizedBox(width: 40, child: Icon(Icons.add, color: Colors.grey)),
+                        title: const Text('Manual Entry', style: TextStyle(color: Colors.grey)),
+                        onTap: () => _promptPassword('', isManual: true),
+                      );
+                    }
+                    final net = _networks[index];
+                    final ssid = net['ssid'] ?? 'Unknown';
+                    final rssi = net['rssi'] ?? -100;
+                    final isSecure = net['secure'] ?? true;
+
+                    return ListTile(
+                      leading: SizedBox(width: 40, child: _getWifiIcon(rssi)),
+                      title: Text(ssid, style: const TextStyle(fontWeight: FontWeight.w500)),
+                      trailing: isSecure ? const Icon(Icons.lock_outline, size: 16, color: Colors.grey) : null,
+                      onTap: () => _promptPassword(ssid),
+                    );
+                  },
+                ),
+              ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('CANCEL'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _getWifiIcon(int rssi) {
+    IconData iconData;
+    if (rssi > -50) iconData = Icons.wifi; // 4 bars
+    else if (rssi > -65) iconData = Icons.wifi; // Still high
+    else if (rssi > -80) iconData = Icons.wifi_2_bar;
+    else iconData = Icons.wifi_1_bar;
+    
+    return Icon(iconData, size: 22, color: rssi > -70 ? Colors.green : Colors.orange);
+  }
+
+  void _promptPassword(String ssid, {bool isManual = false}) {
+    final ssidController = TextEditingController(text: ssid);
+    final passController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isManual ? 'Manual Setup' : 'Connect to $ssid'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isManual)
+              TextField(
+                controller: ssidController,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'WiFi Name (SSID)'),
+              ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passController,
+              obscureText: true,
+              autofocus: !isManual,
+              decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          ElevatedButton(
+            onPressed: () {
+              final finalSsid = ssidController.text.trim();
+              if (finalSsid.isNotEmpty) {
+                getIt<DropboxService>().pushHardwareConfig(ssid: finalSsid, password: passController.text);
+                Navigator.pop(context); // Close password dialog
+                Navigator.pop(context); // Close scanner dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Pushing WiFi configuration...')),
+                );
+              }
+            },
+            child: const Text('CONNECT'),
           ),
         ],
       ),

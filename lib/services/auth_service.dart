@@ -73,41 +73,6 @@ class AuthService {
     }
   }
 
-  // Sign in with Google ID token
-  Future<Map<String, dynamic>> signInWithGoogleToken(String idToken) async {
-    try {
-      final response = await http.post(
-        Uri.parse(ApiConfig.googleAuth),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'idToken': idToken,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        // Check user status
-        final status = data['user']['status'] ?? 'active';
-        
-        // Only store credentials if user is active
-        if (status == 'active' && data['token'] != null) {
-          await _storage.write(key: _tokenKey, value: data['token']);
-          await _storage.write(key: _userIdKey, value: data['user']['_id'] ?? data['user']['id']);
-          await _storage.write(key: _userEmailKey, value: data['user']['email']);
-          await _storage.write(key: _userRoleKey, value: data['user']['role']);
-        }
-        
-        return data;
-      } else {
-        final error = jsonDecode(response.body);
-        throw error['message'] ?? 'Google Sign-In failed';
-      }
-    } catch (e) {
-      throw 'Google Sign-In failed: $e';
-    }
-  }
-
   // Register new user
   Future<Map<String, dynamic>> registerWithEmailAndPassword({
     required String email,
