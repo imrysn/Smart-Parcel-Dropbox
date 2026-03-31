@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const scanLogSchema = new mongoose.Schema({
     trackingId: {
         type: String,
-        required: true
+        required: false
     },
     scannedId: {
         type: String,
@@ -11,12 +11,12 @@ const scanLogSchema = new mongoose.Schema({
     },
     mode: {
         type: String,
-        enum: ['drop_off', 'pick_up'],
+        enum: ['drop_off', 'pick_up', 'owner_verify'],
         required: true
     },
     status: {
         type: String,
-        enum: ['authorized', 'unauthorized', 'expired'],
+        enum: ['authorized', 'unauthorized', 'expired', 'pending', 'rejected'],
         required: true
     },
     message: String,

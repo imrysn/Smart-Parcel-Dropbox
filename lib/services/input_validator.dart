@@ -6,12 +6,12 @@ class InputValidator {
       return 'Email is required';
     }
 
-    final email = value.trim();
-
     // Check for spaces
-    if (email.contains(' ')) {
+    if (value.contains(' ')) {
       return 'Email address cannot contain spaces';
     }
+
+    final email = value.trim();
 
     // Basic email regex
     final emailRegex =

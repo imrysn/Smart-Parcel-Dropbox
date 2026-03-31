@@ -3,6 +3,7 @@ import 'login_screen.dart';
 import 'home_screen.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../services/service_locator.dart';
 import 'admin/admin_dashboard_screen.dart';
 
 /// Splash Screen - Simple and fast
@@ -14,12 +15,14 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  final AuthService _authService = AuthService();
-  final DatabaseService _databaseService = DatabaseService();
+  late final AuthService _authService;
+  late final DatabaseService _databaseService;
 
   @override
   void initState() {
     super.initState();
+    _authService = getIt<AuthService>();
+    _databaseService = getIt<DatabaseService>();
     _checkAuthState();
   }
 

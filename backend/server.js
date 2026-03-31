@@ -447,6 +447,15 @@ io.on('connection', (socket) => {
         timestamp: new Date()
       });
       console.log(`  ✅ Owner pickup registered: ${trackingId}`);
+      
+      // Feature: Increment logical pickupCount
+      // Multi-user: search userIds array, fall back to legacy userId field
+      if (tracking && tracking.userId) {
+        let dbQuery = { userIds: tracking.userId };
+        const existsByArray = await Dropbox.findOne(dbQuery);
+        if (!existsByArray) dbQuery = { userId: tracking.userId };
+        await Dropbox.updateOne(dbQuery, { $inc: { pickupCount: 1 } });
+      }
     } catch (err) {
       console.error('❌ registerOwnerPickup error:', err.message);
     }
@@ -498,6 +507,33 @@ io.on('connection', (socket) => {
         timestamp: new Date()
       });
 
+      // Feature: Update logical counts
+      // Multi-user: find the dropbox by userIds array (or legacy userId fallback)
+      if (tracking && tracking.userId) {
+        let dropbox = await Dropbox.findOne({ userIds: tracking.userId });
+        if (!dropbox) dropbox = await Dropbox.findOne({ userId: tracking.userId });
+        if (dropbox) {
+          let countUpdate = {};
+          if (mode === 'drop_off') {
+            if (status === 'delivered' || status === 'done') countUpdate.dropoffCount = (dropbox.dropoffCount || 0) + 1;
+            if (status === 'retrieved') countUpdate.dropoffCount = Math.max(0, (dropbox.dropoffCount || 0) - 1);
+          } else if (mode === 'pick_up' || mode === 'pickup') {
+            if (status === 'retrieved' || status === 'done') countUpdate.pickupCount = Math.max(0, (dropbox.pickupCount || 0) - 1);
+          }
+
+          if (Object.keys(countUpdate).length > 0) {
+            await Dropbox.updateOne({ _id: dropbox._id }, { $set: countUpdate });
+            const updated = await Dropbox.findById(dropbox._id);
+            // Re-emit logical counts to all connected app clients
+            io.emit('binStatusUpdate', {
+              logicalDropoffCount: updated.dropoffCount,
+              logicalPickupCount: updated.pickupCount,
+              timestamp: new Date()
+            });
+          }
+        }
+      }
+
       console.log(`✅ Status broadcasted: ${trackingId} → ${status}`);
     } catch (err) {
       console.error('❌ statusUpdate error:', err.message);
@@ -507,22 +543,32 @@ io.on('connection', (socket) => {
   // ── Sensor / Bin Status (ESP32 → backend → mobile app) ─────────────────
   // ESP32 emits this periodically or on change with ultrasonic + reed readings
   // Payload: { US_PICKUP: <cm>, US_DROPOFF: <cm>, REED_TOP: bool, REED_PICKUP: bool, REED_RECEIVED: bool }
-  socket.on('sensorUpdate', (data) => {
+  socket.on('sensorUpdate', async (data) => {
     console.log(`📡 sensorUpdate:`, data);
-    io.emit('binStatusUpdate', { ...data, timestamp: new Date() });
+
+    // Find the most recently active registered device to inject logical counts.
+    // isRegistered: true ensures we only use active devices, not wiped ones.
+    const dropbox = await Dropbox.findOne({ isRegistered: true }).sort({ updatedAt: -1 });
+
+    io.emit('binStatusUpdate', {
+      ...data,
+      logicalDropoffCount: dropbox ? dropbox.dropoffCount : 0,
+      logicalPickupCount: dropbox ? dropbox.pickupCount : 0,
+      timestamp: new Date()
+    });
   });
 
   // ── Device Registration (hardware → backend → app) ─────────────────────
   // ESP32 emits this when in DEVICE_UNREGISTERED state and user presses BTN1.
   // Payload: { deviceId: "AA:BB:CC:DD:EE:FF" }  (MAC address)
-  socket.on('requestDeviceRegistration', async ({ deviceId }) => {
+  socket.on('requestDeviceRegistration', async ({ deviceId, alreadyConnected }) => {
     if (!deviceId) return;
     const pin = Math.floor(100000 + Math.random() * 900000).toString();
     const token = `SPDB-REG-${pin}`;
     const expiresAt = Date.now() + 65000; // 65s TTL
-    pendingRegistrations.set(token, { deviceId, expiresAt });
+    pendingRegistrations.set(token, { deviceId, expiresAt, alreadyConnected: !!alreadyConnected });
     setTimeout(() => pendingRegistrations.delete(token), 70000);
-    console.log(`🆕 requestDeviceRegistration → deviceId: ${deviceId}, token: ${token}`);
+    console.log(`🆕 requestDeviceRegistration → deviceId: ${deviceId}, token: ${token}, alreadyConnected: ${alreadyConnected}`);
     // Send token back to hardware so it can render as QR + readable code
     socket.emit('registrationToken', { token, pin });
     // Update lastSeenAt for existing registration if already registered
@@ -533,6 +579,7 @@ io.on('connection', (socket) => {
 
   // ── User registers device via app QR scan ───────────────────────────────
   // App emits this after scanning the QR code shown on the LCD.
+  // Multi-user: subsequent scans ADD the user to userIds without removing others.
   // Payload: { token: "SPDB-REG-123456", userId: "...", deviceName: "Home" }
   socket.on('registerDevice', async ({ token, userId, deviceName }) => {
     console.log(`📱 registerDevice → token: ${token}, userId: ${userId}`);
@@ -545,14 +592,54 @@ io.on('connection', (socket) => {
     pendingRegistrations.delete(token);
     const { deviceId } = entry;
     try {
+      // Check if this user is already registered to this device
+      const existing = await Dropbox.findOne({ deviceId });
+      const alreadyRegisteredByUser = existing && (existing.userIds || []).includes(userId);
+
+      if (alreadyRegisteredByUser) {
+        console.log(`  ℹ️  User ${userId} is already registered to device ${deviceId}`);
+        socket.emit('deviceRegistered', {
+          deviceId,
+          dropbox: existing,
+          alreadyConnected: !!entry.alreadyConnected,
+        });
+        io.to('esp32_device').emit('deviceRegistered', { deviceId });
+        return;
+      }
+
+      // $addToSet ensures the userId is added only once even if called multiple times
+      // $setOnInsert only runs when a brand-new document is created (upsert)
       const dropbox = await Dropbox.findOneAndUpdate(
         { deviceId },
-        { $set: { userId, name: deviceName || 'My Smart Parcel Dropbox', isRegistered: true, status: 'offline', registeredAt: new Date() } },
+        {
+          $addToSet: { userIds: userId },
+          $set: {
+            name: deviceName || 'My Smart Parcel Dropbox',
+            isRegistered: true,
+            status: 'offline',
+            registeredAt: new Date(),
+          },
+          $setOnInsert: {
+            primaryUserId: userId,
+          },
+        },
         { upsert: true, new: true }
       );
-      console.log(`  ✅ Device registered: ${deviceId} → user: ${userId}`);
-      // Notify app
-      socket.emit('deviceRegistered', { deviceId, dropbox });
+
+      // Promote to primaryUserId if field is still unset (legacy migration path)
+      if (!dropbox.primaryUserId) {
+        await Dropbox.updateOne({ _id: dropbox._id }, { $set: { primaryUserId: userId } });
+      }
+
+      const registeredUserCount = dropbox.userIds ? dropbox.userIds.length : 1;
+      console.log(`  ✅ Device registered: ${deviceId} → user: ${userId} (total users: ${registeredUserCount})`);
+
+      // Notify the registering app client
+      socket.emit('deviceRegistered', {
+        deviceId,
+        dropbox,
+        alreadyConnected: !!entry.alreadyConnected,
+      });
       // Notify hardware to save registered flag
       io.to('esp32_device').emit('deviceRegistered', { deviceId });
     } catch (err) {
@@ -562,43 +649,61 @@ io.on('connection', (socket) => {
   });
   
   // ── Unregister Device (mobile app → backend) ─────────────────────────────
-  // App emits this to manually remove/unregister a dropbox from an account.
+  // App emits this to remove a user's own access to the dropbox.
+  // Multi-user: only pulls this userId out of userIds. The device stays registered
+  // for other users. Hardware is notified only when the LAST user unregisters.
   // Payload: { userId: "..." }
   socket.on('unregisterDevice', async ({ userId }) => {
     console.log(`📱 unregisterDevice → userId: ${userId}`);
     if (!userId) return;
     try {
-      const dropbox = await Dropbox.findOne({ userId });
+      // Support both new (userIds array) and legacy (userId) documents
+      let dropbox = await Dropbox.findOne({ userIds: userId });
+      if (!dropbox) dropbox = await Dropbox.findOne({ userId });
+
       if (!dropbox) {
         console.log(`  ❌ No dropbox found for userId: ${userId}`);
         socket.emit('deviceUnregistrationFailed', { reason: 'no_device_found' });
         return;
       }
-      
+
       const { deviceId } = dropbox;
-      
-      // 1. Reset the document in MongoDB
+
+      // 1. Pull this user out of userIds
       await Dropbox.updateOne(
-        { userId },
-        { 
-          $set: { 
-            isRegistered: false, 
-            userId: 'unregistered_' + Date.now(), // clear while keeping it unique or just set to a placeholder
-            name: 'Unregistered Device',
-            status: 'unregistered',
-            wifiSSID: null
-          } 
-        }
+        { _id: dropbox._id },
+        { $pull: { userIds: userId } }
       );
-      
-      console.log(`  ✅ Device ${deviceId} unregistered for user ${userId}`);
-      
-      // 2. Notify hardware to revert to setup mode
-      io.to('esp32_device').emit('deviceUnregistered', { deviceId });
-      
-      // 3. Notify app user that it's done
-      socket.emit('deviceUnregistered', { deviceId, success: true });
-      
+
+      // 2. Reload to count remaining users
+      const updated = await Dropbox.findById(dropbox._id);
+      const remainingUsers = updated ? updated.userIds || [] : [];
+
+      if (remainingUsers.length === 0) {
+        // Last user — fully reset the device
+        await Dropbox.updateOne(
+          { _id: dropbox._id },
+          {
+            $set: {
+              isRegistered: false,
+              primaryUserId: null,
+              userId: null,
+              name: 'Unregistered Device',
+              status: 'unregistered',
+              wifiSSID: null,
+            }
+          }
+        );
+        console.log(`  ✅ Device ${deviceId} fully unregistered (no remaining users)`);
+        // Notify hardware to revert to setup mode
+        io.to('esp32_device').emit('deviceUnregistered', { deviceId });
+      } else {
+        console.log(`  ✅ User ${userId} removed from device ${deviceId} (${remainingUsers.length} user(s) remaining)`);
+      }
+
+      // 3. Notify requesting app client
+      socket.emit('deviceUnregistered', { deviceId, success: true, remainingUsers: remainingUsers.length });
+
     } catch (err) {
       console.error('❌ unregisterDevice error:', err.message);
       socket.emit('deviceUnregistrationFailed', { reason: 'server_error' });

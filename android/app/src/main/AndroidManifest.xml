@@ -1,8 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
     <application
-        android:label="smart_parcel_dropbox"
+        android:label="Smart Parcel Drop Box"
         android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true">
         <activity
@@ -25,6 +27,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- Deep link support: smartbox://tracking/TRACK-ID -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="smartbox" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

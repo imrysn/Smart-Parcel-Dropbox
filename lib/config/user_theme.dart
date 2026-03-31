@@ -1,341 +1,257 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// User Theme Configuration
-/// Sunset Gradient theme with warm orange-pink colors
-/// Distinct from admin's light slate blue theme
+/// Modern Oasis theme with Plus Jakarta Sans and Sunset Gradients.
+/// Supports both Light (Warm) and Dark (Midnight Sunset) modes.
 class UserTheme {
-  // Primary Colors - Deep Orange
-  static const Color primaryOrange = Color(0xFFFF9800); // Orange 500 (Vibrant Orange sample)
-  static const Color primaryOrangeLight = Color(0xFFFFB74D); // Orange 300
-  static const Color primaryOrangeDark = Color(0xFFF57C00); // Orange 700
+  UserTheme._();
   
-  // Accent Colors - Amber
-  static const Color accentAmber = Color(0xFFFFA726); // Amber 400
-  static const Color accentAmberLight = Color(0xFFFFB74D); // Amber 300
-  static const Color accentAmberDark = Color(0xFFFB8C00); // Amber 600
+  /// Global theme state notifier
+  static final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
   
+  /// Convenience method to cycle through themes
+  static void toggleThemeMode() {
+    if (themeModeNotifier.value == ThemeMode.light) {
+      themeModeNotifier.value = ThemeMode.dark;
+    } else if (themeModeNotifier.value == ThemeMode.dark) {
+      themeModeNotifier.value = ThemeMode.system;
+    } else {
+      themeModeNotifier.value = ThemeMode.light;
+    }
+  }
+
+  // ─── Day Theme Palette (Warm Oasis) ────────────────────────────────────────
+
+  static const Color primaryOrange = Color(0xFFFF9800);
+  static const Color primaryOrangeLight = Color(0xFFFFB74D);
+  static const Color primaryOrangeDark = Color(0xFFF57C00);
+
+  static const Color accentAmber = Color(0xFFFFA726);
+  static const Color accentAmberLight = Color(0xFFFFB74D);
+  static const Color accentAmberDark = Color(0xFFFB8C00);
+
   // Gradient Colors - Sunset
-  static const Color gradientOrange = Color(0xFFFF6F00); // Orange 900
-  static const Color gradientPink = Color(0xFFE91E63); // Pink 500
-  static const Color gradientRed = Color(0xFFD32F2F); // Red 700
+  static const Color sunsetStart = Color(0xFFFF6F00); // Orange 900
+  static const Color sunsetMid = Color(0xFFFF9800);   // Orange 500
+  static const Color sunsetEnd = Color(0xFFE91E63);   // Pink 500
+
+  // Backgrounds
+  static const Color dayBackground = Color(0xFFFFF8F1);
+  static const Color dayCard = Color(0xFFFFFFFF);
+  static const Color daySurface = Color(0xFFFFF3E0);
+
+  // Text Colors
+  static const Color dayTextPrimary = Color(0xFF0F172A);   // Deep Slate
+  static const Color dayTextSecondary = Color(0xFF475569); // Slate 600
+  static const Color dayTextMuted = Color(0xFF94A3B8);     // Slate 400
+
+  // ─── Night Theme Palette (Midnight Sunset) ───────────────────────────────
+
+  static const Color nightBackground = Color(0xFF0F172A); // Slate 900
+  static const Color nightCard = Color(0xFF1E293B);       // Slate 800
+  static const Color nightSurface = Color(0xFF334155);    // Slate 700
+
+  static const Color nightTextPrimary = Color(0xFFF8FAFC);
+  static const Color nightTextSecondary = Color(0xFFCBD5E1);
+  static const Color nightTextMuted = Color(0xFF64748B);
+
+  static const Color statusSuccess = Color(0xFF10B981); // Emerald 500
+  static const Color statusWarning = Color(0xFFF59E0B); // Amber 500
+  static const Color statusError = Color(0xFFEF4444);   // Red 500
+  static const Color statusInfo = Color(0xFF3B82F6);    // Blue 500
+
+  // ─── Legacy & Utility Aliases ──────────────────────────────────────────
   
-  // Background Colors - Warm
-  static const Color backgroundWarm = Color(0xFFFFF8E1); // Amber 50
-  static const Color backgroundCard = Color(0xFFFFFFFF); // White
-  static const Color backgroundSurface = Color(0xFFFFF3E0); // Orange 50
-  
-  // Text Colors - Dark for light background
-  static const Color textPrimary = Color(0xFF263238); // Blue Grey 900
-  static const Color textSecondary = Color(0xFF546E7A); // Blue Grey 600
-  static const Color textMuted = Color(0xFF78909C); // Blue Grey 400
-  
-  // Status Colors
-  static const Color statusSuccess = Color(0xFF66BB6A); // Green 400
-  static const Color statusWarning = Color(0xFFFF9800); // Orange 500
-  static const Color statusError = Color(0xFFEF5350); // Red 400
-  static const Color statusInfo = Color(0xFF42A5F5); // Blue 400
-  
-  /// Sunset gradient for headers and backgrounds
+  static const Color gradientPink = sunsetEnd;
+  static const Color backgroundSurface = daySurface;
+  static const Color backgroundCard = dayCard;
+  static const Color textPrimary = dayTextPrimary;
+  static const Color textSecondary = dayTextSecondary;
+  static const Color textMuted = dayTextMuted;
+
+  // ─── Design Tokens ──────────────────────────────────────────────────────
+
+  static const double radiusS = 12;
+  static const double radiusM = 16;
+  static const double radiusL = 24;
+  static const double radiusXL = 32;
+
   static LinearGradient get sunsetGradient => const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [
-          gradientOrange,
-          primaryOrange,
-          gradientPink,
-        ],
+        colors: [sunsetStart, sunsetMid, sunsetEnd],
       );
-  
-  /// Warm gradient for subtle backgrounds
-  static LinearGradient get warmGradient => const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
+
+  static LinearGradient get glassGradient => LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
         colors: [
-          backgroundWarm,
-          backgroundCard,
+          Colors.white.withOpacity(0.12),
+          Colors.white.withOpacity(0.04),
         ],
       );
 
-  /// Get the complete user theme
-  static ThemeData get theme {
+  // ─── Theme Builders ─────────────────────────────────────────────────────
+
+  /// Main theme retrieval method.
+  static ThemeData getTheme(Brightness brightness) {
+    final bool isDark = brightness == Brightness.dark;
+
+    final Color primary = primaryOrange;
+    final Color background = isDark ? nightBackground : dayBackground;
+    final Color card = isDark ? nightCard : dayCard;
+    final Color textPrimary = isDark ? nightTextPrimary : dayTextPrimary;
+    final Color textSecondary = isDark ? nightTextSecondary : dayTextSecondary;
+    final Color textMuted = isDark ? nightTextMuted : dayTextMuted;
+
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.light,
-      
-      // Color Scheme
-      colorScheme: const ColorScheme.light(
-        primary: primaryOrange,
-        primaryContainer: primaryOrangeLight,
+      brightness: brightness,
+      primaryColor: primary,
+      scaffoldBackgroundColor: background,
+
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: primaryOrange,
+        brightness: brightness,
+        primary: primary,
         secondary: accentAmber,
-        secondaryContainer: accentAmberLight,
-        surface: backgroundCard,
+        surface: card,
         error: statusError,
-        onPrimary: Colors.white,
-        onSecondary: textPrimary,
+      ).copyWith(
+        surface: card,
         onSurface: textPrimary,
-        onError: Colors.white,
       ),
-      
-      // Scaffold
-      scaffoldBackgroundColor: backgroundWarm,
-      
-      // AppBar Theme
-      appBarTheme: const AppBarTheme(
+
+      // Typography - Plus Jakarta Sans
+      textTheme: GoogleFonts.plusJakartaSansTextTheme(
+        TextTheme(
+          displayLarge: TextStyle(fontWeight: FontWeight.w800, color: textPrimary, letterSpacing: -1),
+          displayMedium: TextStyle(fontWeight: FontWeight.w800, color: textPrimary, letterSpacing: -0.8),
+          displaySmall: TextStyle(fontWeight: FontWeight.w700, color: textPrimary, letterSpacing: -0.5),
+          headlineLarge: TextStyle(fontWeight: FontWeight.w700, color: textPrimary),
+          headlineMedium: TextStyle(fontWeight: FontWeight.w600, color: textPrimary),
+          titleLarge: TextStyle(fontWeight: FontWeight.w600, color: textPrimary),
+          bodyLarge: TextStyle(color: textPrimary, fontSize: 16),
+          bodyMedium: TextStyle(color: textSecondary, fontSize: 14),
+          bodySmall: TextStyle(color: textMuted, fontSize: 12),
+        ),
+      ),
+
+      appBarTheme: AppBarTheme(
         centerTitle: true,
         elevation: 0,
-        backgroundColor: primaryOrange,
-        foregroundColor: Colors.white,
-        titleTextStyle: TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.15,
-        ),
-        iconTheme: IconThemeData(
-          color: Colors.white,
-          size: 24,
-        ),
-      ),
-      
-      // Card Theme
-      cardTheme: CardThemeData(
-        color: backgroundCard,
-        elevation: 2,
-        shadowColor: Colors.black.withOpacity(0.1),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
-      ),
-      
-      // Text Theme
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
+        scrolledUnderElevation: 0,
+        backgroundColor: isDark ? nightBackground : dayBackground,
+        foregroundColor: textPrimary,
+        titleTextStyle: GoogleFonts.plusJakartaSans(
           color: textPrimary,
-          letterSpacing: -0.5,
-        ),
-        displayMedium: TextStyle(
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-          letterSpacing: -0.5,
-        ),
-        displaySmall: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        headlineLarge: TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        headlineMedium: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        headlineSmall: TextStyle(
           fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
+          fontWeight: FontWeight.w700,
         ),
-        titleLarge: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        titleMedium: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: textPrimary,
-        ),
-        titleSmall: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          color: textSecondary,
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.normal,
-          color: textPrimary,
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.normal,
-          color: textSecondary,
-        ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.normal,
-          color: textMuted,
-        ),
-        labelLarge: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: textPrimary,
-        ),
-        labelMedium: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          color: textSecondary,
-        ),
-        labelSmall: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w500,
-          color: textMuted,
+        iconTheme: IconThemeData(color: textPrimary),
+      ),
+
+      cardTheme: CardThemeData(
+        color: card,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusL),
+          side: BorderSide(
+            color: isDark ? Colors.white.withOpacity(0.08) : textMuted.withOpacity(0.12),
+          ),
         ),
       ),
-      
-      // Icon Theme
-      iconTheme: const IconThemeData(
-        color: primaryOrange,
-        size: 24,
-      ),
-      
-      // Divider Theme
-      dividerTheme: DividerThemeData(
-        color: textMuted.withOpacity(0.2),
-        thickness: 1,
-        space: 1,
-      ),
-      
-      // Elevated Button Theme
+
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: primaryOrange,
+          backgroundColor: primary,
           foregroundColor: Colors.white,
-          elevation: 2,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.5,
-          ),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radiusM)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
       ),
-      
-      // Text Button Theme
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: primaryOrange,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-      
-      // Outlined Button Theme
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: primaryOrange,
-          side: const BorderSide(color: primaryOrange, width: 1.5),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ),
-      
-      // Floating Action Button Theme
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: accentAmber,
-        foregroundColor: Colors.white,
-        elevation: 4,
-      ),
-      
-      // Chip Theme
-      chipTheme: ChipThemeData(
-        backgroundColor: backgroundSurface,
-        selectedColor: primaryOrange,
-        disabledColor: backgroundSurface.withOpacity(0.5),
-        labelStyle: const TextStyle(
-          color: textPrimary,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-        secondaryLabelStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-      ),
-      
-      // Input Decoration Theme
+
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: backgroundCard,
+        fillColor: card,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: textMuted.withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(radiusM),
+          borderSide: BorderSide(color: textMuted.withOpacity(0.2)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: textMuted.withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(radiusM),
+          borderSide: BorderSide(color: textMuted.withOpacity(0.2)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: primaryOrange, width: 2),
+          borderRadius: BorderRadius.circular(radiusM),
+          borderSide: BorderSide(color: primary, width: 2),
         ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: statusError),
-        ),
-        labelStyle: const TextStyle(color: textSecondary),
-        hintStyle: TextStyle(color: textMuted.withOpacity(0.7)),
+        labelStyle: TextStyle(color: textSecondary),
       ),
-      
-      // Snackbar Theme
-      snackBarTheme: SnackBarThemeData(
-        backgroundColor: textPrimary,
-        contentTextStyle: const TextStyle(color: Colors.white),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-      
-      // Bottom Navigation Bar Theme
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: backgroundCard,
-        selectedItemColor: primaryOrange,
+
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: card,
+        selectedItemColor: primary,
         unselectedItemColor: textMuted,
-        selectedLabelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-        unselectedLabelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.normal,
-        ),
+        type: BottomNavigationBarType.fixed,
+        elevation: 0,
       ),
     );
   }
-  
-  /// Get status color based on status string
+
+  /// Default getter for backward compatibility (defaults to light).
+  static ThemeData get theme => getTheme(Brightness.light);
+
+  /// Helper for status pills.
   static Color getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'pending':
-        return statusWarning;
-      case 'in_transit':
-        return statusInfo;
-      case 'delivered':
-        return statusSuccess;
-      case 'retrieved':
-        return accentAmber;
-      default:
-        return textMuted;
+      case 'pending': return statusWarning;
+      case 'in_transit': return statusInfo;
+      case 'delivered': return statusSuccess;
+      case 'retrieved': return accentAmber;
+      default: return dayTextMuted;
     }
+  }
+
+  /// Modern Gradient App Bar.
+  static PreferredSizeWidget appBarGradient({
+    required String title,
+    List<Widget>? actions,
+    bool centerTitle = true,
+    PreferredSizeWidget? bottom,
+    Widget? leading,
+    BuildContext? context, // Added context to detect theme
+  }) {
+    final bool isDark = context != null && Theme.of(context).brightness == Brightness.dark;
+    
+    return AppBar(
+      leading: leading,
+      centerTitle: centerTitle,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      backgroundColor: Colors.transparent,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          // Use gradient only for dark mode, solid for light mode as requested
+          gradient: isDark ? sunsetGradient : null,
+          color: isDark ? null : dayBackground,
+        ),
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isDark ? Colors.white : dayTextPrimary,
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
+        ),
+      ),
+      iconTheme: IconThemeData(color: isDark ? Colors.white : dayTextPrimary),
+      actions: actions,
+      bottom: bottom,
+    );
   }
 }

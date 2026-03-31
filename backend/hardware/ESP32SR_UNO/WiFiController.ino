@@ -7,7 +7,7 @@ DNSServer dnsServer;
 
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
-const char* apSSID = "SmartParcelBox_Setup";
+const char* apSSID = "Smart Parcel Drop box setup";
 
 void handleRoot();
 void handleSave();

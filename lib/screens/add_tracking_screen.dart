@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../config/user_theme.dart';
+import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 
@@ -90,10 +92,17 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Add Tracking ID'),
+    return Container(
+      decoration: UserUi.pageBackground(context),
+      child: Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: UserTheme.appBarGradient(
+        context: context,
+        title: 'Add tracking ID',
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
@@ -104,21 +113,23 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
             children: [
               // Info card
               Card(
-                color: const Color(0xFFFFF3E0), // Orange 50 - warm tint
+                color: UserTheme.backgroundSurface,
+                surfaceTintColor: Colors.transparent,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.info_outline,
-                        color: Color(0xFFF4511E), // Deep Orange 600
+                      Icon(
+                        Icons.info_outline_rounded,
+                        color: UserTheme.primaryOrangeDark,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           'Register your tracking ID to receive notifications when your parcel is delivered.',
                           style: TextStyle(
-                            color: Colors.grey[800],
+                            color: UserTheme.textPrimary,
+                            height: 1.35,
                           ),
                         ),
                       ),
@@ -221,6 +232,7 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

@@ -8,7 +8,7 @@ class InputSanitizer {
     return input
         .trim()
         .replaceAll(RegExp(r'<[^>]*>'), '') // Remove HTML tags
-        .replaceAll(RegExp(r"[^\w\s@.\-,\']"),
+        .replaceAll(RegExp(r"[^\w\s.\-,\']"),
             '') // Remove special chars except allowed
         .replaceAll(RegExp(r'\s+'), ' '); // Normalize whitespace
   }
@@ -53,10 +53,9 @@ class InputSanitizer {
     final sqlPatterns = [
       RegExp(r"'.*--", caseSensitive: false),
       RegExp(
-          r'(union|select|insert|update|delete|drop|create|alter|exec|execute|script|javascript|eval)',
+          r'(union|select|insert|update|delete|drop|create|alter|exec|execute)',
           caseSensitive: false),
-      RegExp(r'[;<>]'),
-      RegExp(r'(/\*|\*/|@@|@)'),
+      RegExp(r'[;]'), // Removed < and > from SQL check
     ];
 
     return sqlPatterns.any((pattern) => pattern.hasMatch(input));
@@ -65,12 +64,13 @@ class InputSanitizer {
   /// Check for XSS patterns
   static bool containsXss(String input) {
     final xssPatterns = [
-      RegExp(r'<script[^>]*>.*?</script>', caseSensitive: false),
+      RegExp(r'<script', caseSensitive: false, multiLine: true, dotAll: true),
       RegExp(r'javascript:', caseSensitive: false),
       RegExp(r'on\w+\s*=', caseSensitive: false), // onclick=, onload=, etc.
       RegExp(r'<iframe', caseSensitive: false),
       RegExp(r'<object', caseSensitive: false),
       RegExp(r'<embed', caseSensitive: false),
+      RegExp(r'eval\(', caseSensitive: false),
     ];
 
     return xssPatterns.any((pattern) => pattern.hasMatch(input));
@@ -82,12 +82,14 @@ class InputSanitizer {
       return null;
     }
 
-    if (containsSqlInjection(value)) {
-      return '${fieldName ?? 'Input'} contains invalid characters (SQL)';
-    }
-
+    // Check XSS first (more specific)
     if (containsXss(value)) {
       return '${fieldName ?? 'Input'} contains invalid characters (XSS)';
+    }
+
+    // Then check SQL
+    if (containsSqlInjection(value)) {
+      return '${fieldName ?? 'Input'} contains invalid characters (SQL)';
     }
 
     return null;

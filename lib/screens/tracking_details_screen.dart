@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import '../config/user_theme.dart';
+import '../widgets/user_ui.dart';
 import '../models/tracking_model.dart';
 import '../services/database_service.dart';
 
-/// Tracking Details Screen - Show detailed information about a parcel
 class TrackingDetailsScreen extends StatelessWidget {
   final TrackingModel tracking;
 
@@ -14,250 +15,165 @@ class TrackingDetailsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DatabaseService databaseService = DatabaseService();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Tracking Details'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Status Card
-            Card(
-              child: Padding(
+    return Container(
+      decoration: UserUi.pageBackground(context),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: UserTheme.appBarGradient(
+          context: context,
+          title: 'Parcel Details',
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Status Highlight Card ──
+              _buildStatusHeader(context),
+              const SizedBox(height: 24),
+
+              // ── Tracking Info Card ──
+              UserUi.sectionTitle(context, 'Logistic Data', subtitle: 'Detailed routing information'),
+              const SizedBox(height: 12),
+              UserUi.surfaceCard(
+                context,
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    _buildStatusIcon(tracking.status),
-                    const SizedBox(height: 16),
-                    Text(
-                      tracking.getStatusText(),
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _getStatusMessage(tracking.status),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Parcel Information
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Parcel Information',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildInfoRow(
-                      icon: Icons.store_outlined,
-                      label: 'Shop/Platform',
-                      value: tracking.shopName,
-                    ),
-                    const Divider(height: 24),
-                    _buildInfoRow(
-                      icon: Icons.qr_code_2,
-                      label: 'Tracking ID',
-                      value: tracking.trackingId,
-                    ),
+                    _buildDetailRow(context, Icons.storefront_rounded, 'Vendor/Shop', tracking.shopName, UserTheme.primaryOrange),
+                    const Divider(height: 32),
+                    _buildDetailRow(context, Icons.qr_code_scanner_rounded, 'Tracking ID', tracking.trackingId, UserTheme.accentAmberDark),
                     if (tracking.expectedDeliveryDate != null) ...[
-                      const Divider(height: 24),
-                      _buildInfoRow(
-                        icon: Icons.calendar_today_outlined,
-                        label: 'Expected Delivery',
-                        value: tracking.expectedDeliveryDate!,
-                      ),
+                      const Divider(height: 32),
+                      _buildDetailRow(context, Icons.calendar_today_rounded, 'Estimate Arrival', tracking.expectedDeliveryDate!, UserTheme.sunsetEnd),
                     ],
                     if (tracking.registeredAt != null) ...[
-                      const Divider(height: 24),
-                      _buildInfoRow(
-                        icon: Icons.access_time,
-                        label: 'Registered At',
-                        value: _formatDateTime(tracking.registeredAt!),
-                      ),
-                    ],
-                    if (tracking.deliveredAt != null) ...[
-                      const Divider(height: 24),
-                      _buildInfoRow(
-                        icon: Icons.check_circle_outline,
-                        label: 'Delivered At',
-                        value: _formatDateTime(tracking.deliveredAt!),
-                      ),
+                      const Divider(height: 32),
+                      _buildDetailRow(context, Icons.history_rounded, 'First Entry', _formatDateTime(tracking.registeredAt!), UserTheme.primaryOrange),
                     ],
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 32),
 
-            // Delivery Logs
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Delivery Logs',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    StreamBuilder<List<Map<String, dynamic>>>(
-                      stream:
-                          databaseService.getDeliveryLogs(tracking.trackingId),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(16),
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-                        }
+              // ── Delivery Timeline ──
+              UserUi.sectionTitle(context, 'Activity Log', subtitle: 'Live hardware events'),
+              const SizedBox(height: 12),
+              UserUi.surfaceCard(
+                context,
+                padding: const EdgeInsets.all(20),
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: databaseService.getDeliveryLogs(tracking.trackingId),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+                    }
 
-                        List<Map<String, dynamic>> logs = snapshot.data ?? [];
+                    final logs = snapshot.data ?? [];
+                    if (logs.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Text('No activity recorded yet.', style: TextStyle(color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted)),
+                        ),
+                      );
+                    }
 
-                        if (logs.isEmpty) {
-                          return Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Center(
-                              child: Text(
-                                'No delivery logs yet',
-                                style: TextStyle(color: Colors.grey[600]),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: logs.length,
-                          separatorBuilder: (context, index) =>
-                              const Divider(height: 24),
-                          itemBuilder: (context, index) {
-                            Map<String, dynamic> log = logs[index];
-                            return _buildLogItem(log);
-                          },
-                        );
-                      },
-                    ),
-                  ],
+                    return Column(
+                      children: logs.asMap().entries.map((entry) {
+                        final isLast = entry.key == logs.length - 1;
+                        return _buildTimelineItem(context, entry.value, isLast);
+                      }).toList(),
+                    );
+                  },
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildStatusIcon(String status) {
-    IconData icon;
-    Color color;
+  Widget _buildStatusHeader(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final statusColor = tracking.status == 'delivered' ? UserTheme.statusSuccess : (tracking.status == 'in_transit' ? UserTheme.accentAmberDark : UserTheme.primaryOrange);
 
-    switch (status) {
-      case 'pending':
-        icon = Icons.schedule;
-        color = Colors.orange;
-        break;
-      case 'in_transit':
-        icon = Icons.local_shipping_outlined;
-        color = Colors.blue;
-        break;
-      case 'delivered':
-        icon = Icons.inventory_2;
-        color = Colors.green;
-        break;
-      case 'retrieved':
-        icon = Icons.check_circle;
-        color = Colors.grey;
-        break;
-      default:
-        icon = Icons.help_outline;
-        color = Colors.grey;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(
-        icon,
-        size: 48,
-        color: color,
+    return UserUi.surfaceCard(
+      context,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(_getStatusIcon(tracking.status), size: 40, color: statusColor),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            tracking.getStatusText().toUpperCase(),
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _getStatusDescription(tracking.status),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  String _getStatusMessage(String status) {
-    switch (status) {
-      case 'pending':
-        return 'Your parcel is registered and waiting for pickup';
-      case 'in_transit':
-        return 'Your parcel is on its way';
-      case 'delivered':
-        return 'Your parcel has been delivered to the drop box';
-      case 'retrieved':
-        return 'You have retrieved your parcel';
-      default:
-        return '';
-    }
-  }
-
-  Widget _buildInfoRow({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
+  Widget _buildDetailRow(BuildContext context, IconData icon, String label, String value, Color accent) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
-        Icon(icon, size: 20, color: Colors.grey[600]),
-        const SizedBox(width: 12),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: accent.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
+          child: Icon(icon, color: accent, size: 20),
+        ),
+        const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                label,
+                label.toUpperCase(),
                 style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                  letterSpacing: 1,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
                 ),
               ),
             ],
@@ -267,84 +183,106 @@ class TrackingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildLogItem(Map<String, dynamic> log) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          _getLogIcon(log['eventType']),
-          size: 20,
-          color: Colors.grey[600],
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildTimelineItem(BuildContext context, Map<String, dynamic> log, bool isLast) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final time = DateTime.parse(log['timestamp'].toString());
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
             children: [
-              Text(
-                _getLogTitle(log['eventType']),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
+              Container(
+                width: 12, height: 12,
+                margin: const EdgeInsets.only(top: 4),
+                decoration: const BoxDecoration(color: UserTheme.primaryOrange, shape: BoxShape.circle),
               ),
-              if (log['details'] != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  log['details'],
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
+              if (!isLast)
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    color: UserTheme.primaryOrange.withOpacity(0.2),
                   ),
                 ),
-              ],
-              const SizedBox(height: 4),
-              Text(
-                _formatDateTime(DateTime.parse(log['timestamp'].toString())),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[500],
-                ),
-              ),
             ],
           ),
-        ),
-      ],
+          const SizedBox(width: 16),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _getLogTitle(log['eventType']),
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary),
+                      ),
+                      Text(
+                        '${time.hour}:${time.minute.toString().padLeft(2, '0')}',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: UserTheme.primaryOrange),
+                      ),
+                    ],
+                  ),
+                  if (log['details'] != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      log['details'],
+                      style: TextStyle(fontSize: 13, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Text(
+                    '${time.day} ${_getMonthName(time.month)} ${time.year}',
+                    style: TextStyle(fontSize: 11, color: isDark ? Colors.white24 : Colors.black26, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  IconData _getLogIcon(String eventType) {
-    switch (eventType) {
-      case 'scanned':
-        return Icons.qr_code_scanner;
-      case 'door_opened':
-        return Icons.lock_open;
-      case 'parcel_inserted':
-        return Icons.input;
-      case 'door_closed':
-        return Icons.lock;
-      default:
-        return Icons.circle;
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case 'pending': return Icons.hourglass_top_rounded;
+      case 'in_transit': return Icons.local_shipping_rounded;
+      case 'delivered': return Icons.inventory_2_rounded;
+      case 'retrieved': return Icons.verified_rounded;
+      default: return Icons.help_outline_rounded;
+    }
+  }
+
+  String _getStatusDescription(String status) {
+    switch (status) {
+      case 'pending': return 'Your parcel is registered and waiting for courier drop-off.';
+      case 'in_transit': return 'The package is currently moving through the distribution network.';
+      case 'delivered': return 'Successfully deposited into your Smart Dropbox. Ready for collection.';
+      case 'retrieved': return 'Parcel has been removed from the drop box and received by owner.';
+      default: return 'Current status is being updated by the logistics provider.';
     }
   }
 
   String _getLogTitle(String eventType) {
     switch (eventType) {
-      case 'scanned':
-        return 'Parcel Scanned';
-      case 'door_opened':
-        return 'Drop Box Opened';
-      case 'parcel_inserted':
-        return 'Parcel Inserted';
-      case 'door_closed':
-        return 'Drop Box Closed';
-      default:
-        return eventType;
+      case 'scanned': return 'Logistics Scan';
+      case 'door_opened': return 'Compartment Accessed';
+      case 'parcel_inserted': return 'Parcel Deposited';
+      case 'door_closed': return 'Security Lock Active';
+      default: return eventType;
     }
   }
 
-  String _formatDateTime(DateTime dateTime) {
-    return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
-        '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  String _formatDateTime(DateTime dt) => '${dt.day} ${_getMonthName(dt.month)} ${dt.year}, ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+
+  String _getMonthName(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[month - 1];
   }
 }

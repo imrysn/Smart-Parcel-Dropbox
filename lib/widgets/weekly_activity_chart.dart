@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../config/user_theme.dart';
 
 class WeeklyActivityChart extends StatelessWidget {
   final List<int> receivedData;
@@ -24,16 +25,16 @@ class WeeklyActivityChart extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        color: UserTheme.backgroundCard,
+        borderRadius: BorderRadius.circular(UserTheme.radiusXL),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
+            color: UserTheme.primaryOrange.withOpacity(0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: UserTheme.textMuted.withOpacity(0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,18 +46,19 @@ class WeeklyActivityChart extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    color: UserTheme.primaryOrange.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.inventory_2_rounded, color: Colors.blue, size: 20),
+                  child: const Icon(Icons.bar_chart_rounded, color: UserTheme.primaryOrange, size: 20),
                 ),
                 const SizedBox(width: 12),
                 const Text(
-                  'Weekly Activity',
+                  'Weekly activity',
                   style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E293B),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: UserTheme.textPrimary,
+                    letterSpacing: -0.3,
                   ),
                 ),
               ],
@@ -80,7 +82,7 @@ class WeeklyActivityChart extends StatelessWidget {
                       return BarTooltipItem(
                         '$weekDay\n',
                         const TextStyle(
-                          color: Color(0xFF1E293B),
+                          color: UserTheme.textPrimary,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),
@@ -88,17 +90,17 @@ class WeeklyActivityChart extends StatelessWidget {
                           TextSpan(
                             text: 'received : ${receivedData[group.x]}\n',
                             style: const TextStyle(
-                              color: Color(0xFF10B981),
+                              color: UserTheme.accentAmberDark,
                               fontSize: 13,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           TextSpan(
                             text: 'delivered : ${deliveredData[group.x]}',
                             style: const TextStyle(
-                              color: Color(0xFF4C51F0),
+                              color: UserTheme.sunsetEnd,
                               fontSize: 13,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
@@ -165,13 +167,13 @@ class WeeklyActivityChart extends StatelessWidget {
                     barRods: [
                       BarChartRodData(
                         toY: receivedData[i].toDouble(),
-                        color: const Color(0xFF10B981),
+                        color: UserTheme.accentAmberDark,
                         width: 8,
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                       ),
                       BarChartRodData(
                         toY: deliveredData[i].toDouble(),
-                        color: const Color(0xFF4C51F0),
+                        color: UserTheme.gradientPink,
                         width: 8,
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                       ),
@@ -186,9 +188,9 @@ class WeeklyActivityChart extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildLegendItem('received', const Color(0xFF10B981)),
+              _buildLegendItem('received', UserTheme.accentAmberDark),
               const SizedBox(width: 20),
-              _buildLegendItem('delivered', const Color(0xFF4C51F0)),
+              _buildLegendItem('delivered', UserTheme.gradientPink),
             ],
           ),
         ],

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../config/user_theme.dart';
+import '../widgets/user_ui.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/scan_log_model.dart'; // FIX: Added missing model import
@@ -42,31 +44,34 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   Widget build(BuildContext context) {
     if (_userId == null) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator()),
+      return Container(
+        decoration: UserUi.pageBackground(context),
+        child: const Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Scan Logs'),
-        elevation: 0,
+    return Container(
+      decoration: UserUi.pageBackground(context),
+      child: Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: UserTheme.appBarGradient(
+        title: 'Scan logs',
         actions: [
-          // Filter button
           PopupMenuButton<String>(
-            icon: const Icon(Icons.filter_list),
+            icon: const Icon(Icons.filter_list_rounded),
             onSelected: (value) {
               setState(() => _filter = value);
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 'all', child: Text('All Logs')),
+              const PopupMenuItem(value: 'all', child: Text('All logs')),
               const PopupMenuItem(
                 value: 'granted',
-                child: Text('Granted Only'),
+                child: Text('Granted only'),
               ),
-              const PopupMenuItem(value: 'denied', child: Text('Denied Only')),
+              const PopupMenuItem(value: 'denied', child: Text('Denied only')),
             ],
           ),
         ],
@@ -153,6 +158,7 @@ class _LogsScreenState extends State<LogsScreen> {
             },
           );
         },
+      ),
       ),
     );
   }

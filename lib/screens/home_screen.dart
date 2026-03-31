@@ -23,6 +23,8 @@ import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
 import '../widgets/weekly_activity_chart.dart';
 import '../widgets/mini_sparkline.dart';
+import '../widgets/user_ui.dart';
+import '../config/user_theme.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -161,132 +163,155 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildConnectivityIndicator() {
+    final ok = _appConnected;
+    final dot = ok ? UserTheme.statusSuccess : UserTheme.statusError;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Container(
       margin: const EdgeInsets.only(left: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: (_appConnected ? Colors.green : Colors.red).withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: (_appConnected ? Colors.green : Colors.red).withOpacity(0.3),
+      child: UserUi.glassCard(
+        context,
+        blur: 8,
+        borderRadius: 20,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: dot,
+                boxShadow: [
+                  BoxShadow(
+                    color: dot.withOpacity(0.4),
+                    blurRadius: 4,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              ok ? 'LIVE' : 'OFFLINE',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.8,
+                color: ok ? dot : (isDark ? Colors.white : UserTheme.primaryOrange),
+              ),
+            ),
+          ],
         ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _appConnected ? Colors.green : Colors.red,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            _appConnected ? 'LIVE' : 'OFFLINE',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: _appConnected ? Colors.green : Colors.red,
-            ),
-          ),
-        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      extendBody: true,
-      appBar: AppBar(
-        title: Text(_getAppBarTitle()),
-        centerTitle: false, // Ensures the title is aligned to the left
-        actions: [
-          // Notifications button with badge - isolated widget prevents AppBar rebuilds
-          if (_userId != null)
-            NotificationBadge(
-              userId: _userId!,
-              databaseService: _databaseService,
-            ),
-          _buildConnectivityIndicator(),
-          const SizedBox(width: 8),
-        ],
-      ),
-      floatingActionButton: _getFloatingActionButton(),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.only(left: 24, right: 24, bottom: 24),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(35),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.7),
-                borderRadius: BorderRadius.circular(35),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.3),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    
+    return Container(
+      decoration: UserUi.pageBackground(context),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBody: true,
+        appBar: UserTheme.appBarGradient(
+          context: context,
+          title: _getAppBarTitle(),
+          centerTitle: false,
+          actions: [
+            ValueListenableBuilder<ThemeMode>(
+              valueListenable: UserTheme.themeModeNotifier,
+              builder: (context, mode, _) {
+                IconData icon;
+                if (mode == ThemeMode.light) icon = Icons.light_mode_rounded;
+                else if (mode == ThemeMode.dark) icon = Icons.dark_mode_rounded;
+                else icon = Icons.brightness_auto_rounded;
+                
+                return IconButton(
+                  icon: Icon(
+                    icon, 
+                    color: isDark ? Colors.white : UserTheme.dayTextPrimary, 
+                    size: 22
                   ),
-                ],
+                  onPressed: UserTheme.toggleThemeMode,
+                  tooltip: 'Switch Theme',
+                );
+              },
+            ),
+            if (_userId != null)
+              NotificationBadge(
+                userId: _userId!,
+                databaseService: _databaseService,
               ),
-              child: NavigationBar(
-                backgroundColor: Colors.transparent,
+            _buildConnectivityIndicator(),
+            const SizedBox(width: 12),
+          ],
+        ),
+        floatingActionButton: _getFloatingActionButton(),
+        bottomNavigationBar: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: UserUi.glassCard(
+            context,
+            blur: 16,
+            borderRadius: 32,
+            color: isDark ? Colors.black.withOpacity(0.65) : Colors.white.withOpacity(0.7),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.08) : UserTheme.primaryOrange.withOpacity(0.15),
+            ),
+            child: NavigationBar(
+              backgroundColor: Colors.transparent,
               elevation: 0,
-              height: 70,
-              indicatorColor: const Color(0xFFFFB74D), // Soft Amber matching user theme
+              height: 72,
+              indicatorColor: UserTheme.primaryOrange.withOpacity(0.15),
+              surfaceTintColor: Colors.transparent,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
               selectedIndex: _selectedIndex,
               onDestinationSelected: (index) {
                 setState(() {
                   _selectedIndex = index;
-                  // Proactively refresh data when switching back to main tabs (Home, Orders, Pickup)
                   if (index <= 2 && _userId != null) {
                     _databaseService.refreshTracking(_userId!);
                     if (index == 0) _checkDropbox();
                   }
                 });
               },
-              destinations: const [
+              destinations: [
                 NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
+                  icon: Icon(Icons.grid_view_outlined, size: 22, color: theme.hintColor),
+                  selectedIcon: const Icon(Icons.grid_view_rounded, size: 24, color: UserTheme.primaryOrange),
                   label: 'Home',
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.inventory_2_outlined),
-                  selectedIcon: Icon(Icons.inventory_2),
+                  icon: Icon(Icons.inventory_2_outlined, size: 22, color: theme.hintColor),
+                  selectedIcon: const Icon(Icons.inventory_2_rounded, size: 24, color: UserTheme.primaryOrange),
                   label: 'Orders',
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.outbox_outlined),
-                  selectedIcon: Icon(Icons.outbox),
+                  icon: Icon(Icons.outbox_outlined, size: 22, color: theme.hintColor),
+                  selectedIcon: const Icon(Icons.outbox_rounded, size: 24, color: UserTheme.primaryOrange),
                   label: 'Pickup',
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.dns_outlined),
-                  selectedIcon: Icon(Icons.dns),
+                  icon: Icon(Icons.dns_outlined, size: 22, color: theme.hintColor),
+                  selectedIcon: const Icon(Icons.dns_rounded, size: 24, color: UserTheme.primaryOrange),
                   label: 'Dropbox',
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person),
+                  icon: Icon(Icons.person_outline_rounded, size: 22, color: theme.hintColor),
+                  selectedIcon: const Icon(Icons.person_rounded, size: 24, color: UserTheme.primaryOrange),
                   label: 'Profile',
                 ),
-                ],
-              ),
+              ],
             ),
           ),
         ),
+        body: _getSelectedTab(),
       ),
-      body: _getSelectedTab(),
     );
   }
 
@@ -342,60 +367,59 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildNoDropboxBanner() {
-    final primaryColor = Theme.of(context).colorScheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.new_releases, color: primaryColor, size: 24),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Action Required',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
+      child: UserUi.glassCard(
+        context,
+        blur: 12,
+        borderRadius: UserTheme.radiusL,
+        padding: const EdgeInsets.all(20),
+        color: isDark ? UserTheme.primaryOrange.withOpacity(0.12) : UserTheme.daySurface.withOpacity(0.8),
+        border: Border.all(color: UserTheme.primaryOrange.withOpacity(0.3)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: UserTheme.primaryOrange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.qr_code_scanner_rounded, color: UserTheme.primaryOrange, size: 24),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Text(
+                    'Set Up Your Dropbox',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                      letterSpacing: -0.5,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'You haven\'t registered a Smart Parcel Dropbox yet. '
-            'Please navigate to the Dropbox tab to set up your device.',
-            style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                setState(() => _selectedIndex = 3); // Switch to Dropbox tab
-              },
-              icon: const Icon(Icons.arrow_forward, size: 18),
-              label: const Text('Go to Dropbox Settings'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Register your Smart Parcel Dropbox to sync deliveries and pickups with your phone.',
+              style: TextStyle(
+                color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                fontSize: 13,
+                height: 1.5,
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            UserUi.premiumButton(
+              label: 'START REGISTRATION',
+              onTap: () => setState(() => _selectedIndex = 3),
+              icon: Icons.arrow_forward_rounded,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -407,64 +431,48 @@ class _HomeScreenState extends State<HomeScreen> {
     required Color color,
     required List<int> weeklyData,
   }) {
-    return Container(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return UserUi.surfaceCard(
+      context,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.08),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-        border: Border.all(color: color.withOpacity(0.05)),
-      ),
-      child: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(icon, color: color, size: 20),
-                  ),
-                  MiniSparkline(
-                    data: weeklyData,
-                    color: color,
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
+                child: Icon(icon, color: color, size: 22),
               ),
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[500],
-                ),
-              ),
-              const Spacer(),
+              MiniSparkline(data: weeklyData, color: color),
             ],
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+              letterSpacing: -1,
+            ),
+          ),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+              letterSpacing: 0.2,
+            ),
           ),
         ],
       ),
@@ -472,13 +480,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildRetailerJungle(List<TrackingModel> orders) {
-    // Platform detection logic
     final Map<String, int> counts = {
-      'Shopee': 0,
-      'Lazada': 0,
-      'TikTok': 0,
-      'Amazon': 0,
-      'Others': 0,
+      'Shopee': 0, 'Lazada': 0, 'TikTok': 0, 'Amazon': 0, 'Others': 0,
     };
 
     for (var order in orders) {
@@ -490,124 +493,90 @@ class _HomeScreenState extends State<HomeScreen> {
       else counts['Others'] = counts['Others']! + 1;
     }
 
-    final total = orders.isEmpty ? 1 : orders.length; // Prevent div by zero
-    
+    final total = orders.isEmpty ? 1 : orders.length;
+
     return Container(
-      margin: const EdgeInsets.only(top: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D2C24), // Deep Jungle Green
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF10B981).withOpacity(0.2),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(
+      margin: const EdgeInsets.only(top: 12),
+      child: UserUi.glassCard(
+        context,
+        blur: 16,
+        padding: const EdgeInsets.all(22),
+        color: UserTheme.sunsetStart.withOpacity(0.95),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Jungle subtle leaf pattern - using icons as placeholders
-            Positioned(
-              right: -20,
-              top: -20,
-              child: Icon(Icons.eco, size: 100, color: Colors.white.withOpacity(0.05)),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.forest, color: Color(0xFF10B981), size: 24),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Retailer Jungle',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '${orders.length} Parcels',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.6),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Your shopping ecosystem distribution.',
+                  child: const Icon(Icons.auto_graph_rounded, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Text(
+                    'Ecommerce Platforms Used',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.5),
-                      fontSize: 13,
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  ...counts.entries.where((e) => e.value > 0 || e.key == 'Others').map((entry) {
-                    final percentage = entry.value / total;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                entry.key,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                              ),
-                              Text(
-                                '${entry.value}',
-                                style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Stack(
-                            children: [
-                              Container(
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                              FractionallySizedBox(
-                                widthFactor: percentage > 0 ? percentage : 0.02,
-                                child: Container(
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFF059669), Color(0xFF10B981)],
-                                    ),
-                                    borderRadius: BorderRadius.circular(4),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFF10B981).withOpacity(0.3),
-                                        blurRadius: 4,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ],
-              ),
+                ),
+                UserUi.statusPill(label: '${orders.length} Parcels', color: Colors.white),
+              ],
             ),
+            const SizedBox(height: 24),
+            ...counts.entries.where((e) => e.value > 0 || e.key == 'Others').map((entry) {
+              final percentage = entry.value / total;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          entry.key,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                        ),
+                        Text(
+                          '${entry.value}',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Stack(
+                      children: [
+                        Container(
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        FractionallySizedBox(
+                          widthFactor: percentage > 0 ? percentage : 0.05,
+                          child: Container(
+                            height: 8,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [UserTheme.accentAmberLight, Colors.white]),
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }),
           ],
         ),
       ),
@@ -649,17 +618,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (!_hasDropbox) _buildNoDropboxBanner(),
-                  Text(
-                    'Dashboard Overview',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
-                      letterSpacing: -0.5,
-                    ),
+                  UserUi.sectionTitle(
+                    context,
+                    'Dashboard overview',
+                    subtitle: 'Live counts from your parcel activity',
                   ),
-                  const SizedBox(height: 8),
-                  
                   GridView.count(
                     crossAxisCount: 2,
                     shrinkWrap: true,
@@ -672,28 +635,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         title: 'Active Orders',
                         value: '$activeDropOffCount',
                         icon: Icons.local_shipping_rounded,
-                        color: const Color(0xFF4C51F0),
+                        color: UserTheme.primaryOrange,
                         weeklyData: dropOffWeekly,
                       ),
                       _buildMiniStatCard(
                         title: 'Drop-Off Bin',
                         value: '$dropOffBinCount',
                         icon: Icons.inbox_rounded,
-                        color: const Color(0xFF10B981),
+                        color: UserTheme.accentAmberDark,
                         weeklyData: deliveredWeekly,
                       ),
                       _buildMiniStatCard(
                         title: 'Active Pickups',
                         value: '$activePickupCount',
                         icon: Icons.outbox_rounded,
-                        color: const Color(0xFFF59E0B),
+                        color: UserTheme.gradientPink,
                         weeklyData: pickUpWeekly,
                       ),
                       _buildMiniStatCard(
                         title: 'Pick-Up Bin',
                         value: '$pickUpBinCount',
                         icon: Icons.inventory_2_rounded,
-                        color: const Color(0xFF8B5CF6),
+                        color: UserTheme.primaryOrangeDark,
                         weeklyData: readyPickupWeekly,
                       ),
                     ],
@@ -881,99 +844,132 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildOrderCard(TrackingModel order) {
-    Color statusColor;
-    switch (order.status) {
-      case 'pending':
-        statusColor = Colors.orange;
-        break;
-      case 'in_transit':
-        statusColor = Colors.blue;
-        break;
-      case 'delivered':
-        statusColor = Colors.green;
-        break;
-      case 'awaiting_pickup':
-        statusColor = Colors.indigo;
-        break;
-      case 'ready_for_pickup':
-        statusColor = Colors.deepPurple;
-        break;
-      case 'retrieved':
-        statusColor = Colors.grey;
-        break;
-      case 'done':
-        statusColor = Colors.teal;
-        break;
-      default:
-        statusColor = Colors.grey;
-    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final statusColor = _getStatusColor(order.status);
 
-    return InkWell(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => TrackingDetailsScreen(tracking: order),
-          ),
-        );
-      },
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: UserUi.surfaceCard(
+        context,
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => TrackingDetailsScreen(tracking: order),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(UserTheme.radiusL),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    order.shopName,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        order.shopName,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    order.getStatusText(),
-                    style: TextStyle(
+                    UserUi.statusPill(
+                      label: order.getStatusText().toUpperCase(),
                       color: statusColor,
-                      fontWeight: FontWeight.w500,
                     ),
-                  ),
+                  ],
                 ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: (isDark ? Colors.white : UserTheme.primaryOrange).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.tag_rounded,
+                        size: 14,
+                        color: isDark ? UserTheme.nightTextMuted : UserTheme.primaryOrange,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      order.trackingId,
+                      style: TextStyle(
+                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+                if (order.registeredAt != null) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.access_time_rounded, size: 14,
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        _timeAgo(order.registeredAt),
+                        style: TextStyle(
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Tracking ID: ${order.trackingId}',
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 14,
-              ),
-            ),
-            if (order.expectedDeliveryDate != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Expected: ${order.expectedDeliveryDate}',
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'pending': return UserTheme.statusWarning;
+      case 'in_transit': return Colors.blue;
+      case 'delivered': return UserTheme.statusSuccess;
+      case 'awaiting_pickup': return Colors.indigo;
+      case 'ready_for_pickup': return Colors.deepPurple;
+      case 'retrieved': return Colors.grey;
+      case 'done': return UserTheme.statusSuccess;
+      default: return Colors.grey;
+    }
+  }
+
+  /// Returns a human-readable relative time string.
+  String _timeAgo(DateTime? date) {
+    if (date == null) return 'Unknown';
+    final diff = DateTime.now().difference(date);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
+    return '${(diff.inDays / 30).floor()}mo ago';
   }
 
   Widget _buildAllOrdersTab() {
@@ -981,79 +977,46 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return StreamBuilder<List<TrackingModel>>(
       stream: _databaseService.getUserTrackingIds(_userId!),
-      initialData: _databaseService
-          .cachedTracking, // Use cached data to prevent loading state
+      initialData: _databaseService.cachedTracking,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: Colors.red[300],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Error loading orders',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
+          return UserUi.emptyState(
+            context,
+            icon: Icons.cloud_off_rounded,
+            title: 'Could not load orders',
+            subtitle: 'Check your connection and pull down to refresh.',
           );
+        }
+
+        // Show shimmering skeletons while waiting for first data
+        if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data ?? []).isEmpty) {
+          return UserUi.shimmerList(context, count: 5);
         }
 
         List<TrackingModel> allOrders = snapshot.data ?? [];
-        
-        // Filter out pickups so this tab only shows incoming orders/drop-offs
-        allOrders = allOrders.where((order) => 
+        allOrders = allOrders.where((order) =>
             order.mode != 'pickup' && order.mode != 'pick_up').toList();
 
         if (allOrders.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.inventory_2_outlined,
-                  size: 80,
-                  color: Colors.grey[400],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'No orders yet',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Add a tracking ID to get started',
-                  style: TextStyle(
-                    color: Colors.grey[500],
-                  ),
-                ),
-              ],
-            ),
+          return UserUi.emptyState(
+            context,
+            icon: Icons.inventory_2_outlined,
+            title: 'No orders yet',
+            subtitle: 'Add a tracking ID to see incoming parcels here.',
           );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
-          itemCount: allOrders.length,
-          itemBuilder: (context, index) {
-            final order = allOrders[index];
-            return Card(
-              key: ValueKey(order.trackingId),
-              margin: const EdgeInsets.only(bottom: 12),
-              child: _buildOrderCard(order),
-            );
-          },
+        return RefreshIndicator(
+          onRefresh: () => _databaseService.refreshTracking(_userId!),
+          color: UserTheme.primaryOrange,
+          child: ListView.builder(
+            padding: const EdgeInsets.only(left: 20, right: 20, top: 12, bottom: 120),
+            itemCount: allOrders.length,
+            itemBuilder: (context, index) {
+              final order = allOrders[index];
+              return _buildOrderCard(order);
+            },
+          ),
         );
       },
     );
@@ -1152,120 +1115,63 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildProfileTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return FutureBuilder<Map<String, dynamic>?>(
       future: _userDataFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator(color: UserTheme.primaryOrange));
         }
 
         Map<String, dynamic>? userData = snapshot.data;
 
         return SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 120),
           child: Column(
             children: [
-              // Profile Header with Gradient
+              // Profile Header
               Container(
                 width: double.infinity,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFFFF6F00), // Orange 900
-                      Color(0xFFF4511E), // Deep Orange 600
-                      Color(0xFFE91E63), // Pink 500
-                    ],
-                  ),
+                padding: const EdgeInsets.fromLTRB(24, 40, 24, 40),
+                decoration: BoxDecoration(
+                  gradient: UserTheme.sunsetGradient,
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(UserTheme.radiusXL)),
                 ),
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
-                    child: Column(
-                      children: [
-                        // Profile Avatar
-                        Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white,
-                              width: 4,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: CircleAvatar(
-                            radius: 50,
-                            backgroundColor: Colors.white,
-                            child: Text(
-                              (userData?['fullName']?[0]?.toUpperCase() ??
-                                  userData?['email']?[0]?.toUpperCase() ??
-                                  'U'),
-                              style: TextStyle(
-                                fontSize: 40,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        // Name
-                        Text(
-                          userData?['fullName'] ?? 'User',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // Email
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.email_outlined,
-                              size: 16,
-                              color: Colors.white.withOpacity(0.9),
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                userData?['email'] ?? '',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: Colors.white.withOpacity(0.9),
-                                ),
-                                textAlign: TextAlign.center,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              // Profile Information Cards
-              Padding(
-                padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    // Contact Information Card
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                      child: CircleAvatar(
+                        radius: 50,
+                        backgroundColor: UserTheme.primaryOrange.withOpacity(0.1),
+                        child: Text(
+                          (userData?['fullName']?[0]?.toUpperCase() ?? userData?['email']?[0]?.toUpperCase() ?? 'U'),
+                          style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: UserTheme.primaryOrange),
+                        ),
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      userData?['fullName'] ?? 'Smart User',
+                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      userData?['email'] ?? '',
+                      style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.8), fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                child: Column(
+                  children: [
+                    UserUi.surfaceCard(
+                      context,
+                      padding: EdgeInsets.zero,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1273,57 +1179,47 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                             child: Row(
                               children: [
-                                Icon(
-                                  Icons.contact_phone_outlined,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
+                                const Icon(Icons.contact_emergency_rounded, color: UserTheme.primaryOrange, size: 20),
                                 const SizedBox(width: 12),
                                 Text(
-                                  'Contact Information',
+                                  'CONTACT INFORMATION',
                                   style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey[800],
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                    color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                                    letterSpacing: 1,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const Divider(height: 1),
                           _buildInfoTile(
                             context,
                             userData: userData,
-                            icon: Icons.phone_outlined,
+                            icon: Icons.phone_android_rounded,
                             title: 'Phone Number',
                             value: userData?['phoneNumber'] ?? 'Not set',
-                            isEmpty: userData?['phoneNumber'] == null ||
-                                (userData?['phoneNumber'] as String).isEmpty,
+                            isEmpty: userData?['phoneNumber'] == null || (userData?['phoneNumber'] as String).isEmpty,
                             isEditable: true,
                             fieldKey: 'phoneNumber',
                           ),
-                          const Divider(height: 1),
                           _buildInfoTile(
                             context,
                             userData: userData,
-                            icon: Icons.home_outlined,
-                            title: 'Address',
+                            icon: Icons.map_rounded,
+                            title: 'Home Address',
                             value: userData?['address'] ?? 'Not set',
-                            isEmpty: userData?['address'] == null ||
-                                (userData?['address'] as String).isEmpty,
+                            isEmpty: userData?['address'] == null || (userData?['address'] as String).isEmpty,
                             isEditable: true,
                             fieldKey: 'address',
                           ),
-                          const SizedBox(height: 8),
                         ],
                       ),
                     ),
                     const SizedBox(height: 20),
-                    // Account Information Card
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+                    UserUi.surfaceCard(
+                      context,
+                      padding: EdgeInsets.zero,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1331,102 +1227,67 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                             child: Row(
                               children: [
-                                Icon(
-                                  Icons.account_circle_outlined,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
+                                const Icon(Icons.security_rounded, color: UserTheme.primaryOrange, size: 20),
                                 const SizedBox(width: 12),
                                 Text(
-                                  'Account Information',
+                                  'SECURITY & ACCESS',
                                   style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey[800],
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                    color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                                    letterSpacing: 1,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const Divider(height: 1),
                           _buildInfoTile(
                             context,
-                            icon: Icons.email_outlined,
-                            title: 'Email Address',
+                            icon: Icons.alternate_email_rounded,
+                            title: 'Email Identifier',
                             value: userData?['email'] ?? 'Not available',
                             isEmpty: false,
                           ),
-                          const Divider(height: 1),
                           _buildInfoTile(
                             context,
-                            icon: Icons.admin_panel_settings_outlined,
-                            title: 'Role',
-                            value: userData?['role'] ?? 'user',
-                            isEmpty: false,
-                          ),
-                          const Divider(height: 1),
-                          _buildInfoTile(
-                            context,
-                            icon: Icons.verified_user_outlined,
+                            icon: Icons.verified_user_rounded,
                             title: 'Account Status',
-                            value: 'Verified',
+                            value: 'Identity Verified',
                             isEmpty: false,
                             showValueIcon: true,
                           ),
-                          const SizedBox(height: 8),
                         ],
                       ),
                     ),
                     if (userData?['role'] == 'admin') ...[
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    const AdminDashboardScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.admin_panel_settings),
-                          label: const Text('Open Admin Dashboard'),
-                        ),
+                      const SizedBox(height: 24),
+                      UserUi.premiumButton(
+                        label: 'ADMIN DASHBOARD',
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AdminDashboardScreen())),
+                        icon: Icons.admin_panel_settings_rounded,
                       ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const RiderManagementScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.motorcycle),
-                          label: const Text('Manage Delivery Riders'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange.shade700,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
+                      const SizedBox(height: 12),
+                      UserUi.premiumButton(
+                        label: 'MANAGE COURIERS',
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const RiderManagementScreen())),
+                        icon: Icons.motorcycle_rounded,
+                        color: UserTheme.accentAmberDark,
                       ),
                     ],
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
-                      child: OutlinedButton.icon(
+                      child: TextButton.icon(
                         onPressed: _logout,
-                        icon: const Icon(Icons.logout),
-                        label: const Text('Logout'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red.shade600,
-                          side: BorderSide(color: Colors.red.shade600),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                        icon: const Icon(Icons.power_settings_new_rounded, color: UserTheme.statusError, size: 20),
+                        label: const Text(
+                          'LOGOUT SESSION',
+                          style: TextStyle(color: UserTheme.statusError, fontWeight: FontWeight.w900, letterSpacing: 1),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          backgroundColor: UserTheme.statusError.withOpacity(0.08),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
                         ),
                       ),
                     ),
@@ -1452,81 +1313,64 @@ class _HomeScreenState extends State<HomeScreen> {
     String? fieldKey,
     Map<String, dynamic>? userData,
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color:
-                  Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return InkWell(
+      onTap: isEditable && fieldKey != null
+          ? () => _showEditDialog(context, title, fieldKey, value, isEmpty)
+          : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.05) : UserTheme.primaryOrange.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 22, color: isDark ? UserTheme.nightTextSecondary : UserTheme.primaryOrange),
             ),
-            child: Icon(
-              icon,
-              size: 22,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        value,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: isEmpty ? Colors.grey[400] : Colors.grey[900],
-                          fontWeight:
-                              isEmpty ? FontWeight.normal : FontWeight.w500,
-                        ),
-                      ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                      letterSpacing: 0.2,
                     ),
-                    if (showValueIcon)
-                      Icon(
-                        Icons.check_circle,
-                        size: 18,
-                        color: Colors.green[600],
-                      ),
-                    if (isEditable && _userId != null)
-                      IconButton(
-                        icon: Icon(
-                          Icons.edit,
-                          size: 18,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        onPressed: () => _showEditDialog(
-                          context,
-                          title,
-                          fieldKey!,
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
                           value,
-                          isEmpty,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: isEmpty
+                                ? (isDark ? UserTheme.nightTextMuted : Colors.grey)
+                                : (isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary),
+                          ),
                         ),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        tooltip: 'Edit $title',
                       ),
-                  ],
-                ),
-              ],
+                      if (showValueIcon)
+                        const Icon(Icons.verified_rounded, size: 16, color: UserTheme.statusSuccess),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+            if (isEditable)
+              Icon(Icons.edit_note_rounded, size: 20, color: isDark ? UserTheme.nightTextMuted : Colors.grey[400]),
+          ],
+        ),
       ),
     );
   }

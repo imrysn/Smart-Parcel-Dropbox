@@ -65,11 +65,25 @@ class _HardwareRegistrationScreenState
   void _onRegistered(Map<String, dynamic> data) {
     if (!mounted) return;
     _scannerController?.stop();
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => HardwareConfigScreen(deviceId: data['deviceId'] ?? ''),
-      ),
-    );
+    
+    final bool alreadyConnected = data['alreadyConnected'] == true;
+
+    if (alreadyConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Device registered and online! Setup complete.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      // Go back to home or dashboard
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => HardwareConfigScreen(deviceId: data['deviceId'] ?? ''),
+        ),
+      );
+    }
   }
 
   void _onFailed(Map<String, dynamic> data) {
