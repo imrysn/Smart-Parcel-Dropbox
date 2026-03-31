@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../config/user_theme.dart';
+import '../widgets/user_ui.dart';
 import '../services/scan_log_service.dart';
 import '../services/service_locator.dart';
 import '../models/scan_log_model.dart';
@@ -17,11 +19,16 @@ class _AccessLogScreenState extends State<AccessLogScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Owner Access History'),
-        elevation: 0,
+    return Container(
+      decoration: UserUi.pageBackground(context),
+      child: Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: UserTheme.appBarGradient(
+        title: 'Owner access history',
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
       body: FutureBuilder<List<ScanLogModel>>(
         future: _scanLogService.getOwnerAccessLogs(),
@@ -77,6 +84,7 @@ class _AccessLogScreenState extends State<AccessLogScreen> {
             },
           );
         },
+      ),
       ),
     );
   }

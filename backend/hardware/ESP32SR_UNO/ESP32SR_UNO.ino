@@ -61,6 +61,7 @@ void handleControlDoor(const String& payload);
 float getDistance(const int pins[]);
 void emitRequestDeviceRegistration();
 void drawRegistrationQRScreen(const String& token, const String& pin);
+void drawSettingsMenu();
 void drawNoServerOptionsScreen();
 void drawWiFiConfigQRScreen(const char* ssid);
 void setupCaptivePortal();
@@ -179,8 +180,10 @@ void setup() {
   if (!deviceRegistered) {
     // Go to setup mode but don't return early if we have WiFi to attempt
     Serial.println("[BOOT] Device UNREGISTERED. Entering setup mode.");
+    triggerCyberChirp(3);
     changeState(DEVICE_UNREGISTERED);
   } else {
+    triggerCyberChirp(1); // Success Startup
     showHomeScreen();
   }
   
@@ -196,6 +199,15 @@ void loop() {
   checkFactoryReset();
   socketIO.loop();        // Keep Socket.IO connection alive
   checkSerialCommands();
+
+  // --- Bug Fix: Drainage for "Always Active" Scanner ---
+  // Some scanner modules (or self-triggering Arduinos) may send data at any time.
+  // We drain the Serial2 buffer and clear our accumulator when NOT in a scan-expectant state.
+  if (currentState != OWNER_SCANNING && currentState != RIDER_VERIFYING && 
+      currentState != RIDER_SCANNING_PARCELS && currentState != WAITING_FOR_SCAN) {
+    while (Serial2.available() > 0) Serial2.read();
+    serial2Buffer = ""; 
+  }
   // Skip status-bar repaints while QR verification screens, WiFi setup, or lockscreen are up
   if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR && 
       currentState != WAITING_FOR_WIFI_CONFIG && currentState != LOCKSCREEN) {
@@ -251,11 +263,12 @@ void loop() {
           }
 
           if (socketIO.isConnected()) {
+            regTokenReceived = false; // Reset before requesting
             emitRequestDeviceRegistration();
             changeState(SHOWING_REGISTRATION_QR);
           } else {
             // New V4.0 flow: Go to No Server screen with options
-            triggerBuzzer(3);
+            triggerCyberChirp(2); // Error
             changeState(SETUP_NO_SERVER);
           }
         }
@@ -278,7 +291,7 @@ void loop() {
       } else if (digitalRead(BTN_PICKUP) == LOW) { // BTN2 = Other (WiFi Setup)
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
+           triggerCyberChirp(1);
            changeState(WAITING_FOR_WIFI_CONFIG);
         }
       }
@@ -297,7 +310,7 @@ void loop() {
       if (digitalRead(BTN_PICKUP) == LOW) {
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
-          triggerBuzzer(2);
+          triggerCyberChirp(2);
           stopCaptivePortal();
           ESP.restart();
         }
@@ -308,7 +321,6 @@ void loop() {
     // Displaying QR code + human-readable code for in-app hardware registration.
     case SHOWING_REGISTRATION_QR:
       if (!stateInitialized) {
-        regTokenReceived   = false;
         regQrDrawn         = false;
         deviceJustRegistered = false;
         stateStartTime     = millis();
@@ -358,7 +370,7 @@ void loop() {
         nvsPrefs.end();
         deviceRegistered = true;
         displayMessage("REGISTERED!", "Connect WiFi in app");
-        triggerBuzzer(2);
+        triggerCyberChirp(1);
         delay(2000);
         // Stay here until app pushes WiFi config
         // When applyHardwareConfig is received, firmware reboots
@@ -373,7 +385,7 @@ void loop() {
             Serial.println("[SETUP] Retry: requesting new token.");
             emitRequestDeviceRegistration();
             stateStartTime = millis();
-            displayMessage("REGISTRATION", "Requesting code...");
+            displayMessage("TERMINAL", "Requesting...");
           }
         }
       }
@@ -381,21 +393,42 @@ void loop() {
 
     // ── IDLE ──────────────────────────────────────────────
     case IDLE:
+      // --- Handle Long Press for SETTINGS (2s hold on BTN_RECEIVE) ---
+      static unsigned long leftBtnHoldStart = 0;
+      static bool leftBtnHolding = false;
+
       if (digitalRead(BTN_RECEIVE) == LOW) {
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] User selected: DROP OFF.");
-          isReceivingMode = true;
-          isRiderMode     = false;
-          triggerBuzzer(1);
-          changeState(WAITING_FOR_SCAN);
+        if (!leftBtnHolding) {
+          leftBtnHoldStart = millis();
+          leftBtnHolding = true;
+        } else if (millis() - leftBtnHoldStart > 2000) {
+          Serial.println("[SYSTEM] Long press detected → Entering SETTINGS_MENU.");
+          triggerCyberChirp(3);
+          leftBtnHolding = false; // Reset for next time
+          changeState(SETTINGS_MENU);
+          break;
         }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {
+      } else {
+        if (leftBtnHolding) {
+          leftBtnHolding = false;
+          // If released quickly (< 2s), treat as a normal click (Drop Off)
+          if (millis() - leftBtnHoldStart < 2000) {
+            Serial.println("[FLOW] User selected: DROP OFF.");
+            isReceivingMode = true;
+            isRiderMode     = false;
+            triggerCyberChirp(3);
+            changeState(WAITING_FOR_SCAN);
+          }
+        }
+      }
+      
+      // Right button is still a simple click for PICK UP
+      if (digitalRead(BTN_PICKUP) == LOW) {
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
           Serial.println("[FLOW] User selected: PICK UP → showing sub-menu.");
           isReceivingMode = false;
-          triggerBuzzer(1);
+          triggerCyberChirp(3);
           changeState(SELECTING_PICKUP_TYPE);
         }
       }
@@ -420,7 +453,7 @@ void loop() {
         if (digitalRead(BTN_RECEIVE) == LOW) {
           Serial.println("[FLOW] Sub-menu: OWNER selected → Requesting QR session.");
           isRiderMode = false;
-          triggerBuzzer(1);
+          triggerCyberChirp(3);
           changeState(OWNER_VERIFYING);
         }
       } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Rider
@@ -428,7 +461,7 @@ void loop() {
         if (digitalRead(BTN_PICKUP) == LOW) {
           Serial.println("[FLOW] Sub-menu: RIDER selected.");
           isRiderMode = true;
-          triggerBuzzer(2);
+          triggerCyberChirp(3);
           changeState(RIDER_VERIFYING);
         }
       }
@@ -451,7 +484,7 @@ void loop() {
         } else {
           Serial.println("[WARN] Owner QR: server offline, cannot generate QR.");
           displayMessage("OFFLINE", "No server");
-          triggerBuzzer(3);
+          triggerCyberChirp(2);
           pendingNextState  = IDLE;
           actionDelayStart  = millis();
           actionDelayActive = true;
@@ -472,13 +505,13 @@ void loop() {
             stateStartTime        = millis();
             displayMessage("VERIFYING", "Connecting...");
             if (socketIO.isConnected()) emitRequestOwnerSession();
-            triggerBuzzer(1);
+            triggerCyberChirp(3);
           }
         } else if (digitalRead(BTN_PICKUP) == LOW) { // BTN2 = Exit
           delay(50);
           if (digitalRead(BTN_PICKUP) == LOW) {
             Serial.println("[FLOW] Owner QR: Exit pressed — returning to IDLE.");
-            triggerBuzzer(2);
+            triggerCyberChirp(2);
             ownerVerifyTimedOut = false;
             changeState(IDLE);
           }
@@ -520,7 +553,7 @@ void loop() {
         } else {
           Serial.println("[FLOW] Owner QR: DENIED by app.");
           displayMessage("DENIED", "Access Rejected");
-          triggerBuzzer(3);
+          triggerCyberChirp(2);
           pendingNextState = IDLE;
         }
         actionDelayStart  = millis();
@@ -534,7 +567,7 @@ void loop() {
           ownerSessionToken.length() == 0 && !ownerQrDrawn &&
           stateInitialized && millis() - stateStartTime > 8000) {
         Serial.println("[FLOW] Owner QR: Server did not respond. Show Retry/Exit.");
-        triggerBuzzer(3);
+        triggerCyberChirp(2);
         drawTimeoutScreen("TIMED OUT", "Server did not respond");
         ownerVerifyTimedOut = true;
         ownerSessionToken   = "";
@@ -545,7 +578,7 @@ void loop() {
       if (!ownerApprovalReceived && !actionDelayActive && !ownerVerifyTimedOut &&
           ownerQrDrawn && millis() - stateStartTime > 60000) {
         Serial.println("[FLOW] Owner QR: 60s scan timeout. Show Retry/Exit.");
-        triggerBuzzer(3);
+        triggerCyberChirp(2);
         drawTimeoutScreen("TIMED OUT", "");
         ownerVerifyTimedOut = true;
         ownerSessionToken   = "";
@@ -576,7 +609,7 @@ void loop() {
           Serial.println("[FLOW] Owner Mode: SINGLE pick up.");
           isMultiMode  = false;
           scannedCount = 0;
-          triggerBuzzer(1);
+          triggerCyberChirp(3);
           changeState(OWNER_SCANNING);
         }
       } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Multiple
@@ -585,7 +618,7 @@ void loop() {
           Serial.println("[FLOW] Owner Mode: MULTIPLE pick up.");
           isMultiMode  = true;
           scannedCount = 0;
-          triggerBuzzer(2);
+          triggerCyberChirp(3);
           changeState(OWNER_SCANNING);
         }
       }
@@ -647,7 +680,7 @@ void loop() {
             actionDelayActive = true;
           }
         } else if (c >= 32 && c <= 126) {
-          serial2Buffer += c;
+          if (serial2Buffer.length() < 128) serial2Buffer += c;
         }
       }
       if (actionDelayActive && millis() - actionDelayStart >= 1500) {
@@ -736,7 +769,7 @@ void loop() {
             }
           }
         } else if (c >= 32 && c <= 126) {
-          serial2Buffer += c;
+          if (serial2Buffer.length() < 128) serial2Buffer += c;
         }
       }
       if (riderVerifyReceived && !actionDelayActive) {
@@ -837,7 +870,7 @@ void loop() {
             actionDelayActive = true;
           }
         } else if (c >= 32 && c <= 126) {
-          serial2Buffer += c;
+          if (serial2Buffer.length() < 128) serial2Buffer += c;
         }
       }
       if (actionDelayActive && millis() - actionDelayStart >= 1000) {
@@ -953,7 +986,7 @@ void loop() {
             // Offline and NO local match
             Serial.println("[WARN] Offline and No local ID match.");
             displayMessage("INVALID ID", "RETRY SCAN");
-            triggerBuzzer(3);
+            triggerCyberChirp(2);
             currentTrackingId = ""; 
             consecutiveScanFails++;
             pendingNextState  = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
@@ -962,7 +995,7 @@ void loop() {
           }
         } // end '\n' handler
         else if (c >= 32 && c <= 126 && c != '[' && c != ']') {
-          serial2Buffer += c;
+          if (serial2Buffer.length() < 128) serial2Buffer += c;
         }
       } // end while Serial2.available()
 
@@ -995,6 +1028,18 @@ void loop() {
       if (!stateInitialized) {
         stateStartTime = millis();
         stateInitialized = true;
+      }
+      
+      // Feature: Real-time Processing Animation
+      {
+        static int scanPos = HUD_MARGIN + 30;
+        static int scanDir = 5;
+        tft.fillRect(scanPos, 140, 40, 4, COLOR_BG); // clear old
+        scanPos += scanDir;
+        if (scanPos > 240 || scanPos < 40) scanDir *= -1;
+        drawScanningAnimation(140, COLOR_ACCENT);
+        tft.fillRect(scanPos, 140, 10, 4, COLOR_GOLD); // moving dot
+        triggerCyberChirp(3);
       }
 
       if (scanResultReceived && !actionDelayActive) {
@@ -1291,6 +1336,30 @@ void loop() {
         }
       }
       break;
+    
+    // ── SETTINGS MENU ─────────────────────────────────────
+    case SETTINGS_MENU:
+      if (!stateInitialized) {
+        drawSettingsMenu();
+        Serial.println("[SETTINGS] System Menu: BTN1=Add User, BTN2=Back.");
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == LOW) {   // BTN1 = Register (Add User)
+        delay(50);
+        if (digitalRead(BTN_RECEIVE) == LOW) {
+           Serial.println("[SETTINGS] User requested re-registration.");
+           triggerBuzzer(1);
+           emitRequestDeviceRegistration();
+           changeState(SHOWING_REGISTRATION_QR);
+        }
+      } else if (digitalRead(BTN_PICKUP) == LOW) { // BTN2 = Back
+        delay(50);
+        if (digitalRead(BTN_PICKUP) == LOW) {
+           triggerCyberChirp(2);
+           changeState(IDLE);
+        }
+      }
+      break;
 
     // ── RESETTING ─────────────────────────────────────────
     case RESETTING:
@@ -1349,15 +1418,24 @@ void checkFactoryReset() {
 // ============================================================
 void emitRequestDeviceRegistration() {
   String macAddr = WiFi.macAddress();
-  StaticJsonDocument<192> doc;
+  bool connected = (WiFi.status() == WL_CONNECTED);
+  
+  StaticJsonDocument<256> doc;
   JsonArray arr = doc.to<JsonArray>();
   arr.add("requestDeviceRegistration");
+  
   JsonObject data = arr.createNestedObject();
   data["deviceId"] = macAddr;
-  char output[192];
+  data["alreadyConnected"] = connected;
+  
+  char output[256];
   serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output);
-  Serial.print("[WS] Emitted requestDeviceRegistration: "); Serial.println(macAddr);
+  Serial.print("[WS] Emitted requestDeviceRegistration: "); 
+  Serial.print(macAddr);
+  Serial.print(" (alreadyConnected: "); 
+  Serial.print(connected ? "true" : "false");
+  Serial.println(")");
 }
 
 // (Redundant handleApplyHardwareConfig removed; now centralized in NetworkController2.ino)
@@ -1428,6 +1506,25 @@ void checkSerialCommands() {
       Serial.print("  Pick Up  : "); Serial.println(registeredPickup.length()  ? registeredPickup  : "(none)");
       Serial.print("  WiFi     : "); Serial.println(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected");
       Serial.print("  Server   : "); Serial.println(socketIO.isConnected() ? "Connected" : "Disconnected");
+    } else if (cmd == 'M') {
+      Serial.println("\n[DIAG] === Full Hardware Monitor ===");
+      // Reed Status: 0 = Magnet Near (Closed), 1 = Magnet Away (Open)
+      int r1 = digitalRead(REED_TOP);
+      int r2 = digitalRead(REED_PICKUP);
+      int r3 = digitalRead(REED_RECEIVED);
+      Serial.print("  Reed TOP      : "); Serial.println(r1 == 0 ? "CLOSED (Locked)" : "OPEN (Unlocked)");
+      Serial.print("  Reed PICKUP   : "); Serial.println(r2 == 0 ? "CLOSED" : "OPEN");
+      Serial.print("  Reed RECEIVED : "); Serial.println(r3 == 0 ? "CLOSED" : "OPEN");
+      
+      // Ultrasonic Sensors
+      float d1 = getDistance(US_PLATFORM);
+      float d2 = getDistance(US_PICKUP);
+      float d3 = getDistance(US_DROPOFF);
+      Serial.print("  US1 Platform  : "); Serial.println(d1 < 900 ? String(d1,1)+"cm" : "OUT_OF_RANGE");
+      Serial.print("  US2 Pickup    : "); Serial.println(d2 < 900 ? String(d2,1)+"cm" : "OUT_OF_RANGE");
+      Serial.print("  US3 DropOff   : "); Serial.println(d3 < 900 ? String(d3,1)+"cm" : "OUT_OF_RANGE");
+      Serial.print("  Solenoid TOP  : "); Serial.println(lockTopOpen ? "UNLOCKED" : "LOCKED");
+      Serial.println("[DIAG] Done.\n");
     } else if (cmd == 'W') {
       Serial.println("[DIAG] === Network Status ===");
       Serial.print("  WiFi SSID  : "); Serial.println(WiFi.SSID());
@@ -1563,7 +1660,7 @@ void printSerialMenu() {
   Serial.println("==========================================");
   Serial.println("  [BLUE] Drop Off     [RED] Pick Up");
   Serial.println("------------------------------------------");
-  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | N=Next | T=TFT Reset | C=WiFi");
+  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | M=Monitor | N=Next | T=TFT Reset | C=WiFi");
   Serial.println("  1=Test DropOff (0°)  | 2=Test Pickup (180°)");
   Serial.println("  V=View IDs & Status   | W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");

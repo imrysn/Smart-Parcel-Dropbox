@@ -39,34 +39,64 @@ void shakeServo(int targetAngle) {
   }
 }
 
-void triggerBuzzer(int beeps) {
-  for (int i = 0; i < beeps; i++) {
-    digitalWrite(BUZZER_PIN, HIGH); delay(100);
-    digitalWrite(BUZZER_PIN, LOW);  delay(100);
+void triggerCyberChirp(int pattern) {
+  switch (pattern) {
+    case 1: // Success / Unlock (High-pitched tri-tone)
+      for(int i=0; i<3; i++) { digitalWrite(BUZZER_PIN, HIGH); delay(40); digitalWrite(BUZZER_PIN, LOW); delay(30); }
+      break;
+    case 2: // Error / Denied (Double-low buzz)
+      digitalWrite(BUZZER_PIN, HIGH); delay(200); digitalWrite(BUZZER_PIN, LOW); delay(50);
+      digitalWrite(BUZZER_PIN, HIGH); delay(200); digitalWrite(BUZZER_PIN, LOW);
+      break;
+    case 3: // Neutral / Scan (Short pip)
+      digitalWrite(BUZZER_PIN, HIGH); delay(20); digitalWrite(BUZZER_PIN, LOW);
+      break;
+    default:
+      digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
+      break;
   }
 }
 
+void triggerBuzzer(int beeps) {
+  triggerCyberChirp(beeps == 1 ? 3 : beeps == 2 ? 1 : 2);
+}
+
 float getDistance(const int pins[]) {
-  // Ensure the Echo pin is pulled LOW when inactive to prevent ghost 0.1cm readings
-  pinMode(pins[1], INPUT_PULLDOWN);
-  
-  for (int attempt = 0; attempt < 3; attempt++) {
+  const int SAMPLES = 3;
+  float readings[SAMPLES];
+  int validCount = 0;
+
+  for (int i = 0; i < SAMPLES; i++) {
     digitalWrite(pins[0], LOW);
     delayMicroseconds(5);
     digitalWrite(pins[0], HIGH);
-    delayMicroseconds(20); // Longer trigger pulse (20us) to ensure 3.3V->5V wake-up
+    delayMicroseconds(15); 
     digitalWrite(pins[0], LOW);
     
-    // Increased timeout for better detection in deep bins
-    long dur = pulseIn(pins[1], HIGH, 50000); 
+    // Increased timeout for 320cm max range
+    long dur = pulseIn(pins[1], HIGH, 25000); 
 
-    if (dur > 0 && dur < 40000) { // Valid reading found
-        return (dur * 0.034) / 2.0;
+    if (dur > 100 && dur < 20000) { 
+        readings[validCount++] = (dur * 0.0343) / 2.0;
     }
-    delay(20); // Wait for echoes to clear before retry
   }
 
-  return 999.0; // OOR
+  if (validCount == 0) return 999.0;
+
+  // Simple sort for median
+  for (int i = 0; i < validCount-1; i++) {
+    for (int j = i+1; j < validCount; j++) {
+      if (readings[i] > readings[j]) {
+        float temp = readings[i]; readings[i] = readings[j]; readings[j] = temp;
+      }
+    }
+  }
+  return readings[validCount / 2];
+}
+
+void updateProcessingHUD(String status) {
+  // Phase 4: In Progress
+  displayMessage("PROCESSING", status);
 }
 
 // ============================================================

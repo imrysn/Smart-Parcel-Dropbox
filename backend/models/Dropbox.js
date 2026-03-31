@@ -3,6 +3,10 @@ const mongoose = require('mongoose');
 /**
  * Dropbox — represents a registered Smart Parcel Dropbox hardware unit.
  * Created when a user scans the registration QR code shown on the LCD.
+ *
+ * Multi-user: a single physical device can be registered by multiple users.
+ * userIds holds all registered user IDs. primaryUserId is the first registrant.
+ * The legacy userId field is kept as a virtual alias for backward compatibility.
  */
 const dropboxSchema = new mongoose.Schema({
   deviceId: {
@@ -10,10 +14,21 @@ const dropboxSchema = new mongoose.Schema({
     required: true,
     unique: true,    // MAC address of the ESP32
   },
+  // ── Multi-user fields ──────────────────────────────────────────────────────
+  userIds: {
+    type: [String],
+    default: [],     // All users who have registered this device
+  },
+  primaryUserId: {
+    type: String,
+    default: null,   // First user to register (for display / ownership)
+  },
+  // ── Legacy single-user field (kept for backward compat, not written to) ───
   userId: {
     type: String,
-    required: true,  // MongoDB user._id who registered this device
+    default: null,
   },
+  // ─────────────────────────────────────────────────────────────────────────
   name: {
     type: String,
     default: 'My Smart Parcel Dropbox',
@@ -34,6 +49,16 @@ const dropboxSchema = new mongoose.Schema({
   registeredAt: {
     type: Date,
     default: Date.now,
+  },
+  dropoffCount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  pickupCount: {
+    type: Number,
+    default: 0,
+    min: 0,
   },
   lastSeenAt: {
     type: Date,

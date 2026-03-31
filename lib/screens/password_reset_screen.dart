@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../config/user_theme.dart';
+import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
 import '../services/input_validator.dart';
 
@@ -75,12 +77,16 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('Reset Password'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
+    return Container(
+      decoration: UserUi.pageBackground(context),
+      child: Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: UserTheme.appBarGradient(
+        title: 'Reset password',
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -218,6 +224,7 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

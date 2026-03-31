@@ -35,18 +35,25 @@
 #define SERVO_PIN        14
 
 // ============================================================
-//  DISPLAY COLORS (Material Dark Theme)
+//  DISPLAY COLORS (Sci-Fi Robotic HUD Theme)
 // ============================================================
-#define COLOR_BG      0x10A2  // #121212 Very Dark Grey
-#define COLOR_CARD    0x2124  // #1E1E1E Elevated Grey
+#define COLOR_BG      0x0000  // Pure Black
+#define COLOR_CARD    0x0841  // Deep Charcoal (Very Dark Grey)
 #define COLOR_TEXT    0xFFFF  // Pure White
-#define COLOR_ACCENT  0x3DFF  // Cyan Highlight
-#define COLOR_BLUE    0x041A  // Material Blue #4285F4
+#define COLOR_ACCENT  0x07FF  // Neon Cyan / Electric Blue
+#define COLOR_BLUE    0x001F  // Deep Sci-Fi Blue
 #define COLOR_PURPLE  0x780F  // Deep Purple
-#define COLOR_GREEN   0x05E6  // Material Green #34A853
-#define COLOR_RED     0xF800  // Material Red #EA4335
-#define COLOR_GREY    0x8410  // #888888 Light Grey
-#define COLOR_GOLD    0xFDE0  // Material Yellow/Gold
+#define COLOR_GREEN   0x07E0  // Neon Green
+#define COLOR_RED     0xF800  // Warning Red
+#define COLOR_GREY    0x7BEF  // Steel Grey
+#define COLOR_GOLD    0xFFE0  // Amber / Warning Yellow
+#define COLOR_NEON_ORANGE 0xFD20 // Neon Orange
+#define COLOR_NEON_CYAN   0x07FF // Neon Cyan
+
+// UI Constants
+#define HUD_MARGIN    10
+#define HUD_CORNER    6
+#define BAR_HEIGHT    24
 
 // ============================================================
 //  STATE MACHINE
@@ -74,6 +81,7 @@ enum SystemState {
   SCAN_TIMEOUT_PROMPT,
   WAITING_FOR_WIFI_CONFIG,
   SETUP_NO_SERVER,
+  SETTINGS_MENU,
   RESETTING,
   LOCKSCREEN
 };

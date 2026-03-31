@@ -1,5 +1,5 @@
 // ============================================================
-//  DisplayController.ino  – Smartwatch / WearOS Style UI
+//  DisplayController.ino  – Cybernetic HUD / Sci-Fi UI
 // ============================================================
 #include "qrcode.h"
 #include <Fonts/FreeSans9pt7b.h>
@@ -30,6 +30,12 @@ void _viewfinder(int x1, int y1, int x2, int y2, uint16_t c) {
   _bracket(x2,    y1,    arm, 1, c); // TR
   _bracket(x1,    y2,    arm, 2, c); // BL
   _bracket(x2,    y2,    arm, 3, c); // BR
+}
+
+// ── Sci-Fi HUD Helpers ──────────────────────────────────────
+void drawScanningAnimation(int scanY, uint16_t color) {
+  // Glow effect (2-pixel thick)
+  tft.fillRect(HUD_MARGIN + 5, scanY - 1, 320 - (HUD_MARGIN * 2) - 10, 3, color);
 }
 
 // ── Internal helper: Precise centering using getTextBounds ────
@@ -85,25 +91,36 @@ void _verticalOvalButton(int x, int y, int w, int h, const char* label, uint16_t
 void drawStatusBar() {
   tft.setFont();
   tft.setTextSize(1);
-  // Slimmer, cleaner bar with margin (24px height)
-  tft.fillRect(0, 0, 320, 26, COLOR_BG); 
+  // Dark terminal bar
+  tft.fillRect(0, 0, 320, BAR_HEIGHT, COLOR_BG); 
+  tft.drawFastHLine(0, BAR_HEIGHT-1, 320, COLOR_ACCENT); // Cyan separator line
   
-  // Dynamic Island pill shifted down for top margin (y=6, h=18)
-  tft.fillRoundRect(110, 6, 100, 18, 9, COLOR_CARD);
+  // Terminal Identifier
+  tft.setTextColor(COLOR_ACCENT);
+  tft.setCursor(HUD_MARGIN, 8);
+  tft.print("SYS_CMD >> ACTIVE");
   
   lastIndicatorUpdate = 0;
   updateDynamicIndicators();
 }
 
-// ── SCANNER BACKGROUND (shared by drop-off + rider IDscreens) ─
+// ── SCANNER BACKGROUND ──────────────────────────────────────
 void drawScannerBg() {
   tft.fillScreen(COLOR_BG);
   drawStatusBar();
+
+  // Technical Markers
+  tft.setTextColor(COLOR_GREY); tft.setFont();
+  tft.setCursor(HUD_MARGIN+15, BAR_HEIGHT+10); tft.print("SCANNER_INIT...");
+  tft.setCursor(HUD_MARGIN+15, BAR_HEIGHT+22); tft.print("MODE: LASER_READ");
+  
   // Viewfinder: TL(25,35) – BR(295,195)
-  _viewfinder(25, 35, 295, 195, COLOR_TEXT);
-  // Red laser line at vertical center of viewfinder
+  _viewfinder(25, 35, 295, 195, COLOR_ACCENT);
+  
+  // Laser line (Neon Red)
   tft.fillRect(35, 115, 250, 2, COLOR_RED);
-  // EXIT red indicator
+  
+  // EXIT RED Technical Button
   _buttonIndicator(288, 222, COLOR_RED);
   tft.setFont();
 }
@@ -113,9 +130,15 @@ void showHomeScreen() {
   tft.fillScreen(COLOR_BG);
   drawStatusBar();
 
-  // Vertical Oval Buttons shifted down for balance (cy=132)
-  _verticalOvalButton(80,  132, 100, 140, "DROP OFF", COLOR_BLUE, 0);
-  _verticalOvalButton(240, 132, 100, 140, "PICK UP",  COLOR_RED,  1);
+  // Technical Marker: OS Name
+  tft.setFont();
+  tft.setTextColor(COLOR_GREY);
+  tft.setCursor(HUD_MARGIN + 2, 228);
+  tft.print("VER: 4.2.0-S3_ALPHA");
+
+  // Vertical Oval Buttons (HUD Style) - cy=132
+  _verticalOvalButton(80,  132, 100, 140, "DROP-OFF", COLOR_BLUE, 0); // Material Blue for entry
+  _verticalOvalButton(240, 132, 100, 140, "PICK-UP",  COLOR_RED,  1);  // Material Red for security
 
   tft.setFont();
   tft.setTextSize(1);
@@ -197,7 +220,7 @@ void drawOwnerVerifyingScreen(const String& token) {
   tft.setFont();
 }
 
-// ── DISPLAY MESSAGE (status modal) ──────────────────────────
+// ── DISPLAY MESSAGE (Terminal Alert Overlay) ────────────────
 void displayMessage(const char* title, const char* msg) {
   bool isGood = strstr(title, "SUCCESS") || strstr(title, "VALID") ||
                 strstr(title, "VERIFIED") || strstr(title, "REGISTERED") ||
@@ -205,20 +228,22 @@ void displayMessage(const char* title, const char* msg) {
   bool isBad  = strstr(title, "ERROR") || strstr(title, "INVALID") ||
                 strstr(title, "REJECTED") || strstr(title, "DENIED") ||
                 strstr(title, "TIMEOUT") || strstr(title, "OFFLINE");
-  uint16_t accentColor = isGood ? COLOR_GREEN : isBad ? COLOR_RED : COLOR_BLUE;
+  uint16_t accentColor = isGood ? COLOR_GREEN : isBad ? COLOR_RED : COLOR_ACCENT;
 
   tft.fillScreen(COLOR_BG);
   drawStatusBar();
   
-  // Focal status oval (200x76)
-  _horizontalOval(160, 105, 200, 76, accentColor);
-  
-  if (isGood)      drawIconCheck(160, 102, COLOR_TEXT);
-  else if (isBad)  drawIconX(160, 102, COLOR_TEXT);
-  else             drawIconBox(160, 102, COLOR_TEXT);
+  // Terminal Card (HUD Rect)
+  int cw = 220, ch = 100;
+  tft.drawRoundRect(160 - cw/2, 115 - ch/2, cw, ch, HUD_CORNER, accentColor);
+  tft.fillRoundRect(160 - cw/2 + 2, 115 - ch/2 + 2, cw - 4, ch - 4, HUD_CORNER - 1, COLOR_CARD);
 
-  _boldText(title, 160, 182, COLOR_TEXT);
-  _smallText(msg,  160, 208, COLOR_GREY);
+  if (isGood)     { drawIconCheck(160, 105, COLOR_GREEN); triggerCyberChirp(1); }
+  else if (isBad) { drawIconX(160, 105, COLOR_RED);      triggerCyberChirp(2); }
+  else            { drawIconBox(160, 105, COLOR_ACCENT); triggerCyberChirp(3); }
+
+  _boldText(title, 160, 185, COLOR_TEXT);
+  _smallText(msg,  160, 215, COLOR_GREY);
   tft.setFont();
 }
 

@@ -33,8 +33,8 @@ void drawPickupSelectScreen() {
 // ── Owner Mode (single vs multi) ──────────────────────────
 void drawOwnerModeScreen() {
   _twoOvalScreen("Owner Pick Up",
-    COLOR_BLUE,   0, "SINGLE",
-    COLOR_PURPLE, 0, "MULTI");
+    COLOR_BLUE, 0, "SINGLE",
+    COLOR_RED,  0, "MULTI");
 }
 
 // ── Add More Prompt ────────────────────────────────────────
@@ -104,4 +104,12 @@ void drawScanFailedPrompt() {
 void drawModernButton(int x, int y, int w, int h, uint16_t bgColor, const char* label) {
   // Replaced by circle indicators - no-op kept for compile compat
   (void)x; (void)y; (void)w; (void)h; (void)bgColor; (void)label;
+}
+
+// ── Settings Menu ──────────────────────────────────────────
+void drawSettingsMenu() {
+  // REGISTER (blue, plus) | BACK (red, X)
+  _twoOvalScreen("System Settings",
+    COLOR_BLUE, 4, "REGISTER",
+    COLOR_RED,  3, "BACK");
 }

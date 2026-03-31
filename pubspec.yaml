@@ -54,6 +54,7 @@ dependencies:
   local_auth: ^2.1.8
 
   qr_flutter: ^4.1.0
+  google_fonts: ^8.0.2
 
 dev_dependencies:
   flutter_test:
@@ -74,6 +75,6 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "android/app/src/main/res/mipmap-hdpi/ic_launcher.png"
-  adaptive_icon_background: "#1A237E"
-  adaptive_icon_foreground: "android/app/src/main/res/mipmap-hdpi/ic_launcher.png"
+  image_path: "Mobile App Icon/AppIconNew.png"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "Mobile App Icon/AppIconNew.png"
