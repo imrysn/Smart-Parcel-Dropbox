@@ -166,12 +166,15 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
               backgroundColor: Colors.orange.shade700,
               foregroundColor: Colors.white,
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddRiderDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Rider'),
-        backgroundColor: Colors.orange.shade700,
-        foregroundColor: Colors.white,
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: widget.isEmbedded ? 80.0 : 0.0),
+        child: FloatingActionButton.extended(
+          onPressed: _showAddRiderDialog,
+          icon: const Icon(Icons.add),
+          label: const Text('Add Rider'),
+          backgroundColor: Colors.orange.shade700,
+          foregroundColor: Colors.white,
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

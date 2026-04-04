@@ -236,80 +236,91 @@ class _HomeScreenState extends State<HomeScreen> {
         floatingActionButton: _getFloatingActionButton(),
         bottomNavigationBar: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          child: UserUi.glassCard(
-            context,
-            blur: 16,
-            borderRadius: 32,
-            color: isDark ? Colors.black.withOpacity(0.65) : Colors.white.withOpacity(0.7),
-            border: Border.all(
-              color: isDark ? Colors.white.withOpacity(0.08) : UserTheme.primaryOrange.withOpacity(0.15),
-            ),
-            child: NavigationBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              height: 72,
-              indicatorColor: UserTheme.primaryOrange.withOpacity(0.15),
-              surfaceTintColor: Colors.transparent,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) {
-                setState(() {
-                  _selectedIndex = index;
-                  if (index <= 2 && _userId != null) {
-                    _databaseService.refreshTracking(_userId!);
-                    if (index == 0) _checkDropbox();
-                  }
-                });
-              },
-              destinations: [
-                NavigationDestination(
-                  icon: Icon(Icons.grid_view_outlined, size: 22, color: theme.hintColor),
-                  selectedIcon: const Icon(Icons.grid_view_rounded, size: 24, color: UserTheme.primaryOrange),
-                  label: 'Home',
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(32),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.black.withOpacity(0.65) : Colors.white.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(32),
+                  border: Border.all(
+                    color: isDark ? Colors.white.withOpacity(0.08) : UserTheme.primaryOrange.withOpacity(0.15),
+                  ),
                 ),
-                NavigationDestination(
-                  icon: Icon(Icons.inventory_2_outlined, size: 22, color: theme.hintColor),
-                  selectedIcon: const Icon(Icons.inventory_2_rounded, size: 24, color: UserTheme.primaryOrange),
-                  label: 'Orders',
+                child: SizedBox(
+                  height: 64,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: List.generate(5, (index) {
+                      final isSelected = _selectedIndex == index;
+                      IconData icon; IconData activeIcon; String label;
+                      if (index == 0) { icon = Icons.grid_view_outlined; activeIcon = Icons.grid_view_rounded; label = 'Home'; }
+                      else if (index == 1) { icon = Icons.inventory_2_outlined; activeIcon = Icons.inventory_2_rounded; label = 'Orders'; }
+                      else if (index == 2) { icon = Icons.outbox_outlined; activeIcon = Icons.outbox_rounded; label = 'Pickup'; }
+                      else if (index == 3) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
+                      else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
+
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedIndex = index;
+                              if (index <= 2 && _userId != null) {
+                                _databaseService.refreshTracking(_userId!);
+                                if (index == 0) _checkDropbox();
+                              }
+                            });
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? UserTheme.primaryOrange.withOpacity(0.15) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Icon(
+                                    isSelected ? activeIcon : icon,
+                                    size: isSelected ? 24 : 22,
+                                    color: isSelected ? UserTheme.primaryOrange : theme.hintColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                    color: isSelected ? UserTheme.primaryOrange : theme.hintColor,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.visible,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
                 ),
-                NavigationDestination(
-                  icon: Icon(Icons.outbox_outlined, size: 22, color: theme.hintColor),
-                  selectedIcon: const Icon(Icons.outbox_rounded, size: 24, color: UserTheme.primaryOrange),
-                  label: 'Pickup',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.dns_outlined, size: 22, color: theme.hintColor),
-                  selectedIcon: const Icon(Icons.dns_rounded, size: 24, color: UserTheme.primaryOrange),
-                  label: 'Dropbox',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.person_outline_rounded, size: 22, color: theme.hintColor),
-                  selectedIcon: const Icon(Icons.person_rounded, size: 24, color: UserTheme.primaryOrange),
-                  label: 'Profile',
-                ),
-              ],
-            ),
           ),
         ),
-        body: _getSelectedTab(),
+      ),
+    ),
+    body: _getSelectedTab(),
       ),
     );
   }
 
   Widget? _getFloatingActionButton() {
-    if (_selectedIndex == 2) {
-      return FloatingActionButton(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => const OwnerVerifyScreen(),
-            ),
-          );
-        },
-        heroTag: 'pickup_verify_fab',
-        child: const Icon(Icons.qr_code_scanner),
-      );
-    } else if (_selectedIndex == 1) {
+    if (_selectedIndex == 1) {
       return FloatingActionButton.extended(
         onPressed: () {
           Navigator.of(context).push(
@@ -610,7 +621,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 0.95,
+                    childAspectRatio: 1.08,
                     children: [
                       _buildMiniStatCard(
                         title: 'Active Orders',
@@ -943,7 +954,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Returns a human-readable relative time string.
   String _timeAgo(DateTime? date) {
     if (date == null) return 'Unknown';
-    final diff = DateTime.now().difference(date);
+    final diff = DateTime.now().difference(date).abs();
     if (diff.inSeconds < 60) return 'Just now';
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';

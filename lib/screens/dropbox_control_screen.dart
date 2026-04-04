@@ -290,7 +290,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: UserTheme.appBarGradient(context: context, title: 'Device Management', centerTitle: true),
+        appBar: UserTheme.appBarGradient(context: context, title: '', centerTitle: true),
         body: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
@@ -298,7 +298,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _buildManagementSection(),
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
                 if (_hasDropbox) ...[
                   _buildConnectionBanner(),
                   const SizedBox(height: 24),
@@ -456,37 +456,48 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   }
 
   Widget _buildConnectionBanner() {
-    return AnimatedBuilder(
-      animation: _pulseAnimation,
-      builder: (_, __) => UserUi.glassCard(
-        context,
-        blur: 12,
-        borderRadius: 12,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        color: (_esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError).withOpacity(0.12 * _pulseAnimation.value),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 10, height: 10,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError,
-                boxShadow: [BoxShadow(color: (_esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError).withOpacity(0.6 * _pulseAnimation.value), blurRadius: 10, spreadRadius: 2)],
+    final statusColor = _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError;
+    final textLabel = _esp32Connected ? 'HARDWARE CONNECTED' : 'HARDWARE DISCONNECTED';
+    
+    return UserUi.glassCard(
+      context,
+      blur: 0,
+      borderRadius: 12,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      color: statusColor.withOpacity(0.08),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _pulseAnimation,
+              builder: (_, __) => Container(
+                width: 10, height: 10,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: statusColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: statusColor.withOpacity(0.6 * _pulseAnimation.value), 
+                      blurRadius: 10, 
+                      spreadRadius: 2
+                    )
+                  ],
+                ),
               ),
             ),
-            const SizedBox(width: 12),
-            Text(
-              _esp32Connected ? 'HARDWARE CONNECTED' : 'HARDWARE DISCONNECTED',
-              style: TextStyle(
-                color: _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError,
-                fontWeight: FontWeight.w900,
-                fontSize: 12,
-                letterSpacing: 1,
-              ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            textLabel,
+            style: TextStyle(
+              color: statusColor,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+              letterSpacing: 1,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

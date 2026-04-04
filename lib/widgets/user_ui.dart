@@ -34,23 +34,17 @@ class UserUi {
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: color ?? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.04)),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: border ?? Border.all(
-              color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
-              width: 0.5,
-            ),
-          ),
-          child: child,
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: color ?? (isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.85)),
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: border ?? Border.all(
+          color: isDark ? Colors.white.withOpacity(0.15) : Colors.black.withOpacity(0.05),
+          width: 0.5,
         ),
       ),
+      child: child,
     );
   }
 

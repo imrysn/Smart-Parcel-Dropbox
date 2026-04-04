@@ -5,6 +5,7 @@ import '../services/database_service.dart';
 import '../models/tracking_model.dart';
 import 'tracking_details_screen.dart';
 import 'admin/rider_management_screen.dart';
+import 'owner_verify_screen.dart';
 
 /// Pickup Screen - Manages items waiting to be picked up by couriers
 class PickupScreen extends StatefulWidget {
@@ -34,6 +35,20 @@ class _PickupScreenState extends State<PickupScreen> {
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        floatingActionButton: _currentTab == 0 ? Padding(
+          padding: const EdgeInsets.only(bottom: 80.0),
+          child: FloatingActionButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const OwnerVerifyScreen(),
+                ),
+              );
+            },
+            heroTag: 'pickup_verify_fab',
+            child: const Icon(Icons.qr_code_scanner),
+          ),
+        ) : null,
         body: Column(
           children: [
             Padding(

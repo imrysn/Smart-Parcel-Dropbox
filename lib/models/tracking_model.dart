@@ -34,7 +34,7 @@ class TrackingModel {
       shopName: data['shopName'] ?? '',
       status: data['status'] ?? 'pending',
       mode: data['mode'] ?? 'drop_off',
-      registeredAt: data['registeredAt'] != null ? DateTime.parse(data['registeredAt']) : (data['createdAt'] != null ? DateTime.parse(data['createdAt']) : null),
+      registeredAt: data['createdAt'] != null ? DateTime.parse(data['createdAt']) : (data['registeredAt'] != null ? DateTime.parse(data['registeredAt']) : null),
       expectedDeliveryDate: data['expectedDeliveryDate'],
       deliveredAt: data['deliveredAt'] != null ? DateTime.parse(data['deliveredAt']) : null,
       retrievedAt: data['retrievedAt'] != null ? DateTime.parse(data['retrievedAt']) : null,
