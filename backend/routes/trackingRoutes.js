@@ -1,12 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { registerTracking, getUserTracking, getAllTracking, getTrackingById, updateTrackingStatus, resetTracking } = require('../controllers/trackingController');
+const { registerTracking, getUserTracking, getAllTracking, getTrackingById, updateTrackingStatus, resetTracking, simulateTracking } = require('../controllers/trackingController');
+const { authMiddleware } = require('../utils/auth');
+
+// All routes here should be protected
+router.use(authMiddleware);
 
 router.post('/', registerTracking);
 router.get('/', getAllTracking);
-router.get('/:trackingId', getTrackingById);
 router.get('/user/:userId', getUserTracking);
+router.get('/:trackingId', getTrackingById);
 router.patch('/:trackingId/status', updateTrackingStatus);
-router.post('/:trackingId/reset', resetTracking); // DEV/TESTING: reset to pending
+router.post('/:trackingId/reset', resetTracking);
+router.post('/:trackingId/simulate', simulateTracking);
 
 module.exports = router;

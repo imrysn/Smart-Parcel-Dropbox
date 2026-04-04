@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import '../models/tracking_model.dart';
 import '../config/api_config.dart';
+import 'service_locator.dart';
+import 'auth_service.dart';
 
 /// Tracking Service - Handles tracking-related operations
 ///
@@ -19,12 +21,16 @@ class TrackingService {
   TrackingService._internal();
 
   final _trackingController = StreamController<List<TrackingModel>>.broadcast();
+  final _allTrackingController = StreamController<List<TrackingModel>>.broadcast();
+  final _authService = getIt<AuthService>();
   List<TrackingModel> _cachedTracking = [];
   bool _isFetching = false;
+  bool _isFetchingAll = false;
 
   // Public getters
   List<TrackingModel> get cachedTracking => _cachedTracking;
   Stream<List<TrackingModel>> get trackingStream => _trackingController.stream;
+  Stream<List<TrackingModel>> get allTrackingStream => _allTrackingController.stream;
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -35,9 +41,10 @@ class TrackingService {
     String mode = 'drop_off',
   }) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.post(
         Uri.parse(ApiConfig.tracking),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           'trackingId': trackingId,
           'userId': userId,
@@ -65,8 +72,10 @@ class TrackingService {
     _isFetching = true;
 
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.tracking}/user/$userId'),
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -119,8 +128,10 @@ class TrackingService {
   /// Verify tracking ID (used by courier/drop box system)
   Future<Map<String, dynamic>?> verifyTrackingId(String trackingId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.tracking}/$trackingId'),
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -138,9 +149,10 @@ class TrackingService {
     required String status,
   }) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.patch(
         Uri.parse('${ApiConfig.tracking}/$trackingId/status'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({'status': status}),
       );
 
@@ -154,22 +166,67 @@ class TrackingService {
 
   /// Get all tracking IDs (Admin)
   Future<List<TrackingModel>> getAllTrackingIds() async {
+    if (_isFetchingAll) return _cachedTracking;
+    _isFetchingAll = true;
+
     try {
-      final response = await http.get(Uri.parse(ApiConfig.tracking));
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse(ApiConfig.tracking),
+        headers: headers,
+      );
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
-        return data.map((e) => TrackingModel.fromMap(e)).toList();
+        final list = data.map((json) => TrackingModel.fromMap(json)).toList();
+        _cachedTracking = list;
+        _allTrackingController.add(list);
+        return list;
       }
+      // Ensure listeners (e.g. admin tracking tab) do not stay stuck in waiting.
+      _allTrackingController.add([]);
       return [];
     } catch (e) {
       debugPrint('Error fetching all tracking: $e');
+      // Emit an empty state on failures so StreamBuilder can render fallback UI.
+      _allTrackingController.add([]);
       return [];
+    } finally {
+      _isFetchingAll = false;
+    }
+  }
+
+  /// Trigger an automated simulation for a tracking ID
+  Future<void> simulateTracking(String trackingId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.tracking}/$trackingId/simulate'),
+      );
+      if (response.statusCode != 200) {
+        throw 'Failed to start simulation';
+      }
+    } catch (e) {
+      throw 'Simulation error: $e';
+    }
+  }
+
+  /// Manually reset tracking status (for development/testing)
+  Future<void> resetTracking(String trackingId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.tracking}/$trackingId/reset'),
+      );
+      if (response.statusCode != 200) {
+        throw 'Failed to reset tracking';
+      }
+    } catch (e) {
+      throw 'Reset error: $e';
     }
   }
 
   /// Dispose resources
   void dispose() {
     _trackingController.close();
+    _allTrackingController.close();
   }
 
   /// Reset singleton instance

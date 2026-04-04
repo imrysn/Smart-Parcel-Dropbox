@@ -37,6 +37,8 @@ class DatabaseService {
     debugPrint(
         '⚠️ DatabaseService (facade) initialized - consider migrating to new services');
   }
+  
+  bool _isSocketInitialized = false;
 
   // Lazy getters for new services
   WebSocketService get _ws => getIt<WebSocketService>();
@@ -48,8 +50,14 @@ class DatabaseService {
 
   // ========== WebSocket Methods ==========
 
-  void initSocket(String userId) {
-    _ws.connect(userId);
+  Future<void> initSocket(String userId) async {
+    if (_isSocketInitialized) {
+      debugPrint('ℹ️ DatabaseService: Socket listeners already initialized');
+      return;
+    }
+    
+    await _ws.connect(userId);
+    _isSocketInitialized = true;
 
     // Wire up WebSocket events to services
     _ws.trackingUpdates.listen((_) => _tracking.refreshTracking(userId));
@@ -66,8 +74,11 @@ class DatabaseService {
       final trackingId = (data['trackingId'] ?? '').toString();
       final status = (data['status'] ?? '').toString();
 
-      // 1. Refresh the tracking list so the home screen updates immediately
+      // 1. Refresh the tracking lists so the UI updates immediately
       _tracking.refreshTracking(userId);
+      
+      // If admin, also refresh all tracking
+      _tracking.getAllTrackingIds();
 
       // 2. Show a local system tray/push notification
       _notification.showDeliveryNotification(
@@ -95,6 +106,7 @@ class DatabaseService {
   Stream<bool> get connectionStatusStream => _ws.connectionStatusStream;
   Stream<Map<String, dynamic>> get deviceRegisteredStream => _ws.deviceRegisteredStream;
   Stream<Map<String, dynamic>> get deviceUnregisteredStream => _ws.deviceUnregisteredStream;
+  Stream<Map<String, dynamic>> get autoAcceptStatusStream => _ws.autoAcceptStatus;
 
   // ========== Tracking Methods ==========
 
@@ -134,12 +146,17 @@ class DatabaseService {
   }) =>
       _tracking.updateTrackingStatus(trackingId: trackingId, status: status);
 
-  Stream<List<TrackingModel>> getAllTrackingIds() =>
-      Stream.fromFuture(_tracking.getAllTrackingIds());
+  Stream<List<TrackingModel>> getAllTrackingIds() => _tracking.allTrackingStream;
 
-  Future<void> refreshAllTrackingIds() async {
-    // Not needed with new architecture
-  }
+  Future<List<TrackingModel>> refreshAllTrackingIds() => _tracking.getAllTrackingIds();
+
+  Future<void> simulateTracking(String trackingId) => _tracking.simulateTracking(trackingId);
+
+  Future<void> resetTracking(String trackingId) => _tracking.resetTracking(trackingId);
+
+  void toggleAutoAccept(bool enabled) => _ws.emitToggleAutoAccept(enabled);
+
+  void requestAutoAcceptStatus() => _ws.requestAutoAcceptStatus();
 
   List<TrackingModel> get cachedTracking => _tracking.cachedTracking;
 

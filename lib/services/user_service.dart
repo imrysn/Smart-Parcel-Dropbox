@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import '../models/user_model.dart';
 import '../config/api_config.dart';
+import 'service_locator.dart';
+import 'auth_service.dart';
 
 /// User Service - Handles user management operations
 ///
@@ -17,6 +19,7 @@ class UserService {
   }
 
   UserService._internal();
+  final _authService = getIt<AuthService>();
 
   final _usersController = StreamController<List<UserModel>>.broadcast();
   List<UserModel> _cachedUsers = [];
@@ -29,8 +32,9 @@ class UserService {
   /// Get user data by MongoDB ID
   Future<Map<String, dynamic>?> getUserData(String userId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http
-          .get(Uri.parse('${ApiConfig.users}/$userId'))
+          .get(Uri.parse('${ApiConfig.users}/$userId'), headers: headers)
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -55,9 +59,10 @@ class UserService {
     String? address,
   }) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.patch(
         Uri.parse('${ApiConfig.users}/$userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           if (fullName != null) 'fullName': fullName,
           if (phoneNumber != null) 'phoneNumber': phoneNumber,
@@ -73,39 +78,20 @@ class UserService {
     }
   }
 
-  /// Get all users (Admin)
+  /// Get all users (Admin) — returns a broadcast stream safe to reuse across
+  /// navigations and widget rebuilds. Call [refreshAllUsers] to trigger or
+  /// re-trigger a fetch.
   Stream<List<UserModel>> getAllUsers() {
-    // Important: do not trigger the initial fetch until a listener is attached.
-    // Otherwise, the first `add`/`addError` can happen before `StreamBuilder`
-    // subscribes, leaving the UI stuck in the initial loading spinner state.
-    final controller = StreamController<List<UserModel>>();
-    StreamSubscription<List<UserModel>>? subscription;
-
-    void forwardError(Object error, StackTrace st) {
-      controller.addError(error, st);
+    // Emit cached data immediately if available so the UI renders without
+    // waiting for the next refresh cycle.
+    if (_cachedUsers.isNotEmpty && !_isFetching) {
+      Future.microtask(() => _usersController.add(_cachedUsers));
+    } else {
+      refreshAllUsers();
     }
-
-    controller.onListen = () {
-      subscription = _usersController.stream.listen(
-        controller.add,
-        onError: forwardError,
-      );
-
-      if (_cachedUsers.isNotEmpty) {
-        controller.add(_cachedUsers);
-      } else {
-        // This will no-op if another refresh is already in-flight.
-        refreshAllUsers();
-      }
-    };
-
-    controller.onCancel = () async {
-      await subscription?.cancel();
-      await controller.close();
-    };
-
-    return controller.stream;
+    return _usersController.stream;
   }
+
 
   /// Refresh all users list
   Future<void> refreshAllUsers() async {
@@ -127,10 +113,9 @@ class UserService {
 
   Future<List<UserModel>> _fetchAllUsers() async {
     try {
-      final response =
-          await http.get(Uri.parse(ApiConfig.users)).timeout(
-                const Duration(seconds: 10),
-              );
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.get(Uri.parse(ApiConfig.users), headers: headers)
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) {
         throw Exception(
@@ -154,9 +139,10 @@ class UserService {
     required String role,
   }) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       await http.patch(
         Uri.parse('${ApiConfig.users}/$userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({'role': role}),
       );
     } catch (e) {
@@ -175,8 +161,10 @@ class UserService {
   Future<void> deleteUser(String userId) async {
     try {
       debugPrint('Deleting user: $userId');
+      final headers = await _authService.getAuthHeaders();
       final response = await http.delete(
         Uri.parse('${ApiConfig.users}/$userId'),
+        headers: headers,
       );
 
       if (response.statusCode != 200 && response.statusCode != 204) {
@@ -193,7 +181,8 @@ class UserService {
   /// Get pending users (awaiting admin approval)
   Future<List<UserModel>> getPendingUsers() async {
     try {
-      final response = await http.get(Uri.parse(ApiConfig.pendingUsers));
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.get(Uri.parse(ApiConfig.pendingUsers), headers: headers);
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         return data.map((e) => UserModel.fromMap(e)).toList();
@@ -208,9 +197,10 @@ class UserService {
   /// Approve pending user
   Future<void> approveUser(String userId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.approveUser}/$userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
       );
 
       if (response.statusCode != 200) {
@@ -225,9 +215,10 @@ class UserService {
   /// Reject pending user
   Future<void> rejectUser(String userId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.rejectUser}/$userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
       );
 
       if (response.statusCode != 200) {

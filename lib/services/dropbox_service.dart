@@ -5,17 +5,25 @@ import '../config/api_config.dart';
 import '../models/dropbox_model.dart';
 import '../services/websocket_service.dart';
 import '../services/service_locator.dart';
+import '../services/auth_service.dart';
 
 /// Service for managing the registered Smart Parcel Dropbox hardware.
 class DropboxService {
   final WebSocketService _ws;
+  final AuthService _authService;
 
-  DropboxService() : _ws = getIt<WebSocketService>();
+  DropboxService() : 
+    _ws = getIt<WebSocketService>(),
+    _authService = getIt<AuthService>();
 
   /// Fetch the registered dropbox for a given userId (REST GET).
   Future<Dropbox?> getUserDropbox(String userId) async {
     try {
-      final response = await http.get(Uri.parse('${ApiConfig.dropbox}/$userId'));
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.dropbox}/$userId'),
+        headers: headers,
+      );
       if (response.statusCode == 200) {
         return Dropbox.fromJson(jsonDecode(response.body));
       }
@@ -45,8 +53,10 @@ class DropboxService {
     // 2. REST fallback
     try {
       debugPrint('📤 REST: Falling back to DELETE /api/dropbox/$userId');
+      final headers = await _authService.getAuthHeaders();
       final response = await http.delete(
         Uri.parse('${ApiConfig.baseUrl}/api/dropbox/$userId'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         debugPrint('✅ REST: Unregistered successfully');

@@ -5,6 +5,8 @@ import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../models/notification_model.dart';
 import '../config/api_config.dart';
+import 'service_locator.dart';
+import 'auth_service.dart';
 
 /// Enhanced Notification Service - Handles notification management
 ///
@@ -38,6 +40,7 @@ class NotificationService {
   final _notificationController =
       StreamController<List<NotificationModel>>.broadcast();
   List<NotificationModel> _cachedNotifications = [];
+  final _authService = getIt<AuthService>();
 
   // Public getters
   List<NotificationModel> get cachedNotifications => _cachedNotifications;
@@ -219,8 +222,10 @@ class NotificationService {
   /// Refresh notifications for a user
   Future<void> refreshNotifications(String userId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.notifications}/user/$userId'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
@@ -243,9 +248,10 @@ class NotificationService {
     Map<String, dynamic>? data,
   }) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       await http.post(
         Uri.parse(ApiConfig.notifications),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           'userId': userId,
           'type': type,
@@ -278,8 +284,10 @@ class NotificationService {
   /// Mark notification as read
   Future<void> markNotificationAsRead(String notificationId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       await http.patch(
         Uri.parse('${ApiConfig.notifications}/$notificationId/read'),
+        headers: headers,
       );
     } catch (e) {
       debugPrint('Error marking read: $e');
@@ -289,8 +297,10 @@ class NotificationService {
   /// Mark all notifications as read
   Future<void> markAllNotificationsAsRead(String userId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       await http.patch(
         Uri.parse('${ApiConfig.notifications}/user/$userId/read'),
+        headers: headers,
       );
       refreshNotifications(userId);
     } catch (e) {

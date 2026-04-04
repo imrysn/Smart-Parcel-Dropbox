@@ -34,6 +34,9 @@ const pendingOwnerAlerts = new Map();
 // Device Registration — one-time tokens { token → { deviceId, expiresAtMs } }
 const pendingRegistrations = new Map();
 
+// Automated Admin Tracking — always enabled
+const autoAcceptMode = true; // Any scanned barcode is auto-registered
+
 
 // Initialize Express app
 const app = express();
@@ -115,20 +118,56 @@ app.get('/', (req, res) => {
   });
 });
 
+// Socket.IO middleware for authentication
+const { verifyToken } = require('./utils/auth');
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token || socket.handshake.query.token;
+
+  if (token) {
+    const decoded = verifyToken(token);
+    if (decoded) {
+      socket.userId = decoded.userId;
+      return next();
+    }
+  }
+
+  // Allow hardware (ESP32) connection without token if it identifies as such
+  // In production, you might want a specific 'hardware secret' for this.
+  const isHardware = socket.handshake.query.clientType === 'hardware';
+  if (isHardware) {
+    socket.isHardware = true;
+    return next();
+  }
+
+  // For now, allow anonymous if not hardware, but tag it for restricted join
+  // This helps with migration, but we should eventually require token for all app clients.
+  console.log(`⚠️  Connection without token from ${socket.id}`);
+  next();
+});
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-  console.log(`🔌 Client connected: ${socket.id}`);
+  console.log(`🔌 Client connected: ${socket.id} (User: ${socket.userId || 'anonymous/hardware'})`);
 
-  // Device room join (ESP32 identifies itself)
+  // Device room join
   socket.on('join', async (roomId) => {
-    socket.join(roomId);
-    console.log(`📡 ${socket.id} joined room: ${roomId}`);
-
-    // Track ESP32 connection status
+    // SECURITY: Only allow joining your OWN roomId or the hardware room if you are hardware
     if (roomId === 'esp32_device') {
+      // Hardware room - only for ESP32
+      socket.join(roomId);
       socket.isEsp32 = true;
       console.log('✅ ESP32 connected and joined room');
       io.emit('esp32Status', { connected: true, timestamp: new Date() });
+    } else {
+      // User room - must match authenticated userId
+      if (socket.userId && roomId === socket.userId) {
+        socket.join(roomId);
+        console.log(`📡 User ${socket.userId} joined their private room: ${roomId}`);
+      } else {
+        console.log(`❌ BLOCK: ${socket.id} tried to join unauthorized room: ${roomId}`);
+        return; // Deny join
+      }
     }
 
     // Feature #9 — Re-emit pending owner alert if this user has one waiting
@@ -180,26 +219,22 @@ io.on('connection', (socket) => {
   socket.on('verifyScan', async ({ trackingId, mode }) => {
     console.log(`🔍 verifyScan → trackingId: ${trackingId}, mode: ${mode}`);
     try {
-      const tracking = await Tracking.findOne({ trackingId });
+      let tracking = await Tracking.findOne({ trackingId });
 
       // Case 1: Tracking ID doesn't exist at all
       if (!tracking) {
-        console.log(`  ❌ NOT FOUND: ${trackingId}`);
-        await ScanLog.create({
-          scannedId: trackingId,
-          accessGranted: false,
-          mode: mode,
-          status: 'rejected',
-          reason: 'not_registered'
-        });
-        socket.emit('scanResult', {
-          valid: false,
+        console.log(`  ✨ AUTO-REGISTER: Creating new tracking for ${trackingId}`);
+        // Find the first admin to assign this to, or use a system placeholder
+        const adminUser = await User.findOne({ role: 'admin' });
+        const userId = adminUser ? adminUser._id.toString() : 'hardware_auto_accepted';
+        
+        tracking = await Tracking.create({
           trackingId,
-          mode,
-          userId: null,
-          reason: 'not_registered'
+          userId,
+          shopName: 'Auto-Accepted Parcel',
+          status: 'pending',
+          mode: mode || 'drop_off'
         });
-        return;
       }
 
       // Case 2: Already completed — parcel was already delivered/done/retrieved
@@ -748,6 +783,15 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('❌ hardwareConfigApplied error:', err.message);
     }
+  });
+
+  // ── Automated Admin Tracking Events ─────────────────────────────────────
+  // Always-on automation: keep compatibility for existing clients.
+  socket.on('toggleAutoAccept', () => {
+    socket.emit('autoAcceptStatus', { enabled: autoAcceptMode });
+  });
+  socket.on('getAutoAcceptStatus', () => {
+    socket.emit('autoAcceptStatus', { enabled: autoAcceptMode });
   });
 
   socket.on('disconnect', () => {

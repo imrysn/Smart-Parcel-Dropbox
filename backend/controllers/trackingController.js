@@ -5,7 +5,8 @@ const Notification = require('../models/Notification');
 // @desc    Register a tracking ID
 exports.registerTracking = async (req, res) => {
     try {
-        const { trackingId, userId, shopName, expectedDeliveryDate, mode } = req.body;
+        const { trackingId, shopName, expectedDeliveryDate, mode } = req.body;
+        const userId = req.userId; // Securely get userId from auth token
 
         const exists = await Tracking.findOne({ trackingId });
         if (exists) {
@@ -17,7 +18,7 @@ exports.registerTracking = async (req, res) => {
             userId,
             shopName,
             expectedDeliveryDate,
-            mode: mode || 'drop_off',   // default: user registers to receive a drop-off
+            mode: mode || 'drop_off',
         });
 
         // Use global io if available
@@ -45,7 +46,14 @@ exports.registerTracking = async (req, res) => {
 // @desc    Get user tracking IDs
 exports.getUserTracking = async (req, res) => {
     try {
-        const tracking = await Tracking.find({ userId: req.params.userId }).sort({ createdAt: -1 });
+        const userId = req.params.userId;
+        
+        // Security check: only allow users to see their own tracking data
+        if (userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot access another user\'s data' });
+        }
+
+        const tracking = await Tracking.find({ userId }).sort({ createdAt: -1 });
         res.json(tracking);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -157,6 +165,67 @@ exports.resetTracking = async (req, res) => {
         }
 
         res.json({ message: 'Reset to pending for re-testing', tracking: updated });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+// @desc    Simulate automated tracking progression (FOR DEMO/TESTING)
+// @route   POST /api/tracking/:trackingId/simulate
+exports.simulateTracking = async (req, res) => {
+    try {
+        const { trackingId } = req.params;
+        const tracking = await Tracking.findOne({ trackingId });
+
+        if (!tracking) {
+            return res.status(404).json({ message: 'Tracking ID not found' });
+        }
+
+        const io = req.app.get('io');
+        const statuses = tracking.mode === 'pickup' 
+            ? ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
+            : ['pending', 'in_transit', 'delivered', 'done'];
+
+        // Start the simulation in the "background"
+        let currentIndex = statuses.indexOf(tracking.status);
+        if (currentIndex === -1) currentIndex = 0;
+
+        const runSimulation = async () => {
+            for (let i = currentIndex + 1; i < statuses.length; i++) {
+                const nextStatus = statuses[i];
+                
+                // Wait for a few seconds between steps
+                await new Promise(resolve => setTimeout(resolve, 5000));
+
+                const updated = await Tracking.findOneAndUpdate(
+                    { trackingId },
+                    { 
+                        $set: { 
+                            status: nextStatus,
+                            deliveredAt: nextStatus === 'delivered' ? new Date() : undefined,
+                            retrievedAt: nextStatus === 'retrieved' ? new Date() : undefined,
+                            doneAt: nextStatus === 'done' ? new Date() : undefined
+                        } 
+                    },
+                    { new: true }
+                );
+
+                if (io) {
+                    io.to(updated.userId).emit('trackingUpdate', updated);
+                    io.emit('trackingStatusChanged', {
+                        trackingId,
+                        status: nextStatus,
+                        mode: updated.mode,
+                        timestamp: new Date()
+                    });
+                }
+                
+                console.log(`🤖 [SIMULATION] ${trackingId} -> ${nextStatus}`);
+            }
+        };
+
+        runSimulation(); // Fire and forget
+
+        res.json({ message: 'Simulation started', targetStatuses: statuses.slice(currentIndex + 1) });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
