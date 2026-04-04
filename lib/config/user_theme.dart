@@ -7,20 +7,6 @@ import 'package:google_fonts/google_fonts.dart';
 class UserTheme {
   UserTheme._();
   
-  /// Global theme state notifier
-  static final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
-  
-  /// Convenience method to cycle through themes
-  static void toggleThemeMode() {
-    if (themeModeNotifier.value == ThemeMode.light) {
-      themeModeNotifier.value = ThemeMode.dark;
-    } else if (themeModeNotifier.value == ThemeMode.dark) {
-      themeModeNotifier.value = ThemeMode.system;
-    } else {
-      themeModeNotifier.value = ThemeMode.light;
-    }
-  }
-
   // ─── Day Theme Palette (Warm Oasis) ────────────────────────────────────────
 
   static const Color primaryOrange = Color(0xFFFF9800);

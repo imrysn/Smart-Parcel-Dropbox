@@ -399,6 +399,7 @@ void loop() {
 
       if (digitalRead(BTN_RECEIVE) == LOW) {
         if (!leftBtnHolding) {
+          Serial.println("[DEBUG] BTN_RECEIVE (Pin 40) is LOW (Pressed)");
           leftBtnHoldStart = millis();
           leftBtnHolding = true;
         } else if (millis() - leftBtnHoldStart > 2000) {
@@ -426,6 +427,7 @@ void loop() {
       if (digitalRead(BTN_PICKUP) == LOW) {
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
+          Serial.println("[DEBUG] BTN_PICKUP (Pin 2) is LOW (Pressed)");
           Serial.println("[FLOW] User selected: PICK UP → showing sub-menu.");
           isReceivingMode = false;
           triggerCyberChirp(3);

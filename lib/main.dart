@@ -80,19 +80,13 @@ class _SmartParcelDropBoxAppState extends State<SmartParcelDropBoxApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: UserTheme.themeModeNotifier,
-      builder: (context, mode, _) {
-        return MaterialApp(
-          title: 'Smart Parcel Drop Box',
-          navigatorKey: navigatorKey,
-          debugShowCheckedModeBanner: false,
-          theme: UserTheme.getTheme(Brightness.light),
-          darkTheme: UserTheme.getTheme(Brightness.dark),
-          themeMode: mode,
-          home: const SplashScreen(),
-        );
-      },
+    return MaterialApp(
+      title: 'Smart Parcel Drop Box',
+      navigatorKey: navigatorKey,
+      debugShowCheckedModeBanner: false,
+      theme: UserTheme.getTheme(Brightness.light),
+      themeMode: ThemeMode.light,
+      home: const SplashScreen(),
     );
   }
 }

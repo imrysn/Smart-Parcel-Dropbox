@@ -19,10 +19,10 @@ const FILES = {
 };
 
 const LOCAL = {
-    label: 'LOCAL (10.222.49.205:3000)',
-    dartBase: "http://10.222.49.205:3000/api",
-    dartSocket: "http://10.222.49.205:3000",
-    inoHost: "10.222.49.205",
+    label: 'LOCAL (192.180.100.130:3000)',
+    dartBase: "http://192.180.100.130:3000/api",
+    dartSocket: "http://192.180.100.130:3000",
+    inoHost: "192.180.100.130",
     inoPort: "3000",
     inoBegin: "socketIO.begin(",
 };

@@ -224,25 +224,6 @@ class _HomeScreenState extends State<HomeScreen> {
           title: _getAppBarTitle(),
           centerTitle: false,
           actions: [
-            ValueListenableBuilder<ThemeMode>(
-              valueListenable: UserTheme.themeModeNotifier,
-              builder: (context, mode, _) {
-                IconData icon;
-                if (mode == ThemeMode.light) icon = Icons.light_mode_rounded;
-                else if (mode == ThemeMode.dark) icon = Icons.dark_mode_rounded;
-                else icon = Icons.brightness_auto_rounded;
-                
-                return IconButton(
-                  icon: Icon(
-                    icon, 
-                    color: isDark ? Colors.white : UserTheme.dayTextPrimary, 
-                    size: 22
-                  ),
-                  onPressed: UserTheme.toggleThemeMode,
-                  tooltip: 'Switch Theme',
-                );
-              },
-            ),
             if (_userId != null)
               NotificationBadge(
                 userId: _userId!,
@@ -435,7 +416,7 @@ class _HomeScreenState extends State<HomeScreen> {
     
     return UserUi.surfaceCard(
       context,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -629,7 +610,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 1.15,
+                    childAspectRatio: 0.95,
                     children: [
                       _buildMiniStatCard(
                         title: 'Active Orders',
