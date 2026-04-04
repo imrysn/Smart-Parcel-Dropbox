@@ -6,6 +6,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/dropbox_service.dart';
 import '../services/auth_service.dart';
 import '../services/service_locator.dart';
+import '../config/user_theme.dart';
+import '../widgets/user_ui.dart';
 import 'hardware_config_screen.dart';
 
 /// Hardware Registration Screen
@@ -27,11 +29,10 @@ class _HardwareRegistrationScreenState
   final _nameController = TextEditingController(text: 'My Smart Parcel Dropbox');
   final _codeController = TextEditingController();
 
-  MobileScannerController? _scannerController;
+  final MobileScannerController _scannerController = MobileScannerController();
   StreamSubscription? _registeredSub;
   StreamSubscription? _failedSub;
 
-  bool _scanning     = false;
   bool _processing   = false;
   bool _showManual   = false;
   String? _errorMsg;
@@ -54,7 +55,7 @@ class _HardwareRegistrationScreenState
 
   @override
   void dispose() {
-    _scannerController?.dispose();
+    _scannerController.dispose();
     _registeredSub?.cancel();
     _failedSub?.cancel();
     _nameController.dispose();
@@ -64,7 +65,7 @@ class _HardwareRegistrationScreenState
 
   void _onRegistered(Map<String, dynamic> data) {
     if (!mounted) return;
-    _scannerController?.stop();
+    _scannerController.stop();
     
     final bool alreadyConnected = data['alreadyConnected'] == true;
 
@@ -97,6 +98,7 @@ class _HardwareRegistrationScreenState
   }
 
   Future<void> _submitToken(String token) async {
+    if (_processing) return;
     String trimmed = token.trim().toUpperCase();
     if (trimmed.isEmpty) return;
 
@@ -114,114 +116,264 @@ class _HardwareRegistrationScreenState
         ? 'My Smart Parcel Dropbox'
         : _nameController.text.trim();
     _dropboxService.registerDevice(trimmed, userId, name);
-    _scannerController?.stop();
+    _scannerController.stop();
   }
 
-  void _startScanner() {
+  void _resetScanner() {
     setState(() {
-      _scanning  = true;
-      _errorMsg  = null;
+      _processing = false;
+      _errorMsg = null;
+      _showManual = false;
+      _nameController.text = 'My Smart Parcel Dropbox';
     });
-    if (_isMobile) {
-      _scannerController = MobileScannerController();
-    }
-  }
-
-  void _stopScanner() {
-    _scannerController?.dispose();
-    _scannerController = null;
-    setState(() => _scanning = false);
+    _scannerController.start();
   }
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
+    final primaryColor = UserTheme.primaryOrange;
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: Colors.grey[50], // Match OwnerVerify light background
+      extendBodyBehindAppBar: true,     // Let scanner fill full screen
       appBar: AppBar(
-        title: const Text(
-          'Register Dropbox',
-        ),
+        backgroundColor: Colors.transparent, // Floating glassy app bar
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('Register Dropbox', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        centerTitle: true,
       ),
-      body: _processing
-          ? _buildLoading(primaryColor)
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
+      body: Stack(
+        children: [
+          // 1. Live camera background
+          if (!_processing && !_showManual)
+            _isMobile 
+                ? MobileScanner(
+                    controller: _scannerController,
+                    onDetect: (capture) {
+                      final barcode = capture.barcodes.firstOrNull;
+                      if (barcode?.rawValue != null) _submitToken(barcode!.rawValue!);
+                    },
+                  )
+                : _buildMockScanner(),
+
+          // 2. Scan frame + overlay elements (Same reticle as Verify Owner)
+          if (!_processing && !_showManual)
+            SafeArea(
+              child: Stack(
                 children: [
-                  _buildInstructions(primaryColor),
-                  const SizedBox(height: 28),
-                  _buildNameField(primaryColor),
-                  const SizedBox(height: 24),
-                  if (!_scanning) _buildActions(primaryColor),
-                  if (_scanning) _buildScanner(),
-                  const SizedBox(height: 20),
-                  if (_showManual && !_scanning) _buildManualEntry(primaryColor),
-                  if (_errorMsg != null) _buildError(),
+                  Center(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 240,
+                            height: 240,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: primaryColor, width: 3),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, spreadRadius: 2),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'Point camera at the QR code\non the dropbox LCD screen',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                            ),
+                          ),
+                          if (_errorMsg != null)
+                            Container(
+                              margin: const EdgeInsets.only(top: 16),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                _errorMsg!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white, fontSize: 14),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Bottom Device Name & Manual Fallback Button
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 40, left: 24, right: 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.95),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4)),
+                              ],
+                            ),
+                            child: _buildNameField(primaryColor),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              _scannerController.stop();
+                              setState(() => _showManual = true);
+                            },
+                            icon: const Icon(Icons.dialpad, size: 20),
+                            label: const Text('Enter PIN Manually', style: TextStyle(fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.black87,
+                              elevation: 2,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
+
+          // 3. Manual Entry View
+          if (!_processing && _showManual)
+            Center(
+               child: SingleChildScrollView(
+                 child: Container(
+                   margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+                   padding: const EdgeInsets.all(24),
+                   decoration: BoxDecoration(
+                     color: Colors.white,
+                     borderRadius: BorderRadius.circular(24),
+                     boxShadow: [
+                       BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5))
+                     ],
+                   ),
+                   child: Column(
+                     mainAxisSize: MainAxisSize.min,
+                     children: [
+                     Icon(Icons.dialpad, size: 48, color: primaryColor),
+                     const SizedBox(height: 16),
+                     const Text('Enter Code Manually', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                     const SizedBox(height: 8),
+                     const Text('Check the dropbox LCD for the registration PIN', style: TextStyle(color: Colors.black54), textAlign: TextAlign.center),
+                     const SizedBox(height: 24),
+                     _buildNameField(primaryColor),
+                     const SizedBox(height: 16),
+                     TextField(
+                       controller: _codeController,
+                       keyboardType: TextInputType.text,
+                       textCapitalization: TextCapitalization.characters,
+                       textAlign: TextAlign.center,
+                       style: const TextStyle(fontSize: 20, letterSpacing: 3, fontWeight: FontWeight.bold, color: Colors.black87),
+                       decoration: InputDecoration(
+                         hintText: 'e.g. SPDB-REG-123',
+                         hintStyle: const TextStyle(fontSize: 14, letterSpacing: 1, color: Colors.black26),
+                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryColor, width: 2)),
+                         filled: true,
+                         fillColor: Colors.grey[50],
+                         counterText: '',
+                       ),
+                       onSubmitted: (_) => _submitToken(_codeController.text),
+                     ),
+                     const SizedBox(height: 24),
+                     Row(
+                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                       children: [
+                         TextButton(
+                           onPressed: () {
+                             setState(() => _showManual = false);
+                             _scannerController.start();
+                           },
+                           style: TextButton.styleFrom(foregroundColor: Colors.black54),
+                           child: const Text('Back to Scanner'),
+                         ),
+                         ElevatedButton(
+                           onPressed: () => _submitToken(_codeController.text),
+                           style: ElevatedButton.styleFrom(
+                             backgroundColor: primaryColor,
+                             foregroundColor: Colors.white,
+                             elevation: 0,
+                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                           ),
+                           child: const Text('Register', style: TextStyle(fontWeight: FontWeight.bold)),
+                         ),
+                       ],
+                     ),
+                     if (_errorMsg != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: Text(_errorMsg!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
+                        )
+                   ],
+                 ),
+               ),
+               ),
+            ),
+
+          // 4. Processing overlay
+          if (_processing) _buildLoading(primaryColor),
+        ],
+      ),
     );
   }
 
   Widget _buildLoading(Color primaryColor) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(color: primaryColor),
-          const SizedBox(height: 20),
-          const Text(
-            'Registering device…',
-            style: TextStyle(color: Colors.black54, fontSize: 16),
-          ),
-        ],
+      child: Container(
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(UserTheme.radiusL),
+          boxShadow: [
+            BoxShadow(
+              color: UserTheme.primaryOrange.withOpacity(0.15),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: primaryColor),
+            const SizedBox(height: 24),
+            const Text(
+              'Registering device…',
+              style: TextStyle(
+                color: UserTheme.textPrimary, 
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildInstructions(Color primaryColor) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: primaryColor.withOpacity(0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '📦 How to Register',
-            style: TextStyle(
-              color: primaryColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _Step(n: '1', text: 'Power on your Smart Parcel Dropbox.', color: primaryColor),
-          _Step(n: '2', text: 'Press BTN1 on the device to enter Registration Mode.', color: primaryColor),
-          _Step(n: '3', text: 'A QR code and a 6-digit code will appear on the LCD screen.', color: primaryColor),
-          _Step(
-            n: '4', 
-            text: _isMobile 
-                ? 'Tap "Scan QR Code" below and scan the code shown on the device.'
-                : 'Enter the 6-digit code shown on the device below.', 
-            color: primaryColor,
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildNameField(Color primaryColor) {
     return TextField(
@@ -247,70 +399,7 @@ class _HardwareRegistrationScreenState
     );
   }
 
-  Widget _buildActions(Color primaryColor) {
-    return Column(
-      children: [
-        SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton.icon(
-            onPressed: _startScanner,
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text(
-              'Scan QR Code',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14)),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextButton(
-          onPressed: () => setState(() => _showManual = !_showManual),
-          child: Text(
-            _showManual ? 'Hide manual entry' : '— or enter code manually —',
-            style: const TextStyle(color: Colors.black54),
-          ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildScanner() {
-    return Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: SizedBox(
-            height: 280,
-            child: _isMobile && _scannerController != null
-                ? MobileScanner(
-                    controller: _scannerController!,
-                    onDetect: (capture) {
-                      final barcode = capture.barcodes.firstOrNull;
-                      if (barcode?.rawValue != null) {
-                        _submitToken(barcode!.rawValue!);
-                      }
-                    },
-                  )
-                : _buildMockScanner(),
-          ),
-        ),
-        const SizedBox(height: 14),
-        TextButton.icon(
-          onPressed: _stopScanner,
-          icon: const Icon(Icons.close, color: Colors.red),
-          label: const Text('Cancel Scan',
-              style: TextStyle(color: Colors.red)),
-        ),
-      ],
-    );
-  }
 
   Widget _buildMockScanner() {
     return Container(
@@ -332,117 +421,4 @@ class _HardwareRegistrationScreenState
     );
   }
 
-  Widget _buildManualEntry(Color primaryColor) {
-    return Column(
-      children: [
-        TextField(
-          controller: _codeController,
-          style: const TextStyle(
-              color: Colors.black87, letterSpacing: 4, fontSize: 18),
-          keyboardType: TextInputType.text,
-          textCapitalization: TextCapitalization.characters,
-          decoration: InputDecoration(
-            labelText: 'Code shown on device LCD',
-            labelStyle: const TextStyle(color: Colors.black54),
-            hintText: 'e.g. SPDB-REG-482913',
-            hintStyle: const TextStyle(
-                color: Colors.black26, letterSpacing: 1, fontSize: 14),
-            filled: true,
-            fillColor: Colors.white,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: primaryColor),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          height: 50,
-          child: ElevatedButton(
-            onPressed: () => _submitToken(_codeController.text),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor.withOpacity(0.1),
-              foregroundColor: primaryColor,
-              elevation: 0,
-              side: BorderSide(color: primaryColor),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-            child: const Text(
-              'Submit Code',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
-  Widget _buildError() {
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.red.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.withOpacity(0.5)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline, color: Colors.red),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _errorMsg!,
-              style: const TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Numbered step widget for the instruction card.
-class _Step extends StatelessWidget {
-  const _Step({required this.n, required this.text, required this.color});
-  final String n;
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(n,
-                style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-              child: Text(text,
-                  style: const TextStyle(color: Colors.black87, height: 1.4))),
-        ],
-      ),
-    );
-  }
 }
