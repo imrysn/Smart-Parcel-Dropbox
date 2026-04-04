@@ -4,7 +4,8 @@ const Notification = require('../models/Notification');
 // @route   POST /api/notifications
 exports.createNotification = async (req, res) => {
     try {
-        const notification = await Notification.create(req.body);
+        const notificationData = { ...req.body, userId: req.userId };
+        const notification = await Notification.create(notificationData);
 
         // Use global io if available
         const io = req.app.get('io');
@@ -23,7 +24,14 @@ exports.createNotification = async (req, res) => {
 // @route   GET /api/notifications/user/:userId
 exports.getUserNotifications = async (req, res) => {
     try {
-        const notifications = await Notification.find({ userId: req.params.userId }).sort({ timestamp: -1 });
+        const userId = req.params.userId;
+
+        // Security check
+        if (userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot access another user\'s notifications' });
+        }
+
+        const notifications = await Notification.find({ userId }).sort({ timestamp: -1 });
         res.json(notifications);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -34,7 +42,19 @@ exports.getUserNotifications = async (req, res) => {
 // @route   PATCH /api/notifications/:id/read
 exports.markAsRead = async (req, res) => {
     try {
-        const notification = await Notification.findByIdAndUpdate(req.params.id, { isRead: true }, { new: true });
+        const notification = await Notification.findById(req.params.id);
+        
+        if (!notification) {
+            return res.status(404).json({ message: 'Notification not found' });
+        }
+
+        // Security check
+        if (notification.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot modify another user\'s notification' });
+        }
+
+        notification.isRead = true;
+        await notification.save();
         res.json(notification);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -44,7 +64,14 @@ exports.markAsRead = async (req, res) => {
 // @route   PATCH /api/notifications/user/:userId/read
 exports.markAllAsRead = async (req, res) => {
     try {
-        await Notification.updateMany({ userId: req.params.userId }, { isRead: true });
+        const userId = req.params.userId;
+
+        // Security check
+        if (userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot modify another user\'s notifications' });
+        }
+
+        await Notification.updateMany({ userId }, { isRead: true });
         res.json({ message: 'All notifications marked as read' });
     } catch (error) {
         res.status(500).json({ message: error.message });

@@ -98,16 +98,16 @@ exports.loginUser = async (req, res) => {
 exports.getUserProfile = async (req, res) => {
     try {
         const userId = req.params.id;
-        console.log(`[USER_CONTROLLER] Fetching profile for ID: ${userId}`);
 
-        const user = await User.findById(userId).select('-password');
-
-        if (!user) {
-            console.log(`[USER_CONTROLLER] Profile NOT FOUND for ID: ${userId}`);
-            return res.status(404).json({ message: 'User not found' });
+        // Security check: only allow users to see their own profile
+        if (userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot access another user\'s profile' });
         }
 
-        console.log(`[USER_CONTROLLER] Profile found: ${user.email} (Role: ${user.role})`);
+        const user = await User.findById(userId).select('-password');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
         res.json(user);
     } catch (error) {
         console.error(`[USER_CONTROLLER] Error fetching profile: ${error.message}`);
@@ -131,11 +131,14 @@ exports.getAllUsers = async (req, res) => {
 exports.updateUser = async (req, res) => {
     try {
         const userId = req.params.id;
-        console.log(`[USER_CONTROLLER] Updating user: ${userId}`);
-        console.log(`[USER_CONTROLLER] Update body:`, req.body);
 
-        // Don't allow password updates through this endpoint
-        const { password, ...updateData } = req.body;
+        // Security check: only allow users to update their own profile
+        if (userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot update another user\'s profile' });
+        }
+
+        // Don't allow password or role updates through this endpoint
+        const { password, role, ...updateData } = req.body;
 
         const user = await User.findByIdAndUpdate(
             userId,
@@ -144,11 +147,9 @@ exports.updateUser = async (req, res) => {
         ).select('-password');
 
         if (!user) {
-            console.log(`[USER_CONTROLLER] User not found for update: ${userId}`);
             return res.status(404).json({ message: 'User not found' });
         }
 
-        console.log(`[USER_CONTROLLER] User updated successfully: ${user._id}`);
         res.json(user);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -160,16 +161,18 @@ exports.updateUser = async (req, res) => {
 exports.deleteUser = async (req, res) => {
     try {
         const userId = req.params.id;
-        console.log(`[USER_CONTROLLER] Deleting user: ${userId}`);
+
+        // Security check: only allow users to delete their own account
+        if (userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot delete another user\'s account' });
+        }
 
         const user = await User.findByIdAndDelete(userId);
 
         if (!user) {
-            console.log(`[USER_CONTROLLER] User not found for deletion: ${userId}`);
             return res.status(404).json({ message: 'User not found' });
         }
 
-        console.log(`[USER_CONTROLLER] User deleted successfully: ${userId}`);
         res.json({ message: 'User deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });

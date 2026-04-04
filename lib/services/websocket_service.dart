@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:async';
 import '../config/api_config.dart';
+import 'service_locator.dart';
+import 'auth_service.dart';
 
 /// WebSocket Service - Handles real-time communication with backend
 ///
@@ -18,6 +20,7 @@ class WebSocketService {
 
   IO.Socket? _socket;
   String? _currentUserId;
+  final _authService = getIt<AuthService>();
 
   // Event stream controllers
   final _trackingUpdateController = StreamController<void>.broadcast();
@@ -46,6 +49,8 @@ class WebSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _connectionStatusController =
       StreamController<bool>.broadcast();
+  final _autoAcceptStatusController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<void> get trackingUpdates => _trackingUpdateController.stream;
@@ -80,6 +85,10 @@ class WebSocketService {
   Stream<Map<String, dynamic>> get deviceUnregisteredStream =>
       _deviceUnregisteredController.stream;
 
+  /// Fires when backend's auto-accept mode is toggled: { enabled: bool }
+  Stream<Map<String, dynamic>> get autoAcceptStatus =>
+      _autoAcceptStatusController.stream;
+
   /// Fires when the app's WebSocket connection status changes: true=connected, false=disconnected
   Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
 
@@ -88,7 +97,9 @@ class WebSocketService {
   IO.Socket? get socket => _socket;
 
   /// Initialize WebSocket connection for a user
-  void connect(String userId) {
+  Future<void> connect(String userId) async {
+    final token = await _authService.getToken();
+    
     if (_socket != null) {
       if (_socket!.connected) {
         debugPrint('WebSocket already connected, joining room for $userId');
@@ -106,6 +117,12 @@ class WebSocketService {
       <String, dynamic>{
         'transports': ['websocket'],
         'autoConnect': true,
+        'auth': {
+          'token': token,
+        },
+        'query': {
+          'token': token,
+        },
       },
     );
 
@@ -209,6 +226,12 @@ class WebSocketService {
       debugPrint('📡 wifiScanResult: $data');
       _wifiScanResultController.add(data as Map<String, dynamic>);
     });
+
+    // Auto-Accept mode status
+    _socket!.on('autoAcceptStatus', (data) {
+      debugPrint('🤖 autoAcceptStatus: $data');
+      _autoAcceptStatusController.add(data as Map<String, dynamic>);
+    });
   }
 
   final _wifiScanResultController = 
@@ -287,6 +310,17 @@ class WebSocketService {
     debugPrint('📡 Emitted requestWiFiScan request');
   }
 
+  /// Toggle the backend's "Auto-Accept" mode (Admin only).
+  /// When enabled, any barcode scanned at the box is auto-registered.
+  void emitToggleAutoAccept(bool enabled) {
+    emit('toggleAutoAccept', {'enabled': enabled});
+  }
+
+  /// Query the current Auto-Accept mode status from the backend.
+  void requestAutoAcceptStatus() {
+    emit('getAutoAcceptStatus', null);
+  }
+
   /// Disconnect and cleanup
   void disconnect() {
     _socket?.dispose();
@@ -311,6 +345,8 @@ class WebSocketService {
     _hardwareConfigAppliedController.close();
     _deviceUnregisteredController.close();
     _connectionStatusController.close();
+    _autoAcceptStatusController.close();
+    _wifiScanResultController.close();
   }
 
   /// Reset singleton instance

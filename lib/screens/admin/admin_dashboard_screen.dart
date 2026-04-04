@@ -6,7 +6,10 @@ import '../../models/tracking_model.dart';
 import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
+import '../../config/user_theme.dart';
+import '../../widgets/user_ui.dart';
 import '../login_screen.dart';
+import '../drop_off_screen.dart';
 import '../pickup_screen.dart';
 
 /// Admin Dashboard - Professional slate blue theme
@@ -18,13 +21,12 @@ class AdminDashboardScreen extends StatefulWidget {
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen>
-    with SingleTickerProviderStateMixin {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
-  late TabController _tabController;
   late Future<Map<String, dynamic>?> _currentUserDataFuture;
   String? _userId;
+  int _selectedIndex = 0;
 
   // Cache streams in state to prevent re-fetching on tab switch
   late Stream<List<UserModel>> _usersStream;
@@ -35,34 +37,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _initData();
-  }
-
-  Future<void> _initData() async {
-    _userId = await _authService.currentUserId;
-    if (_userId != null) {
-      _databaseService.initSocket(_userId!);
-      _currentUserDataFuture = _databaseService.getUserData(_userId!);
-    } else {
-      _currentUserDataFuture = Future.value(null);
-    }
-
-    // Initialize streams once
+    // Convert to broadcast streams so StreamBuilders can safely resubscribe
+    // when the widget rebuilds (e.g. after navigation or setState).
     _usersStream = _databaseService.getAllUsers();
     _trackingStream = _databaseService.getAllTrackingIds();
-    _scanLogsStream = _databaseService.getScanLogs();
-    _deliveryLogsStream = _databaseService.getAllDeliveryLogs();
+    _scanLogsStream = _databaseService.getScanLogs().asBroadcastStream();
+    _deliveryLogsStream = _databaseService.getAllDeliveryLogs().asBroadcastStream();
 
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+    // Drive the auth-dependent parts (socket + user data) via FutureBuilder.
+    _currentUserDataFuture = _authService.currentUserId.then((userId) async {
+      _userId = userId;
+      if (_userId == null) return Future.value(null);
+      await _databaseService.initSocket(_userId!);
+      
+      // Trigger initial fetches for admin data
+      _databaseService.refreshAllUsers();
+      _databaseService.refreshAllTrackingIds();
+      
+      return _databaseService.getUserData(_userId!);
+    });
   }
 
   @override
@@ -130,135 +123,154 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             );
           }
 
-          return Scaffold(
-            backgroundColor: AdminTheme.backgroundLight,
-            body: NestedScrollView(
-              headerSliverBuilder: (context, innerBoxIsScrolled) {
-                return [
-                  SliverAppBar(
-                    floating: true,
-                    pinned: true,
-                    expandedHeight: 120,
-                    backgroundColor: AdminTheme.primaryBlue,
-                    flexibleSpace: FlexibleSpaceBar(
-                      background: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              AdminTheme.primaryBlueDark,
-                              AdminTheme.primaryBlue,
-                            ],
-                          ),
-                        ),
-                        child: SafeArea(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Icon(
-                                        Icons.admin_panel_settings,
-                                        color: Colors.white,
-                                        size: 28,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Admin Dashboard',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .headlineMedium
-                                                ?.copyWith(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            'System Management',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(
-                                                  color: Colors.white
-                                                      .withOpacity(0.9),
-                                                  letterSpacing: 0.5,
-                                                ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.logout),
-                                      tooltip: 'Logout',
-                                      onPressed: _logout,
-                                      color: Colors.white.withOpacity(0.9),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+          return Container(
+            decoration: UserUi.pageBackground(context),
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              appBar: UserTheme.appBarGradient(
+                context: context,
+                title: _getAppBarTitle(),
+                centerTitle: false,
+                actions: [
+                  IconButton(
+                    icon: Icon(
+                      Icons.logout,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white
+                          : UserTheme.dayTextPrimary,
                     ),
-                    bottom: TabBar(
-                      controller: _tabController,
-                      tabs: const [
-                        Tab(
-                          icon: Icon(Icons.group_outlined),
-                          text: 'Users',
-                        ),
-                        Tab(
-                          icon: Icon(Icons.inventory_outlined),
-                          text: 'Tracking',
-                        ),
-                        Tab(
-                          icon: Icon(Icons.history),
-                          text: 'Logs',
-                        ),
-                        Tab(
-                          icon: Icon(Icons.outbox_outlined),
-                          text: 'Pickups',
-                        ),
-                      ],
-                    ),
+                    tooltip: 'Logout',
+                    onPressed: _logout,
                   ),
-                ];
-              },
-              body: TabBarView(
-                controller: _tabController,
-                children: [
-                  _KeepAlivePage(child: _buildUsersTab()),
-                  _KeepAlivePage(child: _buildTrackingTab()),
-                  _KeepAlivePage(
-                    child: PickupScreen(
-                      userId: _userId!,
-                      databaseService: _databaseService,
-                      isAdmin: true,
-                    ),
-                  ),
-                  _KeepAlivePage(child: _buildLogsTab()),
+                  const SizedBox(width: 8),
                 ],
               ),
+              body: _getSelectedTab(),
+              bottomNavigationBar: _buildBottomNavBar(context),
             ),
           );
         },
+      ),
+    );
+  }
+
+  String _getAppBarTitle() {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Admin Users';
+      case 1:
+        return 'Drop Off';
+      case 2:
+        return 'Pickups';
+      case 3:
+        return 'Tracking';
+      case 4:
+        return 'Logs';
+      default:
+        return 'Admin Dashboard';
+    }
+  }
+
+  Widget _getSelectedTab() {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildUsersTab();
+      case 1:
+        return DropOffScreen(
+          userId: _userId!,
+          databaseService: _databaseService,
+          isAdmin: true,
+        );
+      case 2:
+        return PickupScreen(
+          userId: _userId!,
+          databaseService: _databaseService,
+          isAdmin: true,
+        );
+      case 3:
+        return _buildTrackingTab();
+      case 4:
+        return _buildLogsTab();
+      default:
+        return _buildUsersTab();
+    }
+  }
+
+  Widget _buildBottomNavBar(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      child: UserUi.glassCard(
+        context,
+        blur: 16,
+        borderRadius: 32,
+        color: isDark
+            ? Colors.black.withOpacity(0.65)
+            : Colors.white.withOpacity(0.7),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withOpacity(0.08)
+              : UserTheme.primaryOrange.withOpacity(0.15),
+        ),
+        child: NavigationBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          height: 72,
+          indicatorColor: UserTheme.primaryOrange.withOpacity(0.15),
+          surfaceTintColor: Colors.transparent,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          selectedIndex: _selectedIndex,
+          onDestinationSelected: (index) {
+            setState(() => _selectedIndex = index);
+            if (index <= 3) _databaseService.refreshAllTrackingIds();
+            if (index == 0) _databaseService.refreshAllUsers();
+          },
+          destinations: [
+            NavigationDestination(
+              icon: Icon(Icons.group_outlined, size: 22, color: theme.hintColor),
+              selectedIcon:
+                  const Icon(Icons.group, size: 24, color: UserTheme.primaryOrange),
+              label: 'Users',
+            ),
+            NavigationDestination(
+              icon: Icon(
+                Icons.move_to_inbox_outlined,
+                size: 22,
+                color: theme.hintColor,
+              ),
+              selectedIcon: const Icon(
+                Icons.move_to_inbox,
+                size: 24,
+                color: UserTheme.primaryOrange,
+              ),
+              label: 'Drop Off',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.outbox_outlined, size: 22, color: theme.hintColor),
+              selectedIcon:
+                  const Icon(Icons.outbox, size: 24, color: UserTheme.primaryOrange),
+              label: 'Pickups',
+            ),
+            NavigationDestination(
+              icon:
+                  Icon(Icons.inventory_outlined, size: 22, color: theme.hintColor),
+              selectedIcon: const Icon(
+                Icons.inventory,
+                size: 24,
+                color: UserTheme.primaryOrange,
+              ),
+              label: 'Tracking',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.history_outlined, size: 22, color: theme.hintColor),
+              selectedIcon:
+                  const Icon(Icons.history, size: 24, color: UserTheme.primaryOrange),
+              label: 'Logs',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -267,14 +279,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return StreamBuilder<List<UserModel>>(
       stream: _usersStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _buildErrorState('Error loading users: ${snapshot.error}');
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
             child: CircularProgressIndicator(color: AdminTheme.primaryBlue),
           );
-        }
-
-        if (snapshot.hasError) {
-          return _buildErrorState('Error loading users: ${snapshot.error}');
         }
 
         final users = snapshot.data ?? [];
@@ -487,12 +499,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _buildTrackingTab() {
-    const statuses = ['pending', 'in_transit', 'delivered', 'retrieved'];
-
     return StreamBuilder<List<TrackingModel>>(
       stream: _trackingStream,
+      initialData: _databaseService.cachedTracking,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        final items = snapshot.data ?? [];
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            items.isEmpty) {
           return Center(
             child: CircularProgressIndicator(color: AdminTheme.primaryBlue),
           );
@@ -502,8 +516,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           return _buildErrorState(
               'Error loading tracking data: ${snapshot.error}');
         }
-
-        final items = snapshot.data ?? [];
 
         if (items.isEmpty) {
           return _buildEmptyState(
@@ -562,7 +574,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
             // Tracking List
             ...items
-                .map((tracking) => _buildTrackingCard(tracking, statuses))
+                .map((tracking) => _buildTrackingCard(tracking))
                 .toList(),
           ],
         );
@@ -570,7 +582,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  Widget _buildTrackingCard(TrackingModel tracking, List<String> statuses) {
+  Widget _buildTrackingCard(TrackingModel tracking) {
     final statusColor = AdminTheme.getStatusColor(tracking.status);
 
     return Card(
@@ -610,41 +622,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                 ),
 
-                // Status Dropdown
+                // Read-only status chip (automated updates only)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: AdminTheme.backgroundSurface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: const Color(0xFFE2E8F0).withOpacity(0.3),
+                    color: statusColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: statusColor.withOpacity(0.5)),
+                  ),
+                  child: Text(
+                    tracking.status.replaceAll('_', ' ').toUpperCase(),
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  child: DropdownButton<String>(
-                    value: tracking.status,
-                    underline: const SizedBox(),
-                    dropdownColor: AdminTheme.backgroundCard,
-                    icon: Icon(Icons.arrow_drop_down, color: statusColor),
-                    style: TextStyle(color: statusColor, fontSize: 13),
-                    items: statuses
-                        .map(
-                          (status) => DropdownMenuItem(
-                            value: status,
-                            child: Text(
-                              status.replaceAll('_', ' ').toUpperCase(),
-                              style: TextStyle(
-                                color: AdminTheme.getStatusColor(status),
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null && value != tracking.status) {
-                        _updateTrackingStatus(tracking.trackingId, value);
-                      }
-                    },
-                  ),
+                ),
+                const SizedBox(width: 8),
+                
+                // Simulation Button
+                IconButton(
+                  icon: const Icon(Icons.play_circle_outline),
+                  tooltip: 'Simulate Automated Flow',
+                  color: AdminTheme.primaryBlue,
+                  onPressed: () => _simulateTracking(tracking.trackingId),
                 ),
               ],
             ),
@@ -1143,29 +1146,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  Future<void> _updateTrackingStatus(String trackingId, String status) async {
+  Future<void> _simulateTracking(String trackingId) async {
     try {
-      await _databaseService.updateTrackingStatus(
-        trackingId: trackingId,
-        status: status,
-      );
-      // Refresh tracking list to update UI
-      _databaseService.refreshAllTrackingIds();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Status updated to $status'),
-          backgroundColor: AdminTheme.statusSuccess,
-        ),
-      );
+      await _databaseService.simulateTracking(trackingId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tracking simulation started'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update status: $e'),
-          backgroundColor: AdminTheme.statusError,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error starting simulation: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

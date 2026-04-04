@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/scan_log_model.dart';
 import '../config/api_config.dart';
+import 'service_locator.dart';
+import 'auth_service.dart';
 
 /// Scan Log Service - Handles scan attempt logging
 ///
@@ -16,6 +18,7 @@ class ScanLogService {
   }
 
   ScanLogService._internal();
+  final _authService = getIt<AuthService>();
 
   /// Log a scan attempt
   Future<void> logScanAttempt({
@@ -26,9 +29,10 @@ class ScanLogService {
     String? reason,
   }) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       await http.post(
         Uri.parse(ApiConfig.scanLogs),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           'scannedCode': scannedCode,
           'accessGranted': accessGranted,
@@ -45,7 +49,11 @@ class ScanLogService {
   /// Get all scan logs (Admin)
   Future<List<ScanLogModel>> getScanLogs() async {
     try {
-      final response = await http.get(Uri.parse(ApiConfig.scanLogs));
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse(ApiConfig.scanLogs),
+        headers: headers,
+      );
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         return data.map((e) => ScanLogModel.fromMap(e)).toList();
@@ -60,8 +68,10 @@ class ScanLogService {
   /// Get scan logs for a specific user
   Future<List<ScanLogModel>> getUserScanLogs(String userId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.scanLogs}/user/$userId'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
@@ -77,9 +87,11 @@ class ScanLogService {
   /// Get owner access logs (Feature #7)
   Future<List<ScanLogModel>> getOwnerAccessLogs() async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.get(
         // Ensure this matches the Express route
         Uri.parse('${ApiConfig.scanLogs}/owner-access'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
@@ -95,8 +107,10 @@ class ScanLogService {
   /// Get all delivery logs (Admin)
   Future<List<Map<String, dynamic>>> getAllDeliveryLogs() async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/delivery-logs'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
@@ -112,8 +126,10 @@ class ScanLogService {
   /// Get delivery logs for a tracking ID
   Future<List<Map<String, dynamic>>> getDeliveryLogs(String trackingId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/delivery-logs/$trackingId'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);

@@ -13,18 +13,24 @@ const {
     resetPassword
 } = require('../controllers/userController');
 
-// Authentication routes
+const { authMiddleware } = require('../utils/auth');
+
+// Authentication routes (Public)
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 
-// Password reset routes
+// Password reset routes (Public)
 router.post('/request-reset', requestPasswordReset);
 router.post('/verify-reset-code', verifyResetCode);
 router.post('/reset-password', resetPassword);
 
-// User management routes
-router.get('/', getAllUsers);
+// Public check-email
 router.get('/check-email/:email', checkUserByEmail);
+
+// User management routes (Protected)
+router.use(authMiddleware);
+
+router.get('/', getAllUsers);
 router.get('/:id', getUserProfile);
 router.patch('/:id', updateUser);
 router.delete('/:id', deleteUser);

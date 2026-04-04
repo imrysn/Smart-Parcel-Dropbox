@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const Dropbox = require('../models/Dropbox');
+const { authMiddleware } = require('../utils/auth');
+
+// All dropbox routes are protected
+router.use(authMiddleware);
 
 /**
  * GET /api/dropbox/:userId
@@ -10,6 +14,12 @@ const Dropbox = require('../models/Dropbox');
 router.get('/:userId', async (req, res) => {
   try {
     const uid = req.params.userId;
+    
+    // Security check: only show own dropbox
+    if (uid !== req.userId) {
+      return res.status(403).json({ message: 'Access denied: cannot access another user\'s dropbox' });
+    }
+
     // Primary lookup: new multi-user array
     let dropbox = await Dropbox.findOne({ userIds: uid });
     // Legacy fallback: old single-user documents
@@ -32,14 +42,23 @@ router.get('/:userId', async (req, res) => {
 router.patch('/:deviceId', async (req, res) => {
   try {
     const { name } = req.body;
+    
+    // Security check: ensure user is registered for this device
+    const exists = await Dropbox.findOne({ 
+      deviceId: req.params.deviceId,
+      $or: [{ userIds: req.userId }, { userId: req.userId }]
+    });
+
+    if (!exists) {
+      return res.status(403).json({ message: 'Access denied: you are not registered for this device' });
+    }
+
     const dropbox = await Dropbox.findOneAndUpdate(
       { deviceId: req.params.deviceId },
       { $set: { name } },
       { new: true }
     );
-    if (!dropbox) {
-      return res.status(404).json({ message: 'Dropbox not found' });
-    }
+    
     res.json(dropbox);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -54,6 +73,11 @@ router.patch('/:deviceId', async (req, res) => {
 router.delete('/:userId', async (req, res) => {
   try {
     const uid = req.params.userId;
+
+    // Security check: only unregister yourself
+    if (uid !== req.userId) {
+      return res.status(403).json({ message: 'Access denied: cannot unregister another user' });
+    }
 
     // Find by userIds array OR legacy userId field
     let dropbox = await Dropbox.findOne({ userIds: uid });
