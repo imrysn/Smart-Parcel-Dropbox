@@ -217,6 +217,11 @@ void drawOwnerVerifyingScreen(const String& token) {
 
   // Large 6-digit PIN only
   _boldText(pin.c_str(), 160, 205, COLOR_BG);
+
+  // Added [BTN2] EXIT label for real-time cancel
+  _buttonIndicator(240, 232, COLOR_RED);
+  _smallText("EXIT", 240, 218, COLOR_BG);
+
   tft.setFont();
 }
 

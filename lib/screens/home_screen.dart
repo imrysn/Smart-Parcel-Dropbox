@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final DatabaseService _databaseService = DatabaseService();
   final DropboxService _dropboxService = getIt<DropboxService>();
   int _selectedIndex = 0;
+  int _ordersTabIndex = 0; // 0: Delivered, 1: Pick Up, 2: Retrieved
 
   bool _hasDropbox = true;
 
@@ -1041,51 +1042,150 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildAllOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return StreamBuilder<List<TrackingModel>>(
-      stream: _databaseService.getUserTrackingIds(_userId!),
-      initialData: _databaseService.cachedTracking,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return UserUi.emptyState(
-            context,
-            icon: Icons.cloud_off_rounded,
-            title: 'Could not load orders',
-            subtitle: 'Check your connection and pull down to refresh.',
-          );
-        }
+    return Column(
+      children: [
+        // ── Status Segment Control (Master Categories) ──
+        Container(
+          margin: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              _buildSegmentItem(0, 'PENDING', Icons.pending_actions_rounded),
+              _buildSegmentItem(1, 'DELIVERED', Icons.local_shipping_rounded),
+              _buildSegmentItem(2, 'RETRIEVED', Icons.history_rounded),
+            ],
+          ),
+        ),
 
-        // Show shimmering skeletons while waiting for first data
-        if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data ?? []).isEmpty) {
-          return UserUi.shimmerList(context, count: 5);
-        }
+        // ── Filtered List Based on Status ──
+        Expanded(
+          child: StreamBuilder<List<TrackingModel>>(
+            stream: _databaseService.getUserTrackingIds(_userId!),
+            initialData: _databaseService.cachedTracking,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return UserUi.emptyState(
+                  context,
+                  icon: Icons.cloud_off_rounded,
+                  title: 'Could not load orders',
+                  subtitle: 'Check your connection and pull down to refresh.',
+                );
+              }
 
-        List<TrackingModel> allOrders = snapshot.data ?? [];
-        allOrders = allOrders.where((order) =>
-            order.mode != 'pickup' && order.mode != 'pick_up').toList();
+              // Show shimmering skeletons while waiting for first data
+              if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data ?? []).isEmpty) {
+                return UserUi.shimmerList(context, count: 5);
+              }
 
-        if (allOrders.isEmpty) {
-          return UserUi.emptyState(
-            context,
-            icon: Icons.inventory_2_outlined,
-            title: 'No orders yet',
-            subtitle: 'Add a tracking ID to see incoming parcels here.',
-          );
-        }
+              List<TrackingModel> allOrders = snapshot.data ?? [];
+              List<TrackingModel> filtered;
 
-        return RefreshIndicator(
-          onRefresh: () => _databaseService.refreshTracking(_userId!),
-          color: UserTheme.primaryOrange,
-          child: ListView.builder(
-            padding: const EdgeInsets.only(left: 20, right: 20, top: 12, bottom: 120),
-            itemCount: allOrders.length,
-            itemBuilder: (context, index) {
-              final order = allOrders[index];
-              return _buildOrderCard(order);
+              // Apply Refined User-Requested Status Logic
+              if (_ordersTabIndex == 0) {
+                // 1. PENDING - Just added, waiting for activity
+                filtered = allOrders.where((o) => o.status == 'pending' || o.status == 'in_transit').toList();
+              } else if (_ordersTabIndex == 1) {
+                // 2. DELIVERED - Courier dropped off, physically in the box
+                filtered = allOrders.where((o) => o.mode == 'drop_off' && o.status == 'delivered').toList();
+              } else {
+                // 3. RETRIEVED - Final History (Collected by owner or rider)
+                filtered = allOrders.where((o) => o.status == 'retrieved' || o.status == 'done').toList();
+              }
+
+              if (filtered.isEmpty) {
+                String title; String subtitle; IconData icon;
+                if (_ordersTabIndex == 0) {
+                  title = 'No Pending Parcels';
+                  subtitle = 'Orders you add manually will appear here until they arrive.';
+                  icon = Icons.pending_actions_rounded;
+                } else if (_ordersTabIndex == 1) {
+                  title = 'No Parcels in Box';
+                  subtitle = 'When a courier drops off a parcel, it will move here.';
+                  icon = Icons.local_shipping_rounded;
+                } else {
+                  title = 'No Retrieval History';
+                  subtitle = 'Completed orders and retrieved parcels move here.';
+                  icon = Icons.history_rounded;
+                }
+
+                return UserUi.emptyState(
+                  context,
+                  icon: icon,
+                  title: title,
+                  subtitle: subtitle,
+                );
+              }
+
+              return RefreshIndicator(
+                onRefresh: () => _databaseService.refreshTracking(_userId!),
+                color: UserTheme.primaryOrange,
+                child: ListView.builder(
+                  padding: const EdgeInsets.only(left: 20, right: 20, top: 4, bottom: 120),
+                  itemCount: filtered.length,
+                  itemBuilder: (context, index) {
+                    final order = filtered[index];
+                    return _buildOrderCard(order);
+                  },
+                ),
+              );
             },
           ),
-        );
-      },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSegmentItem(int index, String label, IconData icon) {
+    final isSelected = _ordersTabIndex == index;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _ordersTabIndex = index;
+            _databaseService.refreshTracking(_userId!);
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? UserTheme.primaryOrange : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected 
+              ? [BoxShadow(color: UserTheme.primaryOrange.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 3))]
+              : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon, 
+                size: 14, 
+                color: isSelected ? Colors.white : (isDark ? Colors.white60 : Colors.black45)
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                  color: isSelected ? Colors.white : (isDark ? Colors.white60 : Colors.black45),
+                ),
+                maxLines: 1,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

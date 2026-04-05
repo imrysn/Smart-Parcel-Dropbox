@@ -13,6 +13,7 @@ import 'auth_service.dart';
 /// Single Responsibility: Manage user notifications and push notification setup
 class NotificationService {
   static NotificationService? _instance;
+  bool _isInitialized = false;
 
   factory NotificationService() {
     _instance ??= NotificationService._internal();
@@ -101,6 +102,7 @@ class NotificationService {
     // Request Android 13+ permission
     await androidPlugin?.requestNotificationsPermission();
 
+    _isInitialized = true;
     debugPrint('✅ Notification service initialized: channel=$_channelId');
   }
 
@@ -117,6 +119,10 @@ class NotificationService {
   /// mode (QR displayed on LCD). Tapping the notification will open the
   /// Verify Owner Access camera screen via the [payload] `'owner_verify'`.
   Future<void> showOwnerAccessAlert() async {
+    if (!_isInitialized) {
+      debugPrint('[Notifications] Warning: showOwnerAccessAlert called before initialization');
+      return;
+    }
     const title = '🔒 Dropbox Access Alert';
     const body  = 'Someone is accessing your dropbox. Are you the owner? Tap to verify.';
     try {
@@ -160,6 +166,10 @@ class NotificationService {
     required String trackingId,
     required String status,
   }) async {
+    if (!_isInitialized) {
+      debugPrint('[Notifications] Warning: showDeliveryNotification called before initialization');
+      return;
+    }
     String title;
     String body;
 

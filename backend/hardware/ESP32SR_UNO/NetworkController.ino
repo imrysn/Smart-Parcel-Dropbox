@@ -368,7 +368,14 @@ void handleScanResult(const String& payload) {
   deserializeJson(doc, payload);
 
   bool valid = doc["valid"].as<bool>();
-  Serial.print("[WS] scanResult → valid: "); Serial.println(valid ? "YES" : "NO");
+  String mode = doc["mode"].as<String>();
+  Serial.print("[WS] scanResult → valid: "); Serial.print(valid ? "YES" : "NO");
+  Serial.print(" | mode: "); Serial.println(mode);
+
+  if (valid) {
+    // true = drop_off (into Bin A), false = pick_up / pickup (into Bin B)
+    isReceivingMode = (mode == "drop_off");
+  }
 
   scanResultValid    = valid;
   scanResultReceived = true;

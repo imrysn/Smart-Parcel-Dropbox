@@ -56,9 +56,13 @@ class _PickupScreenState extends State<PickupScreen> {
               child: _buildToggleButton(),
             ),
             Expanded(
-              child: _currentTab == 0
-                  ? _buildPickupList()
-                  : const RiderManagementScreen(isEmbedded: true),
+              child: IndexedStack(
+                index: _currentTab,
+                children: [
+                  _buildPickupList(),
+                  const RiderManagementScreen(isEmbedded: true),
+                ],
+              ),
             ),
           ],
         ),
@@ -123,6 +127,12 @@ class _PickupScreenState extends State<PickupScreen> {
       onRefresh: () => widget.databaseService.refreshTracking(widget.userId),
       color: UserTheme.primaryOrange,
       child: StreamBuilder<List<TrackingModel>>(
+        initialData: widget.databaseService.cachedTracking
+            .where((t) =>
+                (t.mode == 'pickup' || t.mode == 'pick_up') &&
+                ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
+                    .contains(t.status))
+            .toList(),
         stream: widget.isAdmin
             ? widget.databaseService.getAllTrackingIds().map((list) => list
                 .where((t) =>
