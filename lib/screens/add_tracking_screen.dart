@@ -17,7 +17,6 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
   final _formKey = GlobalKey<FormState>();
   final _trackingIdController = TextEditingController();
   final _shopNameController = TextEditingController();
-  final _expectedDateController = TextEditingController();
   final DatabaseService _databaseService = DatabaseService();
   final AuthService _authService = AuthService();
 
@@ -27,7 +26,6 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
   void dispose() {
     _trackingIdController.dispose();
     _shopNameController.dispose();
-    _expectedDateController.dispose();
     super.dispose();
   }
 
@@ -44,9 +42,6 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
         userId: userId,
         trackingId: _trackingIdController.text.trim(),
         shopName: _shopNameController.text.trim(),
-        expectedDeliveryDate: _expectedDateController.text.isNotEmpty
-            ? _expectedDateController.text
-            : null,
       );
 
       if (mounted) {
@@ -74,21 +69,6 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
     }
   }
 
-  Future<void> _selectDate() async {
-    DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 30)),
-    );
-
-    if (picked != null) {
-      setState(() {
-        _expectedDateController.text =
-            '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -182,27 +162,6 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
                   }
                   return null;
                 },
-              ),
-              const SizedBox(height: 16),
-
-              // Expected Delivery Date
-              TextFormField(
-                controller: _expectedDateController,
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'Expected Delivery Date (Optional)',
-                  hintText: 'Select date',
-                  prefixIcon: const Icon(Icons.calendar_today_outlined),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      setState(() {
-                        _expectedDateController.clear();
-                      });
-                    },
-                  ),
-                ),
-                onTap: _selectDate,
               ),
               const SizedBox(height: 32),
 

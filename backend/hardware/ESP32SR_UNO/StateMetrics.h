@@ -116,32 +116,35 @@ extern unsigned long lastDebugTime;
 extern unsigned long actionDelayStart;
 extern bool          actionDelayActive;
 extern SystemState   pendingNextState;
+extern bool          isScannerTestActive;
+extern unsigned long lastStateChangeTime;
+extern unsigned long scannerTestStartTime;
 
 extern bool   riderVerifyReceived;
 extern bool   riderVerifyValid;
-extern String serial2Buffer;
+extern char serial2Buffer[128];
 
-extern String ownerSessionToken;
+extern char ownerSessionToken[32];
 extern bool   ownerApprovalReceived;
 extern bool   ownerApprovalValid;
 extern bool   ownerQrDrawn;
 extern bool   ownerVerifyTimedOut;
 
 extern Preferences nvsPrefs;
-extern String nvsWifiSSID;
-extern String nvsWifiPassword;
+extern char nvsWifiSSID[33];
+extern char nvsWifiPassword[64];
 extern bool   deviceRegistered;
 extern unsigned long previousMillisWiFi;
 extern unsigned long intervalWiFi;
 
-extern String registrationToken;
+extern char registrationToken[32];
 extern bool   regTokenReceived;
 extern bool   regQrDrawn;
 extern bool   deviceJustRegistered;
 
-extern String registeredDropOff;
-extern String registeredPickup;
-extern String currentTrackingId;
+extern char registeredDropOff[64];
+extern char registeredPickup[64];
+extern char currentTrackingId[64];
 
 extern bool scanResultReceived;
 extern bool scanResultValid;
@@ -156,7 +159,7 @@ extern bool lastDoorState;
 extern unsigned long lastIndicatorUpdate;
 
 #define MAX_OFFLINE_QUEUE 20
-extern String offlineQueue[MAX_OFFLINE_QUEUE];
+extern char offlineQueue[MAX_OFFLINE_QUEUE][64];
 extern int offlineQueueCount;
 
 extern unsigned long lastLockscreenUpdate;
@@ -177,9 +180,48 @@ extern unsigned long dropOffRegisterTime;
 extern unsigned long pickupRegisterTime;
 extern const unsigned long TIMEOUT_MS;
 
+// Non-blocking hardware state
+extern int currentServoPos;
+extern int targetServoPos;
+extern unsigned long lastServoMoveTime;
+extern float lastUsPlatformDist;
+extern float lastUsPickupDist;
+extern float lastUsDropoffDist;
+extern unsigned long lastUsPlatformTime;
+extern unsigned long lastUsPickupTime;
+extern unsigned long lastUsDropoffTime;
+
 extern Servo            platformServo;
 extern Adafruit_ILI9341 tft;
 extern SocketIOclient   socketIO;
+
+// --- Global Function Prototypes (Hardware & UI) ---
+void processServo();
+void processSensors();
+void triggerCyberChirp(int pattern);
+void triggerBuzzer(int beeps);
+void updateDynamicIndicators();
+void updateProcessingHUD(const char* status);
+void shakeServo(int targetAngle);
+void moveServoSmoothly(int to);
+void showHomeScreen();
+void displayMessage(const char* title, const char* msg);
+void drawTimeoutScreen(const char* title, const char* subtitle);
+void drawRobotEyeLockscreen(int x, int y, int offsetX, bool blink, RobotEmotion emotion);
+void drawLockscreenText(const char* line1, const char* line2);
+void drawDeviceUnregisteredScreen();
+void changeState(SystemState newState);
+void emitDoorState();
+void emitRequestOwnerSession();
+void emitVerifyRider(const String& riderId);
+void emitRegisterOwnerPickup(const String& trackingId);
+void emitStatusUpdate(const String& trackingId, const String& status, const String& mode);
+void handleRequestWiFiScan();
+void handleApplyHardwareConfig(const String& payload);
+void handleScanResult(const String& payload);
+void handleRiderVerifyResult(const String& payload);
+void handleRegisterTracking(const String& payload);
+void handleControlDoor(const String& payload);
 
 extern const int US_PLATFORM[2];
 extern const int US_PICKUP[2];

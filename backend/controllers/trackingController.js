@@ -33,8 +33,8 @@ exports.registerTracking = async (req, res) => {
         await Notification.create({
             userId,
             title: isPickUp ? 'Pickup Registered' : 'Delivery Registered',
-            body: `Tracking ID ${trackingId} has been registered for ${isPickUp ? 'pick up' : 'drop off'}.`,
-            type: 'system'
+            message: `Tracking ID ${trackingId} has been registered for ${isPickUp ? 'pick up' : 'drop off'}.`,
+            type: 'system_alert'
         });
 
         res.status(201).json(tracking);
@@ -226,6 +226,39 @@ exports.simulateTracking = async (req, res) => {
         runSimulation(); // Fire and forget
 
         res.json({ message: 'Simulation started', targetStatuses: statuses.slice(currentIndex + 1) });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Delete a tracking ID
+// @route   DELETE /api/tracking/:trackingId
+exports.deleteTracking = async (req, res) => {
+    try {
+        const { trackingId } = req.params;
+        const userId = req.userId; // Securely get userId from auth token
+
+        const tracking = await Tracking.findOne({ trackingId });
+
+        if (!tracking) {
+            return res.status(404).json({ message: 'Tracking ID not found' });
+        }
+
+        // Security check: only allow users to delete their own tracking data
+        if (tracking.userId !== userId) {
+            return res.status(403).json({ message: 'Access denied: cannot delete another user\'s data' });
+        }
+
+        await Tracking.deleteOne({ trackingId });
+
+        // Use global io if available to notify the user
+        const io = req.app.get('io');
+        if (io) {
+            io.to(userId).emit('trackingDeleted', { trackingId });
+            console.log(`[SOCKET] trackingDeleted emitted for user: ${userId}`);
+        }
+
+        res.json({ message: 'Tracking ID deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

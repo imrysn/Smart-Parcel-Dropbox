@@ -356,7 +356,153 @@ void drawRobotEyeLockscreen(int x, int y, int offsetX, bool blink, RobotEmotion 
 }
 
 void drawLockscreenText(const char* line1, const char* line2) {
-  tft.fillScreen(COLOR_BG);
-  _boldText(line1, 160, 100, COLOR_ACCENT);
-  _boldText(line2, 160, 140, COLOR_TEXT);
+  _boldText(line1, 160, 195, COLOR_TEXT);
+  _smallText(line2, 160, 218, COLOR_GREY);
 }
+
+// ============================================================
+//  Consolidated Sub-menu & Auxiliary Display Logic
+//  (From DisplayController2.ino & DisplayController3.ino)
+// ============================================================
+
+static void _twoOvalScreen(
+  const char* contextLabel,
+  uint16_t leftColor,  int leftIcon,  const char* leftLabel,
+  uint16_t rightColor, int rightIcon, const char* rightLabel)
+{
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+
+  if (strlen(contextLabel) > 0) {
+    _smallText(contextLabel, 160, 48, COLOR_GREY);
+  }
+
+  _verticalOvalButton(80,  138, 100, 140, leftLabel,  leftColor,  leftIcon);
+  _verticalOvalButton(240, 138, 100, 140, rightLabel, rightColor, rightIcon);
+
+  tft.setFont();
+}
+
+void drawPickupSelectScreen() {
+  _twoOvalScreen("Select Mode", COLOR_BLUE, 1, "OWNER", COLOR_RED, 0, "RIDER");
+}
+
+void drawOwnerModeScreen() {
+  _twoOvalScreen("Owner Pick Up", COLOR_BLUE, 0, "SINGLE", COLOR_RED, 0, "MULTI");
+}
+
+void drawAddMorePrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  String countStr = "Parcel #" + String(scannedCount) + " registered";
+  _smallText(countStr.c_str(), 160, 48, COLOR_GREEN);
+  _verticalOvalButton(80,  138, 100, 140, "ADD MORE", COLOR_BLUE, 0);
+  _verticalOvalButton(240, 138, 100, 140, "DONE",     COLOR_GREEN, 2);
+  tft.setFont();
+}
+
+void drawRiderScanIdScreen() {
+  drawScannerBg();
+  _boldText("SCAN RIDER ID", 160, 75, COLOR_GREY);
+}
+
+void drawRiderScanParcelScreen() {
+  drawScannerBg();
+  String prompt = "Scan Parcel #" + String(scannedCount + 1);
+  _boldText(prompt.c_str(), 160, 75, COLOR_GREY);
+}
+
+void drawRiderPickupMorePrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  String countStr = "#" + String(scannedCount) + " marked done";
+  _smallText(countStr.c_str(), 160, 48, COLOR_GREEN);
+  _verticalOvalButton(80,  138, 100, 140, "MORE", COLOR_BLUE, 4);
+  _verticalOvalButton(240, 138, 100, 140, "DONE", COLOR_GREEN, 2);
+  tft.setFont();
+}
+
+void drawScanFailedPrompt() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  _horizontalOval(160, 105, 200, 76, COLOR_RED);
+  drawIconX(160, 102, COLOR_TEXT);
+  _boldText("SCAN FAILED", 160, 182, COLOR_TEXT);
+  _smallText("3 attempts exceeded", 160, 205, COLOR_GREY);
+  _buttonIndicator(80,  232, COLOR_BLUE);
+  _buttonIndicator(240, 232, COLOR_RED);
+  _smallText("RETRY", 80,  218, COLOR_TEXT);
+  _smallText("EXIT",  240, 218, COLOR_TEXT);
+  tft.setFont();
+}
+
+void drawSettingsMenu() {
+  _twoOvalScreen("System Settings", COLOR_BLUE, 4, "REGISTER", COLOR_RED, 3, "BACK");
+}
+
+void reinitTFT() {
+  digitalWrite(TFT_RST, LOW);
+  delay(100);
+  digitalWrite(TFT_RST, HIGH);
+  delay(150);
+  tft.begin();
+  tft.setRotation(3);
+  showHomeScreen();
+}
+
+void updateDynamicIndicators() {
+  tft.setFont();
+  tft.setTextSize(1);
+  if (millis() - lastIndicatorUpdate < 1000) return;
+  lastIndicatorUpdate = millis();
+
+  bool wifiOK   = (WiFi.status() == WL_CONNECTED);
+  bool socketOK = socketIO.isConnected();
+  bool anyOpen  = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
+
+  tft.fillRoundRect(110, 6, 100, 18, 9, COLOR_CARD);
+  uint16_t wifiColor = wifiOK ? COLOR_GREEN : COLOR_RED;
+  drawWiFiSignal(118, 9, wifiColor);
+  uint16_t doorColor = anyOpen ? COLOR_GOLD : COLOR_GREEN;
+  drawSmallPadlock(160, 10, doorColor, anyOpen);
+  tft.fillCircle(195, 14, 3, socketOK ? COLOR_GREEN : COLOR_RED);
+
+  lastWifiState   = wifiOK;
+  lastSocketState = socketOK;
+  lastDoorState   = anyOpen;
+}
+
+void drawNoServerOptionsScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+  _horizontalOval(160, 105, 200, 76, COLOR_RED);
+  drawIconX(160, 102, COLOR_TEXT);
+  _boldText("NO SERVER", 160, 182, COLOR_TEXT);
+  _smallText("Device is offline", 160, 205, COLOR_GREY);
+  _buttonIndicator(80,  232, COLOR_BLUE);
+  _buttonIndicator(240, 232, COLOR_RED);
+  _smallText("RETRY", 80,  218, COLOR_TEXT);
+  _smallText("OTHER", 240, 218, COLOR_TEXT);
+  tft.setFont();
+}
+
+void drawWiFiConfigQRScreen(const char* apSSID) {
+  tft.fillScreen(COLOR_TEXT);
+  tft.setFont();
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_GREY);
+  tft.setCursor(45, 18);
+  tft.print("Connect to: ");
+  tft.setTextColor(COLOR_GOLD);
+  tft.print(apSSID);
+  String wifiQR = "WIFI:S:";
+  wifiQR += apSSID;
+  wifiQR += ";T:nopass;;";
+  drawQRCode(73, 40, 6, wifiQR.c_str());
+  _smallText("Scan to connect & setup WiFi", 160, 225, COLOR_BG);
+  _buttonIndicator(300, 235, COLOR_RED);
+  tft.setFont(); tft.setTextSize(1); tft.setTextColor(COLOR_BG);
+  tft.setCursor(290, 222); tft.print("EXIT");
+  tft.setFont();
+}
+

@@ -872,9 +872,26 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                    UserUi.statusPill(
-                      label: order.getStatusText().toUpperCase(),
-                      color: statusColor,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        UserUi.statusPill(
+                          label: order.getStatusText().toUpperCase(),
+                          color: statusColor,
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: Icon(Icons.delete_outline_rounded, 
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                            size: 20,
+                          ),
+                          onPressed: () => _confirmDelete(order),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Delete Tracking',
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -962,6 +979,64 @@ class _HomeScreenState extends State<HomeScreen> {
     if (diff.inDays < 7) return '${diff.inDays} days ago';
     if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
     return '${(diff.inDays / 30).floor()}mo ago';
+  }
+
+  void _confirmDelete(TrackingModel tracking) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Tracking?'),
+        content: Text('Are you sure you want to remove ${tracking.shopName} (${tracking.trackingId}) from your list?\n\nThis action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              try {
+                // Show loading indicator
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Deleting ${tracking.trackingId}...'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+                
+                await _databaseService.deleteTrackingId(
+                  userId: _userId!,
+                  trackingId: tracking.trackingId,
+                );
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Tracking deleted successfully'),
+                      backgroundColor: UserTheme.statusSuccess,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: UserTheme.statusError,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: UserTheme.statusError,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('DELETE'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildAllOrdersTab() {

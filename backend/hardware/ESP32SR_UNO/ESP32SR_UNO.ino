@@ -86,7 +86,24 @@ void drawIconBox(int x, int y, uint16_t color);
 void drawIconCheck(int x, int y, uint16_t color);
 void drawIconX(int x, int y, uint16_t color);
 void drawWiFiSignal(int x, int y, uint16_t color);
+void drawWiFiSignal(int x, int y, uint16_t color);
 void reinitTFT();
+
+// --- Non-blocking Hardware Hooks ---
+void processServo(); 
+void processSensors();
+void triggerCyberChirp(int pattern);
+void triggerBuzzer(int beeps);
+void updateDynamicIndicators();
+void updateProcessingHUD(const char* status);
+void shakeServo(int targetAngle);
+void moveServoSmoothly(int to);
+void showHomeScreen();
+void displayMessage(const char* title, const char* msg);
+void drawTimeoutScreen(const char* title, const char* subtitle);
+void drawRobotEyeLockscreen(int x, int y, int offsetX, bool blink, RobotEmotion emotion);
+void drawLockscreenText(const char* line1, const char* line2);
+void drawDeviceUnregisteredScreen();
 
 // ============================================================
 //  SETUP
@@ -125,13 +142,7 @@ void setup() {
   pinMode(REED_PICKUP,   INPUT_PULLUP);
   pinMode(REED_RECEIVED, INPUT_PULLUP);
 
-  // Initialize Task Watchdog Timer
-  Serial.println("\n--- [INIT] Watchdog Timer (using core default timeout) ---");
-  // In ESP32 Arduino Core v3.x+, TWDT is already initialized by default.
-  // Using esp_task_wdt_init() will throw a "TWDT already initialized" error.
-  // We REMOVED esp_task_wdt_add(NULL) here because socketIO.loop() blocks during TCP
-  // reconnection attempts when the server is offline, which causes the WDT to panic 
-  // and reboot the ESP32. By not adding the main loop to the WDT, it survives offline periods.
+  // Watchdog initialization will be moved to the end of setup() to prevent reboots during WiFi sync
 
   // Ultrasonic sensors - Ensure pins start in a stable state
   pinMode(US_PLATFORM[0], OUTPUT); pinMode(US_PLATFORM[1], INPUT_PULLDOWN);
@@ -142,7 +153,7 @@ void setup() {
   digitalWrite(US_DROPOFF[0],  LOW);
   delay(50); // Give the sensors and pull-downs time to stabilize
 
-  // Scanner serial: Arduino Uno TX → GPIO17 (ESP32 RX). TX=-1 frees GPIO18.
+  // Scanner serial: Arduino Uno TX → GPIO17 (ESP32 RX). TX=-1 as no return wire exists.
   // We use a pullup on RX to prevent floating noise from being interpreted as data.
   pinMode(17, INPUT_PULLUP);
   Serial2.begin(9600, SERIAL_8N1, 17, -1);
@@ -161,16 +172,18 @@ void setup() {
   tft.fillScreen(COLOR_BG);
 
   // Network — load credentials from NVS first
-  nvsPrefs.begin("smartbox", false); // Namespace: "smartbox"
-  nvsWifiSSID      = nvsPrefs.getString("ssid",     "");
-  nvsWifiPassword  = nvsPrefs.getString("password", "");
+  nvsPrefs.begin("smartbox", false); 
+  String s_ssid = nvsPrefs.getString("ssid", "");
+  String s_pass = nvsPrefs.getString("password", "");
+  strncpy(nvsWifiSSID, s_ssid.c_str(), sizeof(nvsWifiSSID)-1);
+  strncpy(nvsWifiPassword, s_pass.c_str(), sizeof(nvsWifiPassword)-1);
   deviceRegistered = nvsPrefs.getBool("registered", false);
   nvsPrefs.end();
 
   Serial.print("[NVS] Registered: "); Serial.println(deviceRegistered ? "YES" : "NO");
-  Serial.print("[NVS] SSID: "); Serial.println(nvsWifiSSID.length() ? nvsWifiSSID : "(none)");
+  Serial.print("[NVS] SSID: "); Serial.println(strlen(nvsWifiSSID) ? nvsWifiSSID : "(none)");
 
-  if (nvsWifiSSID.length() > 0) {
+  if (strlen(nvsWifiSSID) > 0) {
     setupWiFi();
     setupSocketIO();
   } else {
@@ -188,6 +201,24 @@ void setup() {
   }
   
   printSerialMenu();
+
+  // Final Step: Initialize Task Watchdog Timer (v3.x API)
+  // Move this last so it doesn't trigger during the initial setup/WiFi sync
+  esp_task_wdt_config_t twdt_config = {
+      .timeout_ms = 8000, // 8-second window for the main loop
+      .idle_core_mask = (1 << 0) | (1 << 1),
+      .trigger_panic = true
+  };
+  
+  // Try initializing, but ignore "already initialized" errors
+  esp_err_t err = esp_task_wdt_init(&twdt_config);
+  if (err == ESP_OK || err == ESP_ERR_INVALID_STATE) {
+    // We REMOVED esp_task_wdt_add(NULL) because socketIO.loop() blocks during TCP 
+    // reconnection attempts when the server is offline, which causes the WDT to 
+    // panic and reboot. By not adding the main loop, it survives offline periods.
+    // esp_task_wdt_add(NULL); 
+    Serial.println("[BOOT] Task Watchdog Timer (TWDT) initialized (Monitoring disabled for offline stability).");
+  }
 }
 
 // ============================================================
@@ -197,16 +228,49 @@ void loop() {
   yield();
   // Check factory reset button hold (5s on BTN_PICKUP from any operational state)
   checkFactoryReset();
-  socketIO.loop();        // Keep Socket.IO connection alive
+  
+  // 1. Maintain background tasks
+  socketIO.loop();
+  // esp_task_wdt_reset(); // Disabled to prevent "task not found" spam after detaching main loop
+  processServo();
+  processSensors();
+  
   checkSerialCommands();
 
   // --- Bug Fix: Drainage for "Always Active" Scanner ---
-  // Some scanner modules (or self-triggering Arduinos) may send data at any time.
-  // We drain the Serial2 buffer and clear our accumulator when NOT in a scan-expectant state.
-  if (currentState != OWNER_SCANNING && currentState != RIDER_VERIFYING && 
-      currentState != RIDER_SCANNING_PARCELS && currentState != WAITING_FOR_SCAN) {
+  // Cooldown: Don't drain for 200ms after a state change to prevent race conditions
+  bool cooldownActive = (millis() - lastStateChangeTime < 200);
+
+  if (isScannerTestActive) {
+      if (millis() - scannerTestStartTime > 30000) {
+        Serial.println("[TEST] Scanner Test timed out after 30s.");
+        isScannerTestActive = false;
+        serial2Buffer[0] = '\0';  // Clear software accumulator
+      } else if (Serial2.available() > 0) {
+        // PASSIVE TEST: Accumulate and print to Serial Monitor
+            while (Serial2.available()) {
+              char c = (char)Serial2.read();
+              if (c == '\n' || c == '\r') {
+                int len = strlen(serial2Buffer);
+                if (len > 0) {
+                  Serial.println("\n[SCAN TEST RESULT] --> " + String(serial2Buffer));
+                  serial2Buffer[0] = '\0';
+                  isScannerTestActive = false;
+                }
+              } else if (c >= 32 && c <= 126) {
+                int len = strlen(serial2Buffer);
+                if (len < sizeof(serial2Buffer) - 1) {
+                  serial2Buffer[len] = c;
+                  serial2Buffer[len+1] = '\0';
+                }
+              }
+            }
+    }
+  } else if (!cooldownActive && currentState != OWNER_SCANNING && currentState != RIDER_VERIFYING && 
+             currentState != RIDER_SCANNING_PARCELS && currentState != WAITING_FOR_SCAN) {
+    // Regular Drainage: Clear buffer when NOT in a scan-expectant state
     while (Serial2.available() > 0) Serial2.read();
-    serial2Buffer = ""; 
+    serial2Buffer[0] = '\0'; 
   }
   // Skip status-bar repaints while QR verification screens, WiFi setup, or lockscreen are up
   if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR && 
@@ -224,13 +288,13 @@ void loop() {
   }
   
   // Clear registered tracking IDs if they timeout (5 minutes)
-  if (registeredDropOff.length() > 0 && millis() - dropOffRegisterTime > TIMEOUT_MS) {
+  if (strlen(registeredDropOff) > 0 && millis() - dropOffRegisterTime > TIMEOUT_MS) {
      Serial.println("[REG] Drop Off ID expired due to timeout.");
-     registeredDropOff = "";
+     registeredDropOff[0] = '\0';
   }
-  if (registeredPickup.length() > 0 && millis() - pickupRegisterTime > TIMEOUT_MS) {
+  if (strlen(registeredPickup) > 0 && millis() - pickupRegisterTime > TIMEOUT_MS) {
      Serial.println("[REG] Pick Up ID expired due to timeout.");
-     registeredPickup = "";
+     registeredPickup[0] = '\0';
   }
 
   switch (currentState) {
@@ -251,10 +315,10 @@ void loop() {
           triggerBuzzer(1);
           // Ensure network is connected before requesting registration
           if (!socketIO.isConnected()) {
-            if (nvsWifiSSID.length() == 0) {
+            if (strlen(nvsWifiSSID) == 0) {
               // Try connecting with compile-time credentials for first ever setup
-              nvsWifiSSID     = String(WIFI_SSID);
-              nvsWifiPassword = String(WIFI_PASSWORD);
+              strncpy(nvsWifiSSID, WIFI_SSID, sizeof(nvsWifiSSID)-1);
+              strncpy(nvsWifiPassword, WIFI_PASSWORD, sizeof(nvsWifiPassword)-1);
             }
             Serial.println("[SETUP] Not connected. Attempting WiFi/Socket setup...");
             displayMessage("CONNECTING", "Please wait...");
@@ -332,8 +396,9 @@ void loop() {
       // Draw QR once token arrives
       if (regTokenReceived && !regQrDrawn) {
         // Extract 6-digit PIN from token (e.g. "SPDB-REG-482913" → "482913")
-        String pin = registrationToken.substring(registrationToken.lastIndexOf('-') + 1);
-        drawRegistrationQRScreen(registrationToken, pin);
+        String s_token = String(registrationToken);
+        String pin = s_token.substring(s_token.lastIndexOf('-') + 1);
+        drawRegistrationQRScreen(s_token, pin);
         regQrDrawn    = true;
         stateStartTime = millis(); // reset 60s countdown from QR draw
         Serial.println("[SETUP] Registration QR displayed. Waiting for app scan...");
@@ -474,7 +539,7 @@ void loop() {
       if (!stateInitialized) {
         ownerApprovalReceived = false;
         ownerApprovalValid    = false;
-        ownerSessionToken     = "";
+        ownerSessionToken[0]  = '\0';
         ownerQrDrawn          = false;
         ownerVerifyTimedOut   = false;
         stateStartTime        = millis();
@@ -502,7 +567,7 @@ void loop() {
             ownerVerifyTimedOut   = false;
             ownerApprovalReceived = false;
             ownerApprovalValid    = false;
-            ownerSessionToken     = "";
+            ownerSessionToken[0]  = '\0';
             ownerQrDrawn          = false;
             stateStartTime        = millis();
             displayMessage("VERIFYING", "Connecting...");
@@ -522,9 +587,9 @@ void loop() {
       }
 
       // ── Session token received → draw QR once ───────────────
-      if (ownerSessionToken.length() > 0 && !actionDelayActive) {
+      if (strlen(ownerSessionToken) > 0 && !actionDelayActive) {
         if (!ownerQrDrawn) {
-          drawOwnerVerifyingScreen(ownerSessionToken);
+          drawOwnerVerifyingScreen(String(ownerSessionToken));
           ownerQrDrawn = true;
           stateStartTime = millis(); // restart 60s countdown from when QR is shown
           Serial.println("[FLOW] Owner QR: QR code displayed. Owner has 60s to scan.");
@@ -560,19 +625,19 @@ void loop() {
         }
         actionDelayStart  = millis();
         actionDelayActive = true;
-        ownerSessionToken = "";
+        ownerSessionToken[0] = '\0';
         ownerQrDrawn      = false;
       }
 
       // ── (A) 8s server non-response timeout ───────────────────
       if (!actionDelayActive && !ownerVerifyTimedOut &&
-          ownerSessionToken.length() == 0 && !ownerQrDrawn &&
+          strlen(ownerSessionToken) == 0 && !ownerQrDrawn &&
           stateInitialized && millis() - stateStartTime > 8000) {
         Serial.println("[FLOW] Owner QR: Server did not respond. Show Retry/Exit.");
         triggerCyberChirp(2);
         drawTimeoutScreen("TIMED OUT", "Server did not respond");
         ownerVerifyTimedOut = true;
-        ownerSessionToken   = "";
+        ownerSessionToken[0] = '\0';
         ownerQrDrawn        = false;
       }
 
@@ -583,8 +648,8 @@ void loop() {
         triggerCyberChirp(2);
         drawTimeoutScreen("TIMED OUT", "");
         ownerVerifyTimedOut = true;
-        ownerSessionToken   = "";
-        ownerQrDrawn        = false;
+        ownerSessionToken[0] = '\0';
+        ownerQrDrawn         = false;
       }
 
       // ── Delayed state transition (after approved/denied) ─────
@@ -665,24 +730,32 @@ void loop() {
       while (Serial2.available() && !actionDelayActive) {
         char c = (char)Serial2.read();
         if (c == '\n' || c == '\r') {
-          serial2Buffer.trim();
-          String scanned = serial2Buffer;
-          serial2Buffer = "";
-          if (scanned.length() > 2 && scanned.indexOf('[') == -1 && scanned.indexOf(']') == -1) {
-            currentTrackingId = scanned;
-            scannedCount++;
-            Serial.print("[FLOW] Owner scanned ID #"); Serial.print(scannedCount);
-            Serial.print(": "); Serial.println(scanned);
-            String label = "#" + String(scannedCount) + " " + scanned.substring(0, 10);
-            displayMessage("REGISTERED", label.c_str());
-            triggerBuzzer(2);
-            emitRegisterOwnerPickup(scanned);
-            pendingNextState  = UNLOCKING_ENTRY;
-            actionDelayStart  = millis();
-            actionDelayActive = true;
+          // Manual trim and process
+          int len = strlen(serial2Buffer);
+          if (len > 2) {
+             // Process the read tracking ID
+             strncpy(currentTrackingId, serial2Buffer, sizeof(currentTrackingId)-1);
+             currentTrackingId[sizeof(currentTrackingId)-1] = '\0';
+             serial2Buffer[0] = '\0';
+             scannedCount++;
+             Serial.print("[FLOW] Owner scanned ID #"); Serial.print(scannedCount);
+             Serial.print(": "); Serial.println(currentTrackingId);
+             char msgBuf[32];
+             snprintf(msgBuf, sizeof(msgBuf), "#%d %.15s", scannedCount, currentTrackingId);
+             displayMessage("REGISTERED", msgBuf);
+             triggerBuzzer(2);
+             emitRegisterOwnerPickup(String(currentTrackingId));
+             pendingNextState  = UNLOCKING_ENTRY;
+             actionDelayStart  = millis();
+             actionDelayActive = true;
           }
+          serial2Buffer[0] = '\0';
         } else if (c >= 32 && c <= 126) {
-          if (serial2Buffer.length() < 128) serial2Buffer += c;
+          int len = strlen(serial2Buffer);
+          if (len < sizeof(serial2Buffer) - 1) {
+            serial2Buffer[len] = c;
+            serial2Buffer[len+1] = '\0';
+          }
         }
       }
       if (actionDelayActive && millis() - actionDelayStart >= 1500) {
@@ -753,25 +826,31 @@ void loop() {
       while (Serial2.available() && !actionDelayActive) {
         char c = (char)Serial2.read();
         if (c == '\n' || c == '\r') {
-          serial2Buffer.trim();
-          String riderId = serial2Buffer;
-          serial2Buffer = "";
-          if (riderId.length() > 2 && riderId.indexOf('[') == -1 && riderId.indexOf(']') == -1) {
-            Serial.print("[FLOW] Rider ID scanned: "); Serial.println(riderId);
-            displayMessage("VERIFYING...", "Please wait");
-            if (socketIO.isConnected()) {
-              emitVerifyRider(riderId);
-            } else {
-              Serial.println("[WARN] Rider verify: offline — cannot verify.");
-              displayMessage("OFFLINE", "No server");
-              triggerBuzzer(3);
-              pendingNextState  = RIDER_VERIFYING;
-              actionDelayStart  = millis();
-              actionDelayActive = true;
+          int len = strlen(serial2Buffer);
+          if (len > 0) {
+            String riderId = String(serial2Buffer);
+            serial2Buffer[0] = '\0';
+            if (riderId.length() > 2 && riderId.indexOf('[') == -1 && riderId.indexOf(']') == -1) {
+              Serial.print("[FLOW] Rider ID scanned: "); Serial.println(riderId);
+              displayMessage("VERIFYING...", "Please wait");
+              if (socketIO.isConnected()) {
+                emitVerifyRider(riderId);
+              } else {
+                Serial.println("[WARN] Rider verify: offline — cannot verify.");
+                displayMessage("OFFLINE", "No server");
+                triggerBuzzer(3);
+                pendingNextState  = RIDER_VERIFYING;
+                actionDelayStart  = millis();
+                actionDelayActive = true;
+              }
             }
           }
         } else if (c >= 32 && c <= 126) {
-          if (serial2Buffer.length() < 128) serial2Buffer += c;
+          int len = strlen(serial2Buffer);
+          if (len < sizeof(serial2Buffer) - 1) {
+            serial2Buffer[len] = c;
+            serial2Buffer[len+1] = '\0';
+          }
         }
       }
       if (riderVerifyReceived && !actionDelayActive) {
@@ -856,23 +935,29 @@ void loop() {
       while (Serial2.available() && !actionDelayActive) {
         char c = (char)Serial2.read();
         if (c == '\n' || c == '\r') {
-          serial2Buffer.trim();
-          String scanned = serial2Buffer;
-          serial2Buffer = "";
-          if (scanned.length() > 2 && scanned.indexOf('[') == -1 && scanned.indexOf(']') == -1) {
-            scannedCount++;
-            Serial.print("[FLOW] Rider scanned parcel #"); Serial.print(scannedCount);
-            Serial.print(": "); Serial.println(scanned);
-            emitStatusUpdate(scanned, "done", "rider_collect");
-            String label = "#" + String(scannedCount) + " " + scanned.substring(0, 10);
-            displayMessage("SCANNED", label.c_str());
-            triggerBuzzer(1);
-            pendingNextState  = RIDER_PICKUP_PROMPT;
-            actionDelayStart  = millis();
-            actionDelayActive = true;
+          int len = strlen(serial2Buffer);
+          if (len > 0) {
+            String scanned = String(serial2Buffer);
+            serial2Buffer[0] = '\0';
+            if (scanned.length() > 2 && scanned.indexOf('[') == -1 && scanned.indexOf(']') == -1) {
+              scannedCount++;
+              Serial.print("[FLOW] Rider scanned parcel #"); Serial.print(scannedCount);
+              Serial.print(": "); Serial.println(scanned);
+              emitStatusUpdate(scanned, "done", "rider_collect");
+              String label = "#" + String(scannedCount) + " " + scanned.substring(0, 10);
+              displayMessage("SCANNED", label.c_str());
+              triggerBuzzer(1);
+              pendingNextState  = RIDER_PICKUP_PROMPT;
+              actionDelayStart  = millis();
+              actionDelayActive = true;
+            }
           }
         } else if (c >= 32 && c <= 126) {
-          if (serial2Buffer.length() < 128) serial2Buffer += c;
+          int len = strlen(serial2Buffer);
+          if (len < sizeof(serial2Buffer) - 1) {
+            serial2Buffer[len] = c;
+            serial2Buffer[len+1] = '\0';
+          }
         }
       }
       if (actionDelayActive && millis() - actionDelayStart >= 1000) {
@@ -919,7 +1004,7 @@ void loop() {
         tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
         Serial.println("[FLOW] Waiting for scan data on Serial2...");
         while (Serial2.available()) Serial2.read(); // Flush hardware buffer
-        serial2Buffer = "";  // Clear software accumulator
+        serial2Buffer[0] = '\0';  // Clear software accumulator
         stateInitialized = true;
       }
 
@@ -944,60 +1029,60 @@ void loop() {
       while (Serial2.available() > 0) {
         char c = (char)Serial2.read();
         if (c == '\n' || c == '\r') {
-          // Line complete — clean printable chars only
-          String cleanScanned = "";
-          for (int i = 0; i < serial2Buffer.length(); i++) {
-            char ch = serial2Buffer.charAt(i);
-            if (ch >= 32 && ch <= 126 && ch != '[' && ch != ']') cleanScanned += ch;
-          }
-          serial2Buffer = "";
-          cleanScanned.trim();
-          if (cleanScanned.length() < 3) break;
-
-          currentTrackingId = cleanScanned;
-          String modeName = isReceivingMode ? "drop_off" : "pick_up";
-          Serial.print("[FLOW] Scanned: "); Serial.println(cleanScanned);
-
-          // Phase 9: Hybrid Verification (Local-First)
-          String& localID = isReceivingMode ? registeredDropOff : registeredPickup;
-          
-          if (localID.length() > 0 && cleanScanned == localID) {
-            Serial.println("[FLOW] LOCAL AUTHORIZATION: Match found in manual registry.");
-            displayMessage("VALID ID", "LOCAL AUTH");
-            triggerBuzzer(2);
-            // Notify server if connected for logging, but don't wait for response
-            if (socketIO.isConnected()) {
-              emitStatusUpdate(cleanScanned, isReceivingMode ? "delivered" : "retrieved", modeName);
+          int len = strlen(serial2Buffer);
+          if (len > 0) {
+            String scanned = "";
+            for (int i = 0; i < len; i++) {
+              char ch = serial2Buffer[i];
+              if (ch >= 32 && ch <= 126 && ch != '[' && ch != ']') scanned += ch;
             }
-            consecutiveScanFails = 0; // Reset fails on success
-            // Non-blocking 1s display pause before unlocking
-            pendingNextState  = UNLOCKING_ENTRY;
-            actionDelayStart  = millis();
-            actionDelayActive = true;
-          } 
-          else if (socketIO.isConnected()) {
-            // No local match, but server is available -> Fallback to Online Check
-            Serial.println("[FLOW] No local match. Requesting server verification...");
-            displayMessage("VERIFYING...", "Please wait");
-            emitVerifyScan(cleanScanned, modeName);
-            scanResultReceived = false;
-            scanResultValid    = false;
-            changeState(VERIFYING_SCAN);
-          } 
-          else {
-            // Offline and NO local match
-            Serial.println("[WARN] Offline and No local ID match.");
-            displayMessage("INVALID ID", "RETRY SCAN");
-            triggerCyberChirp(2);
-            currentTrackingId = ""; 
-            consecutiveScanFails++;
-            pendingNextState  = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
-            actionDelayStart  = millis();
-            actionDelayActive = true;
+            serial2Buffer[0] = '\0';
+            scanned.trim();
+            if (scanned.length() < 3) break;
+
+            strncpy(currentTrackingId, scanned.c_str(), sizeof(currentTrackingId)-1);
+            String modeName = isReceivingMode ? "drop_off" : "pick_up";
+            Serial.print("[FLOW] Scanned: "); Serial.println(scanned);
+
+            String localID = String(isReceivingMode ? registeredDropOff : registeredPickup);
+            
+            if (localID.length() > 0 && scanned == localID) {
+              Serial.println("[FLOW] LOCAL AUTHORIZATION: Match found in manual registry.");
+              displayMessage("VALID ID", "LOCAL AUTH");
+              triggerBuzzer(2);
+              if (socketIO.isConnected()) {
+                emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
+              }
+              consecutiveScanFails = 0; 
+              pendingNextState  = UNLOCKING_ENTRY;
+              actionDelayStart  = millis();
+              actionDelayActive = true;
+            } 
+            else if (socketIO.isConnected()) {
+              Serial.println("[FLOW] No local match. Requesting server verification...");
+              displayMessage("VERIFYING...", "Please wait");
+              emitVerifyScan(scanned, modeName);
+              scanResultReceived = false;
+              scanResultValid    = false;
+              changeState(VERIFYING_SCAN);
+            } 
+            else {
+              Serial.println("[WARN] Offline and No local ID match.");
+              displayMessage("INVALID ID", "RETRY SCAN");
+              triggerCyberChirp(2);
+              currentTrackingId[0] = '\0'; 
+              consecutiveScanFails++;
+              pendingNextState  = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
+              actionDelayStart  = millis();
+              actionDelayActive = true;
+            }
           }
-        } // end '\n' handler
-        else if (c >= 32 && c <= 126 && c != '[' && c != ']') {
-          if (serial2Buffer.length() < 128) serial2Buffer += c;
+        } else if (c >= 32 && c <= 126 && c != '[' && c != ']') {
+          int len = strlen(serial2Buffer);
+          if (len < sizeof(serial2Buffer) - 1) {
+            serial2Buffer[len] = c;
+            serial2Buffer[len+1] = '\0';
+          }
         }
       } // end while Serial2.available()
 
@@ -1058,7 +1143,7 @@ void loop() {
           Serial.print("[FLOW] Server REJECTED ID: "); Serial.println(currentTrackingId);
           displayMessage("REJECTED", "RETRY SCAN");
           triggerBuzzer(3);
-          currentTrackingId  = "";
+          currentTrackingId[0]  = '\0';
           scanResultReceived = false;
           consecutiveScanFails++;
           pendingNextState   = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
@@ -1070,7 +1155,7 @@ void loop() {
         Serial.println("[FLOW] Server verification timed out.");
         displayMessage("TIMEOUT", "RETRY SCAN");
         triggerBuzzer(3);
-        currentTrackingId  = "";
+        currentTrackingId[0]  = '\0';
         consecutiveScanFails++;
         pendingNextState   = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
         actionDelayStart   = millis();
@@ -1141,27 +1226,19 @@ void loop() {
       break;
 
     // ── TILTING PLATFORM ──────────────────────────────────
-    case TILTING_PLATFORM:
+    case TILTING_PLATFORM: {
       if (!stateInitialized) {
-        displayMessage("SORTING", isReceivingMode ? "To DROP OFF Bin" : "To PICK UP Bin");
-        Serial.println("[FLOW] Action: Tilting Tray...");
-        triggerBuzzer(1);
-        int tiltAngle = isReceivingMode ? 0 : 180;
-        moveServoSmoothly(90, tiltAngle); // Tilt out
-        delay(500);                       // Settle at tilt position
-        shakeServo(tiltAngle);            // Shake to release stuck parcels
-        moveServoSmoothly(tiltAngle, 90); // Return to center
-        platformServo.detach();           // Detach: stop PWM to prevent idle drift
-        actionDelayStart  = millis();
-        actionDelayActive = true;
-        stateInitialized  = true;
+        Serial.println("[FLOW] Tilting platform to drop off parcel.");
+        updateProcessingHUD("TILTING...");
+        shakeServo(30); // sets target
+        stateStartTime = millis();
+        stateInitialized = true;
       }
-      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
-        actionDelayActive = false;
-        // Return sweep now handled inside TILTING_PLATFORM stateInitialized block
+      if (millis() - stateStartTime > 5000) {
         changeState(CONFIRMING_DROP);
       }
       break;
+    }
     // ── CONFIRMING DROP ───────────────────────────────────
     case CONFIRMING_DROP:
       {
@@ -1180,8 +1257,8 @@ void loop() {
             Serial.println("[FLOW] Parcel confirmed in bin.");
             triggerBuzzer(2);
             // Notify backend → updates DB and pushes to mobile app
-            if (currentTrackingId.length() > 0) {
-              emitStatusUpdate(currentTrackingId, newStatus, modeStr);
+            if (strlen(currentTrackingId) > 0) {
+              emitStatusUpdate(String(currentTrackingId), newStatus, modeStr);
             }
           } else {
             displayMessage("DONE", "Check Bin");
@@ -1364,26 +1441,35 @@ void loop() {
       break;
 
     // ── RESETTING ─────────────────────────────────────────
-    case RESETTING:
-      triggerBuzzer(1);
-      digitalWrite(LOCK_TOP,      HIGH);
-      digitalWrite(LOCK_PICKUP,   HIGH);
-      digitalWrite(LOCK_RECEIVED, HIGH);
-      lockTopOpen = false; lockPickupOpen = false; lockReceivedOpen = false;
-      emitDoorState();  // notify app: all doors locked on reset
-      platformServo.write(90);
-      currentTrackingId   = "";
-      scanResultReceived  = false;
-      isRiderMode         = false;
-      isMultiMode         = false;
-      scannedCount        = 0;
-      consecutiveScanFails= 0;
-      riderVerifyReceived = false;
-      riderVerifyValid    = false;
-      changeState(IDLE);
-      showHomeScreen();
-      Serial.println("--- [FLOW] SYSTEM RESET TO IDLE ---");
-      break;
+    case RESETTING: {
+       if (!stateInitialized) {
+         Serial.println("[FLOW] Resetting platform and locks.");
+         triggerBuzzer(1);
+         digitalWrite(LOCK_TOP,      HIGH);
+         digitalWrite(LOCK_PICKUP,   HIGH);
+         digitalWrite(LOCK_RECEIVED, HIGH);
+         lockTopOpen = false; lockPickupOpen = false; lockReceivedOpen = false;
+         emitDoorState(); 
+         
+         moveServoSmoothly(90); 
+         currentTrackingId[0] = '\0';
+         scanResultReceived  = false;
+         isRiderMode         = false;
+         isMultiMode         = false;
+         scannedCount        = 0;
+         consecutiveScanFails= 0;
+         riderVerifyReceived = false;
+         riderVerifyValid    = false;
+         
+         stateStartTime = millis();
+         stateInitialized = true;
+       }
+       if (millis() - stateStartTime > 3000) {
+         changeState(IDLE);
+         showHomeScreen();
+       }
+       break;
+    }
   } // end switch
 } // end loop
 
@@ -1489,11 +1575,13 @@ void checkSerialCommands() {
         String newId = input.substring(3);
         newId.trim();
         if (slot == '1') {
-          registeredDropOff = newId;
+          strncpy(registeredDropOff, newId.c_str(), sizeof(registeredDropOff)-1);
+          registeredDropOff[sizeof(registeredDropOff)-1] = '\0';
           dropOffRegisterTime = millis();
           Serial.print("[REG] Drop Off ID (manual): "); Serial.println(registeredDropOff);
         } else if (slot == '2') {
-          registeredPickup = newId;
+          strncpy(registeredPickup, newId.c_str(), sizeof(registeredPickup)-1);
+          registeredPickup[sizeof(registeredPickup)-1] = '\0';
           pickupRegisterTime = millis();
           Serial.print("[REG] Pick Up ID (manual): "); Serial.println(registeredPickup);
         } else {
@@ -1504,8 +1592,8 @@ void checkSerialCommands() {
       }
     } else if (cmd == 'V') {
       Serial.println("[REG] === Registered IDs ===");
-      Serial.print("  Drop Off : "); Serial.println(registeredDropOff.length() ? registeredDropOff : "(none)");
-      Serial.print("  Pick Up  : "); Serial.println(registeredPickup.length()  ? registeredPickup  : "(none)");
+      Serial.print("  Drop Off : "); Serial.println(strlen(registeredDropOff) ? registeredDropOff : "(none)");
+      Serial.print("  Pick Up  : "); Serial.println(strlen(registeredPickup)  ? registeredPickup  : "(none)");
       Serial.print("  WiFi     : "); Serial.println(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected");
       Serial.print("  Server   : "); Serial.println(socketIO.isConnected() ? "Connected" : "Disconnected");
     } else if (cmd == 'M') {
@@ -1542,7 +1630,8 @@ void checkSerialCommands() {
         token.trim();
         if (currentState == DEVICE_UNREGISTERED || currentState == SHOWING_REGISTRATION_QR) {
           // Simulate receiving a registration token (e.g. N:SPDB-REG-482913)
-          registrationToken = token;
+          strncpy(registrationToken, token.c_str(), sizeof(registrationToken)-1);
+          registrationToken[sizeof(registrationToken)-1] = '\0';
           regTokenReceived  = true;
           Serial.print("[DEV] Simulated registrationToken: "); Serial.println(token);
         } else if (currentState == OWNER_VERIFYING) {
@@ -1557,6 +1646,11 @@ void checkSerialCommands() {
         Serial.println("[MANUAL] Bypassing current step...");
         forceNextStep();
       }
+    } else if (cmd == 'X') {
+      isScannerTestActive = true;
+      scannerTestStartTime = millis();
+      Serial.println("[TEST] PASSIVE SCAN TEST ACTIVE: Waiting for data...");
+      Serial.println("[HINT] Trigger the scanner manually (hand proximity or Arduino USB 'T').");
     } else if (cmd == 'T') {
       Serial.println("[MANUAL] Re-initializing TFT Display...");
       reinitTFT();
@@ -1566,19 +1660,17 @@ void checkSerialCommands() {
       changeState(WAITING_FOR_WIFI_CONFIG);
     } else if (cmd == '1') {
       Serial.println("[TEST] Tilting to DROP OFF bin (0°) + Shake...");
-      moveServoSmoothly(90, 0);
+      moveServoSmoothly(0);
       delay(500);
       shakeServo(0);
-      moveServoSmoothly(0, 90);
-      platformServo.detach();
+      moveServoSmoothly(0);
       Serial.println("[TEST] Done.");
     } else if (cmd == '2') {
       Serial.println("[TEST] Tilting to PICKUP bin (180°) + Shake...");
-      moveServoSmoothly(90, 180);
+      moveServoSmoothly(180);
       delay(500);
       shakeServo(180);
-      moveServoSmoothly(180, 90);
-      platformServo.detach();
+      moveServoSmoothly(180);
       Serial.println("[TEST] Done.");
     }
   }
@@ -1662,7 +1754,7 @@ void printSerialMenu() {
   Serial.println("==========================================");
   Serial.println("  [BLUE] Drop Off     [RED] Pick Up");
   Serial.println("------------------------------------------");
-  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | M=Monitor | N=Next | T=TFT Reset | C=WiFi");
+  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | M=Monitor | N=Next | T=TFT Reset | C=WiFi | X=Scan Test");
   Serial.println("  1=Test DropOff (0°)  | 2=Test Pickup (180°)");
   Serial.println("  V=View IDs & Status   | W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");
@@ -1678,10 +1770,12 @@ void printSerialMenu() {
 void changeState(SystemState newState) {
   currentState     = newState;
   stateStartTime   = millis();
+  lastStateChangeTime = millis();
   stateInitialized = false;
   tft.fillScreen(COLOR_BG);
   
-  if (newState == IDLE) {
+  if (newState == IDLE || newState == LOCKSCREEN) {
+    moveServoSmoothly(90);
     showHomeScreen();
   }
 }

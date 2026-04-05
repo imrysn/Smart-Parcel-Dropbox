@@ -253,8 +253,8 @@ io.on('connection', (socket) => {
         await Notification.create({
           userId: tracking.userId,
           title: 'Scan Rejected',
-          body: `Tracking ID ${trackingId} was scanned but is already marked as ${tracking.status}.`,
-          type: 'warning'
+          message: `Tracking ID ${trackingId} was scanned but is already marked as ${tracking.status}.`,
+          type: 'system_alert'
         });
         socket.emit('scanResult', {
           valid: false,
@@ -287,8 +287,8 @@ io.on('connection', (socket) => {
         await Notification.create({
           userId: tracking.userId,
           title: 'Scan Rejected',
-          body: `Tracking ID ${trackingId} was scanned for ${isPickUpMode ? 'Pick Up' : 'Drop Off'} but its status is currently: ${tracking.status}.`,
-          type: 'warning'
+          message: `Tracking ID ${trackingId} was scanned for ${isPickUpMode ? 'Pick Up' : 'Drop Off'} but its status is currently: ${tracking.status}.`,
+          type: 'system_alert'
         });
         socket.emit('scanResult', {
           valid: false,
@@ -315,8 +315,8 @@ io.on('connection', (socket) => {
       await Notification.create({
         userId: tracking.userId,
         title: 'Scan Successful',
-        body: `Access granted for ${mode === 'drop_off' ? 'Drop Off' : 'Pick Up'} using tracking ID ${trackingId}.`,
-        type: mode === 'drop_off' ? 'delivery' : 'pickup'
+        message: `Access granted for ${mode === 'drop_off' ? 'Drop Off' : 'Pick Up'} using tracking ID ${trackingId}.`,
+        type: mode === 'drop_off' ? 'delivery_scheduled' : 'parcel_picked_up'
       });
 
       socket.emit('scanResult', {
@@ -471,8 +471,8 @@ io.on('connection', (socket) => {
         await Notification.create({
           userId,
           title: 'Pickup Ready',
-          body: `Tracking ID ${trackingId} is now awaiting pickup at the box.`,
-          type: 'pickup'
+          message: `Tracking ID ${trackingId} is now awaiting pickup at the box.`,
+          type: 'system_alert'
         });
       }
 
@@ -519,18 +519,18 @@ io.on('connection', (socket) => {
         if (status === 'delivered' || status === 'done') {
           title = 'Parcel Delivered';
           body = `Your parcel (${trackingId}) has been successfully dropped off in the box.`;
-          type = 'delivery';
+          type = 'parcel_delivered';
         } else if (status === 'retrieved') {
           title = 'Parcel Retrieved';
           body = `Your parcel (${trackingId}) has been successfully retrieved from the box.`;
-          type = 'pickup';
+          type = 'parcel_picked_up';
         }
 
         await Notification.create({
           userId: tracking.userId,
           title,
-          body,
-          type
+          message: body,
+          type: type === 'system' ? 'system_alert' : type
         });
       }
 

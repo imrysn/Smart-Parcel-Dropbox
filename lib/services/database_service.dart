@@ -154,6 +154,12 @@ class DatabaseService {
 
   Future<void> resetTracking(String trackingId) => _tracking.resetTracking(trackingId);
 
+  Future<void> deleteTrackingId({
+    required String userId,
+    required String trackingId,
+  }) =>
+      _tracking.deleteTrackingId(userId, trackingId);
+
   void toggleAutoAccept(bool enabled) => _ws.emitToggleAutoAccept(enabled);
 
   void requestAutoAcceptStatus() => _ws.requestAutoAcceptStatus();

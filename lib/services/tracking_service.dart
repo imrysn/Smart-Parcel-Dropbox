@@ -223,6 +223,35 @@ class TrackingService {
     }
   }
 
+  /// Delete a tracking ID
+  Future<void> deleteTrackingId(String userId, String trackingId) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.delete(
+        Uri.parse('${ApiConfig.tracking}/$trackingId'),
+        headers: headers,
+      );
+
+      if (response.statusCode != 200) {
+        try {
+          final error = jsonDecode(response.body);
+          throw error['message'] ?? 'Failed to delete tracking ID (Status: ${response.statusCode})';
+        } catch (e) {
+          // If body is not JSON (e.g. HTML 404 page), throw a generic but informative error
+          if (response.statusCode == 404) {
+            throw 'Delete route not found on server. Please restart the backend server.';
+          }
+          throw 'Server error (${response.statusCode}): ${response.reasonPhrase}';
+        }
+      }
+
+      // Refresh tracking data immediately
+      await refreshTracking(userId);
+    } catch (e) {
+      throw 'Failed to delete tracking ID: $e';
+    }
+  }
+
   /// Dispose resources
   void dispose() {
     _trackingController.close();

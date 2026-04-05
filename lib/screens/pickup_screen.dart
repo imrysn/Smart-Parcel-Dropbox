@@ -195,7 +195,24 @@ class _PickupScreenState extends State<PickupScreen> {
                         ),
                       ),
                     ),
-                    UserUi.statusPill(label: pickup.getStatusText().toUpperCase(), color: statusColor),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        UserUi.statusPill(label: pickup.getStatusText().toUpperCase(), color: statusColor),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: Icon(Icons.delete_outline_rounded, 
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                            size: 20,
+                          ),
+                          onPressed: () => _confirmDelete(pickup),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Delete Pickup',
+                        ),
+                      ],
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -252,5 +269,63 @@ class _PickupScreenState extends State<PickupScreen> {
     if (date == null) return 'N/A';
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${months[date.month - 1]} ${date.day}, ${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  void _confirmDelete(TrackingModel tracking) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Pickup?'),
+        content: Text('Are you sure you want to remove ${tracking.shopName} (${tracking.trackingId}) from your list?\n\nThis action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              try {
+                // Show loading indicator
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Deleting ${tracking.trackingId}...'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+                
+                await widget.databaseService.deleteTrackingId(
+                  userId: widget.userId,
+                  trackingId: tracking.trackingId,
+                );
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Pickup deleted successfully'),
+                      backgroundColor: UserTheme.statusSuccess,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: UserTheme.statusError,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: UserTheme.statusError,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('DELETE'),
+          ),
+        ],
+      ),
+    );
   }
 }

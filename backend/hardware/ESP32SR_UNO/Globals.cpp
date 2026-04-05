@@ -16,12 +16,14 @@ unsigned long lastDebugTime      = 0;
 unsigned long actionDelayStart  = 0;
 bool          actionDelayActive = false;
 SystemState   pendingNextState  = IDLE;
+bool          isScannerTestActive = false;
+unsigned long lastStateChangeTime = 0;
+unsigned long scannerTestStartTime = 0;
 
 bool   riderVerifyReceived = false;
 bool   riderVerifyValid    = false;
-String serial2Buffer       = ""; 
-
-String ownerSessionToken     = "";   
+char serial2Buffer[128]       = ""; 
+char ownerSessionToken[32]   = "";   
 bool   ownerApprovalReceived = false;
 bool   ownerApprovalValid    = false;
 bool   ownerQrDrawn          = false; 
@@ -29,20 +31,20 @@ bool   ownerVerifyTimedOut   = false;
 
 Preferences nvsPrefs;
 // Network State (NVS)
-String nvsWifiSSID      = "";
-String nvsWifiPassword  = "";
+char nvsWifiSSID[33]      = "";
+char nvsWifiPassword[64]  = "";
 bool   deviceRegistered = false;  
 unsigned long previousMillisWiFi = 0;
 unsigned long intervalWiFi = 10000;  
 
-String registrationToken = ""; 
+char registrationToken[32] = ""; 
 bool   regTokenReceived  = false;
 bool   regQrDrawn        = false;
 bool   deviceJustRegistered = false; 
 
-String registeredDropOff  = "";  
-String registeredPickup   = "";  
-String currentTrackingId  = "";  
+char registeredDropOff[64]  = "";  
+char registeredPickup[64]   = "";  
+char currentTrackingId[64]  = "";  
 
 bool scanResultReceived = false;
 bool scanResultValid    = false;
@@ -56,7 +58,7 @@ bool lastSocketState = false;
 bool lastDoorState = false;
 unsigned long lastIndicatorUpdate = 0;
 
-String offlineQueue[MAX_OFFLINE_QUEUE];
+char offlineQueue[MAX_OFFLINE_QUEUE][64];
 int offlineQueueCount = 0;
 
 unsigned long lastLockscreenUpdate = 0;
@@ -80,6 +82,17 @@ unsigned long lastEmotionTime = 0;
 unsigned long dropOffRegisterTime = 0;
 unsigned long pickupRegisterTime  = 0;
 const unsigned long TIMEOUT_MS    = 300000;
+
+// Non-blocking hardware state init
+int           currentServoPos     = 180; // Safe default
+int           targetServoPos      = 180;
+unsigned long lastServoMoveTime   = 0;
+float         lastUsPlatformDist  = 999.0;
+float         lastUsPickupDist    = 999.0;
+float         lastUsDropoffDist   = 999.0;
+unsigned long lastUsPlatformTime  = 0;
+unsigned long lastUsPickupTime    = 0;
+unsigned long lastUsDropoffTime   = 0;
 
 Servo            platformServo;
 Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_RST);
