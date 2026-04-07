@@ -234,10 +234,16 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       _showOfflineError();
       return;
     }
+    HapticFeedback.heavyImpact();
     final isOpen = _doorOpen[doorType]!;
     setState(() { _doorProcessing[doorType] = true; _doorOpen[doorType] = !isOpen; });
     _ws.emitControlDoor(doorType, isOpen ? 'close' : 'open');
-    Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _doorProcessing[doorType] = false); });
+    Future.delayed(const Duration(seconds: 2), () { 
+      if (mounted) {
+        setState(() => _doorProcessing[doorType] = false); 
+        HapticFeedback.mediumImpact();
+      }
+    });
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${isOpen ? 'Closing' : 'Opening'} ${_doorLabel(doorType)}...'),

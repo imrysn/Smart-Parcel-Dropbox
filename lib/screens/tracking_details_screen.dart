@@ -3,6 +3,7 @@ import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../models/tracking_model.dart';
 import '../services/database_service.dart';
+import '../widgets/fade_animation.dart';
 
 class TrackingDetailsScreen extends StatelessWidget {
   final TrackingModel tracking;
@@ -89,7 +90,7 @@ class TrackingDetailsScreen extends StatelessWidget {
                     return Column(
                       children: logs.asMap().entries.map((entry) {
                         final isLast = entry.key == logs.length - 1;
-                        return _buildTimelineItem(context, entry.value, isLast);
+                        return _buildTimelineItem(context, entry.value, isLast, entry.key);
                       }).toList(),
                     );
                   },
@@ -183,11 +184,11 @@ class TrackingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTimelineItem(BuildContext context, Map<String, dynamic> log, bool isLast) {
+  Widget _buildTimelineItem(BuildContext context, Map<String, dynamic> log, bool isLast, int index) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final time = DateTime.parse(log['timestamp'].toString());
 
-    return IntrinsicHeight(
+    return FadeAnimation(0.2 + (index * 0.15), IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -246,7 +247,7 @@ class TrackingDetailsScreen extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ));
   }
 
   IconData _getStatusIcon(String status) {

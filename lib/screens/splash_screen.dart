@@ -5,6 +5,8 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/service_locator.dart';
 import 'admin/admin_dashboard_screen.dart';
+import '../widgets/fade_animation.dart';
+import '../widgets/user_ui.dart';
 
 /// Splash Screen - Simple and fast
 class SplashScreen extends StatefulWidget {
@@ -102,12 +104,11 @@ class _SplashScreenState extends State<SplashScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Simple dropbox icon
-              Container(
+              FadeAnimation(0.2, Container(
                 width: 140,
                 height: 140,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
+                  color: Colors.white.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -115,11 +116,10 @@ class _SplashScreenState extends State<SplashScreen> {
                   size: 70,
                   color: Colors.white,
                 ),
-              ),
+              )),
               const SizedBox(height: 40),
               
-              // App title
-              const Text(
+              FadeAnimation(0.4, const Text(
                 'Smart Parcel\nDrop Box',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -128,38 +128,35 @@ class _SplashScreenState extends State<SplashScreen> {
                   color: Colors.white,
                   height: 1.2,
                 ),
-              ),
+              )),
               const SizedBox(height: 12),
               
-              // Subtitle
-              Text(
+              FadeAnimation(0.5, Text(
                 'Secure Contactless Deliveries',
                 style: TextStyle(
                   fontSize: 15,
-                  color: Colors.white.withOpacity(0.9),
+                  color: Colors.white.withValues(alpha: 0.9),
                   letterSpacing: 0.5,
                 ),
-              ),
+              )),
               const SizedBox(height: 60),
               
-              // Simple loading indicator
-              const SizedBox(
+              FadeAnimation(0.6, const SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
-              ),
+              )),
               const SizedBox(height: 80),
               
-              // Footer
-              Column(
+              FadeAnimation(0.8, Column(
                 children: [
                   Text(
                     'Cavite State University',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
+                      color: Colors.white.withValues(alpha: 0.7),
                       fontSize: 12,
                     ),
                   ),
@@ -167,12 +164,12 @@ class _SplashScreenState extends State<SplashScreen> {
                   Text(
                     'Bacoor Campus',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
+                      color: Colors.white.withValues(alpha: 0.6),
                       fontSize: 11,
                     ),
                   ),
                 ],
-              ),
+              )),
             ],
           ),
         ),

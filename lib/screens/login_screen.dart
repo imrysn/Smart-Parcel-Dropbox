@@ -8,7 +8,7 @@ import 'register_screen.dart';
 import 'home_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'password_reset_screen.dart';
-
+import '../widgets/fade_animation.dart';
 /// Login Screen - User authentication with Email/Password and Google Sign-In
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -312,13 +312,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          UserUi.sectionTitle(
+                          FadeAnimation(0.2, UserUi.sectionTitle(
                             context,
                             'Welcome Back',
                             subtitle: 'Sign in to continue managing your parcels',
-                          ),
+                          )),
                           const SizedBox(height: 24),
-                          TextFormField(
+                          FadeAnimation(0.4, TextFormField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
                             decoration: const InputDecoration(
@@ -326,9 +326,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               prefixIcon: Icon(Icons.mail_outline_rounded),
                             ),
                             validator: InputValidator.validateEmail,
-                          ),
+                          )),
                           const SizedBox(height: 16),
-                          TextFormField(
+                          FadeAnimation(0.6, TextFormField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
@@ -346,16 +346,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             validator: (value) =>
                                 value == null || value.isEmpty ? 'Please enter password' : null,
-                          ),
-                          Align(
+                          )),
+                          FadeAnimation(0.7, Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               onPressed: _isLoading ? null : _showForgotPasswordDialog,
                               child: const Text('Forgot Password?'),
                             ),
-                          ),
+                          )),
                           const SizedBox(height: 24),
-                          _isLoading
+                          FadeAnimation(0.8, _isLoading
                               ? const Center(
                                   child: CircularProgressIndicator(
                                       color: UserTheme.primaryOrange))
@@ -363,9 +363,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   label: 'SIGN IN',
                                   onTap: _login,
                                   icon: Icons.login_rounded,
-                                ),
+                                )),
                           const SizedBox(height: 32),
-                          Row(
+                          FadeAnimation(0.9, Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
@@ -386,7 +386,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: const Text('Create Account'),
                               ),
                             ],
-                          ),
+                          )),
                         ],
                       ),
                     ),

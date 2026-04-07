@@ -21,6 +21,7 @@ void _horizontalOval(int x, int y, int w, int h, uint16_t color) {
 
 void _buttonIndicator(int x, int y, uint16_t color) {
   tft.fillRoundRect(x - 15, y - 6, 30, 12, 6, color);
+  tft.drawRoundRect(x - 15, y - 6, 30, 12, 6, COLOR_BG);
 }
 
 // ── Internal helper: draw viewfinder brackets ──────────────
@@ -63,9 +64,10 @@ int _smallText(const char* s, int x, int y, uint16_t col) {
 
 // ── Internal helper: Vertical Oval Button with accent pill ────
 void _verticalOvalButton(int x, int y, int w, int h, const char* label, uint16_t accentColor, int iconId) {
-  // Main Vertical Oval (dark card)
+  // Main Vertical Oval (dark card) with Neon Border
   tft.fillRoundRect(x - w/2, y - h/2, w, h, w/2, COLOR_CARD);
-  tft.drawRoundRect(x - w/2, y - h/2, w, h, w/2, COLOR_GREY);
+  tft.drawRoundRect(x - w/2, y - h/2, w, h, w/2, accentColor);
+  tft.drawRoundRect(x - w/2 - 1, y - h/2 - 1, w + 2, h + 2, (w+2)/2, accentColor);
   
   // Icon centered in upper half (offset from y center)
   int iy = y - 22;
@@ -117,7 +119,9 @@ void drawScannerBg() {
   // Viewfinder: TL(25,35) – BR(295,195)
   _viewfinder(25, 35, 295, 195, COLOR_ACCENT);
   
-  // Laser line (Neon Red)
+  // Laser line (Neon Glow)
+  tft.fillRect(35, 113, 250, 6, tft.color565(100, 0, 0));
+  tft.fillRect(35, 114, 250, 4, tft.color565(200, 0, 0));
   tft.fillRect(35, 115, 250, 2, COLOR_RED);
   
   // EXIT RED Technical Button
@@ -345,9 +349,11 @@ void drawRobotEyeLockscreen(int x, int y, int offsetX, bool blink, RobotEmotion 
       tft.fillRoundRect(lx - 25, y - 12, 50, 24, 12, COLOR_ACCENT);
       tft.fillRoundRect(rx - 25, y - 12, 50, 24, 12, COLOR_ACCENT);
     } else {
-      // NEUTRAL: Two rounded "pill" style eyes
+      // NEUTRAL: Two rounded "pill" style eyes with glint
       tft.fillRoundRect(lx - 25, y - 25, 50, 40, 20, COLOR_ACCENT);
+      tft.fillCircle(lx + 10, y - 12, 4, COLOR_BG); // Glint reflection
       tft.fillRoundRect(rx - 25, y - 25, 50, 40, 20, COLOR_ACCENT);
+      tft.fillCircle(rx + 10, y - 12, 4, COLOR_BG); // Glint reflection
     }
   }
   
@@ -465,12 +471,18 @@ void updateDynamicIndicators() {
   bool socketOK = socketIO.isConnected();
   bool anyOpen  = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
 
-  tft.fillRoundRect(110, 6, 100, 18, 9, COLOR_CARD);
-  uint16_t wifiColor = wifiOK ? COLOR_GREEN : COLOR_RED;
-  drawWiFiSignal(118, 9, wifiColor);
+  // Cleanly separated visual blocks
+  tft.fillRoundRect(105, 6, 28, 18, 9, COLOR_CARD);
+  tft.fillRoundRect(138, 6, 28, 18, 9, COLOR_CARD);
+  tft.fillRoundRect(171, 6, 28, 18, 9, COLOR_CARD);
+
+  uint16_t wifiColor = wifiOK ? COLOR_GREEN : tft.color565(100, 0, 0);
+  drawWiFiSignal(111, 9, wifiColor);
+  
   uint16_t doorColor = anyOpen ? COLOR_GOLD : COLOR_GREEN;
-  drawSmallPadlock(160, 10, doorColor, anyOpen);
-  tft.fillCircle(195, 14, 3, socketOK ? COLOR_GREEN : COLOR_RED);
+  drawSmallPadlock(145, 10, doorColor, anyOpen);
+  
+  tft.fillCircle(185, 15, 3, socketOK ? COLOR_GREEN : tft.color565(100, 0, 0));
 
   lastWifiState   = wifiOK;
   lastSocketState = socketOK;

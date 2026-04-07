@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../widgets/fade_animation.dart';
 import '../services/dropbox_service.dart';
 import '../services/websocket_service.dart';
 import '../services/service_locator.dart';
@@ -361,7 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildNoDropboxBanner() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
+    return FadeAnimation(0.2, Container(
       margin: const EdgeInsets.only(bottom: 24),
       child: UserUi.glassCard(
         context,
@@ -414,7 +415,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildMiniStatCard({
@@ -624,34 +625,34 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisSpacing: 12,
                     childAspectRatio: 1.08,
                     children: [
-                      _buildMiniStatCard(
+                      FadeAnimation(0.3, _buildMiniStatCard(
                         title: 'Active Orders',
                         value: '$activeDropOffCount',
                         icon: Icons.local_shipping_rounded,
                         color: UserTheme.primaryOrange,
                         weeklyData: dropOffWeekly,
-                      ),
-                      _buildMiniStatCard(
+                      )),
+                      FadeAnimation(0.4, _buildMiniStatCard(
                         title: 'Drop-Off Bin',
                         value: '$dropOffBinCount',
                         icon: Icons.inbox_rounded,
                         color: UserTheme.accentAmberDark,
                         weeklyData: deliveredWeekly,
-                      ),
-                      _buildMiniStatCard(
+                      )),
+                      FadeAnimation(0.5, _buildMiniStatCard(
                         title: 'Active Pickups',
                         value: '$activePickupCount',
                         icon: Icons.outbox_rounded,
                         color: UserTheme.gradientPink,
                         weeklyData: pickUpWeekly,
-                      ),
-                      _buildMiniStatCard(
+                      )),
+                      FadeAnimation(0.6, _buildMiniStatCard(
                         title: 'Pick-Up Bin',
                         value: '$pickUpBinCount',
                         icon: Icons.inventory_2_rounded,
                         color: UserTheme.primaryOrangeDark,
                         weeklyData: readyPickupWeekly,
-                      ),
+                      )),
                     ],
                   ),
                   
