@@ -2,7 +2,7 @@
 /**
  * port-switch.js
  * Toggles ALL server URLs between LOCAL (localhost) and PRODUCTION (Render.com).
- * Affects: api_config.dart, ESP32SR_UNO.ino
+ * Affects: api_config.dart, config.h, NetworkController.ino
  *
  * Usage: npm run port:switch
  */
@@ -15,14 +15,15 @@ const ROOT = path.resolve(__dirname, '..', '..');
 
 const FILES = {
     dart: path.join(ROOT, 'lib', 'config', 'api_config.dart'),
-    ino: path.join(ROOT, 'backend', 'hardware', 'ESP32SR_UNO', 'ESP32SR_UNO.ino'),
+    config: path.join(ROOT, 'backend', 'hardware', 'ESP32SR_UNO', 'config.h'),
+    net: path.join(ROOT, 'backend', 'hardware', 'ESP32SR_UNO', 'NetworkController.ino'),
 };
 
 const LOCAL = {
-    label: 'LOCAL (192.180.100.130:3000)',
-    dartBase: "http://192.180.100.130:3000/api",
-    dartSocket: "http://192.180.100.130:3000",
-    inoHost: "192.180.100.130",
+    label: 'LOCAL (10.63.248.205:3000)',
+    dartBase: "http://10.63.248.205:3000/api",
+    dartSocket: "http://10.63.248.205:3000",
+    inoHost: "10.63.248.205",
     inoPort: "3000",
     inoBegin: "socketIO.begin(",
 };
@@ -48,36 +49,37 @@ function switchDart(from, to) {
     content = content.replace(from.dartBase, to.dartBase);
     content = content.replace(from.dartSocket, to.dartSocket);
     fs.writeFileSync(FILES.dart, content, 'utf8');
-    console.log(`  ✅ api_config.dart  → ${to.dartBase}`);
+    console.log(`  ✅ api_config.dart     → ${to.dartBase}`);
 }
 
-// ─── SWITCH ino ─────────────────────────────────────────────────────────────
-function switchIno(from, to) {
-    let content = fs.readFileSync(FILES.ino, 'utf8');
+// ─── SWITCH config.h ────────────────────────────────────────────────────────
+function switchConfig(from, to) {
+    let content = fs.readFileSync(FILES.config, 'utf8');
 
-    // HOST
+    // #define SERVER_HOST
     content = content.replace(
-        new RegExp(`(const char\\* SERVER_HOST\\s*=\\s*")[^"]+(";)`),
+        new RegExp(`(#define SERVER_HOST\\s*")[^"]+(")`),
         `$1${to.inoHost}$2`
     );
-    // PORT
+    // #define SERVER_PORT
     content = content.replace(
-        new RegExp(`(const uint16_t SERVER_PORT\\s*=\\s*)${from.inoPort}(;)`),
-        `$1${to.inoPort}$2`
+        new RegExp(`(#define SERVER_PORT\\s*)${from.inoPort}`),
+        `$1${to.inoPort}`
     );
-    // begin / beginSSL
+
+    fs.writeFileSync(FILES.config, content, 'utf8');
+    console.log(`  ✅ config.h            → ${to.inoHost}:${to.inoPort}`);
+}
+
+// ─── SWITCH NetworkController ───────────────────────────────────────────────
+function switchNet(from, to) {
+    let content = fs.readFileSync(FILES.net, 'utf8');
+
+    // socketIO.begin( vs beginSSL(
     content = content.replace(from.inoBegin, to.inoBegin);
 
-    // SERVER_PATH: EIO=3 for both, no &transport=websocket for Render
-    if (to === RENDER) {
-        content = content.replace(
-            /const char\* SERVER_PATH\s*=\s*"[^"]+";/,
-            `const char* SERVER_PATH = "/socket.io/?EIO=3";`
-        );
-    }
-
-    fs.writeFileSync(FILES.ino, content, 'utf8');
-    console.log(`  ✅ ESP32SR_UNO.ino  → ${to.inoHost}:${to.inoPort}`);
+    fs.writeFileSync(FILES.net, content, 'utf8');
+    console.log(`  ✅ NetworkController   → ${to.inoBegin}...`);
 }
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────
@@ -86,15 +88,17 @@ const current = detectMode();
 if (current === 'local') {
     console.log('\n🔄 Switching: LOCAL → PRODUCTION\n');
     switchDart(LOCAL, RENDER);
-    switchIno(LOCAL, RENDER);
+    switchConfig(LOCAL, RENDER);
+    switchNet(LOCAL, RENDER);
     console.log(`\n✅ Done! Now pointing to ${RENDER.label}`);
-    console.log('   → Push backend/server.js to GitHub and wait for Render deploy');
-    console.log('   → Reflash ESP32 with the updated SERVER_HOST\n');
+    console.log('   → Push changes to GitHub and wait for Render deploy');
+    console.log('   → Reflash ESP32 with the updated PRODUCTION settings\n');
 } else {
     console.log('\n🔄 Switching: PRODUCTION → LOCAL\n');
     switchDart(RENDER, LOCAL);
-    switchIno(RENDER, LOCAL);
+    switchConfig(RENDER, LOCAL);
+    switchNet(RENDER, LOCAL);
     console.log(`\n✅ Done! Now pointing to ${LOCAL.label}`);
     console.log('   → Run "node server.js" in the backend folder');
-    console.log('   → Reflash ESP32 with the updated SERVER_HOST\n');
+    console.log('   → Reflash ESP32 with the updated LOCAL settings\n');
 }

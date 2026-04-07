@@ -852,7 +852,7 @@ async function startServer() {
     console.log('🚀 ========================================');
     console.log('');
     console.log('📡 WebSocket server ready');
-    console.log('🔧 ESP32-S3 IP:', process.env.ESP32_IP || '192.168.1.100');
+    console.log('🔧 ESP32-S3 IP:', process.env.ESP32_IP || '10.63.248.x (Waiting for connection...)');
     console.log('🔧 Scanner Port:', process.env.SCANNER_PORT || 'COM3');
     console.log('');
   });

@@ -208,7 +208,7 @@ backend/
 
 1. Check ESP32 IP address in `.env`
 2. Verify ESP32 is on same network
-3. Test with: `curl http://192.168.1.100/ping`
+3. Test with: `curl http://10.63.248.205/ping`
 
 ### Arduino Scanner Not Working
 
