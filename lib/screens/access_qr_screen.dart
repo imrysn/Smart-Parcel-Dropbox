@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../services/crypto_service.dart';
 import '../services/service_locator.dart';
+import '../services/auth_service.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 
@@ -20,15 +21,42 @@ class AccessQrScreen extends StatefulWidget {
 
 class _AccessQrScreenState extends State<AccessQrScreen> {
   final _crypto = getIt<CryptoService>();
+  final _auth = getIt<AuthService>();
+  
   String? _token;
+  String? _error;
+  bool _isLoading = true;
   int _secondsLeft = 60;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _refreshToken();
+    _initToken();
     _startTimer();
+  }
+
+  Future<void> _initToken() async {
+    setState(() => _isLoading = true);
+    
+    // 1. Initial attempt
+    String? token = await _crypto.generateRotatingToken();
+    
+    // 2. If it failed, try to sync the key from backend (in case of fresh login/update)
+    if (token == null) {
+      await _auth.syncHmacKey();
+      token = await _crypto.generateRotatingToken();
+    }
+
+    if (mounted) {
+      setState(() {
+        _token = token;
+        _isLoading = false;
+        if (token == null) {
+          _error = "No Encryption Key Found.\n\nPlease ensure your Smart Dropbox is registered and your account is synced.";
+        }
+      });
+    }
   }
 
   void _startTimer() {
@@ -96,47 +124,23 @@ class _AccessQrScreenState extends State<AccessQrScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    if (_token != null)
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: QrImageView(
-                          data: _token!,
-                          version: QrVersions.auto,
-                          size: 240.0,
-                          eyeStyle: const QrEyeStyle(
-                            eyeShape: QrEyeShape.square,
-                            color: Colors.black,
-                          ),
-                          dataModuleStyle: const QrDataModuleStyle(
-                            dataModuleShape: QrDataModuleShape.square,
-                            color: Colors.black,
-                          ),
-                        ),
-                      )
-                    else
-                      const SizedBox(
-                        height: 240,
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
+                    _buildMainContent(),
                     const SizedBox(height: 32),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.timer_outlined, size: 18, color: UserTheme.primaryOrange),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Rotates in $_secondsLeft seconds',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
+                    if (!_isLoading && _error == null)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.timer_outlined, size: 18, color: UserTheme.primaryOrange),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Rotates in $_secondsLeft seconds',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -145,7 +149,9 @@ class _AccessQrScreenState extends State<AccessQrScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 48),
               child: Text(
-                'Show this code to the box\'s barcode scanner to unlock. This token is cryptographically signed and works without Internet.',
+                _error != null 
+                  ? "Authentication failed. Remote synchronization may be required."
+                  : 'Show this code to the box\'s barcode scanner to unlock. This token is cryptographically signed and works without Internet.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: isDark ? Colors.white70 : Colors.black54,
@@ -155,6 +161,56 @@ class _AccessQrScreenState extends State<AccessQrScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainContent() {
+    if (_isLoading) {
+      return const SizedBox(
+        height: 240,
+        child: Center(
+          child: CircularProgressIndicator(color: UserTheme.primaryOrange),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return SizedBox(
+        height: 240,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline_rounded, color: UserTheme.statusError, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: QrImageView(
+        data: _token!,
+        version: QrVersions.auto,
+        size: 240.0,
+        eyeStyle: const QrEyeStyle(
+          eyeShape: QrEyeShape.square,
+          color: Colors.black,
+        ),
+        dataModuleStyle: const QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Colors.black,
         ),
       ),
     );

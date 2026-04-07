@@ -136,6 +136,29 @@ class AuthService {
     await _storage.delete(key: _hmacKey);
   }
 
+  // Fetch latest user data from server and sync missing fields (like hmacKey)
+  Future<void> syncHmacKey() async {
+    try {
+      final userId = await currentUserId;
+      if (userId == null) return;
+
+      final headers = await getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.users}/$userId'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['hmacKey'] != null) {
+          await _storage.write(key: _hmacKey, value: data['hmacKey']);
+        }
+      }
+    } catch (e) {
+      debugPrint('Sync Error: $e');
+    }
+  }
+
   // Get authorization header
   Future<Map<String, String>> getAuthHeaders() async {
     final token = await getToken();
