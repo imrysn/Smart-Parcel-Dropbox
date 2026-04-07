@@ -26,6 +26,11 @@ const io = new Server(server, {
 // Store io in express app
 app.set('io', io);
 
+// ── ESP32 Connection Diagnostics ──────────────────────────────────────────────
+io.engine.on("connection_error", (err) => {
+    console.log("[ENGINE_ERR] Connection rejected:", err.code, "-", err.message, "| Context:", JSON.stringify(err.context));
+});
+
 // Body parser
 app.use(express.json());
 
