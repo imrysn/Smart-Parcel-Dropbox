@@ -17,7 +17,10 @@ const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
         origin: "*",
-    }
+    },
+    allowEIO3: true,  // Required for ESP32 arduinoWebSockets library (uses EIO=3)
+    pingTimeout: 10000,
+    pingInterval: 5000,
 });
 
 // Store io in express app
