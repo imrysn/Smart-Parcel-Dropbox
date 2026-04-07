@@ -64,6 +64,20 @@ const dropboxSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  // ── Phase 4: Applied Cryptography ─────────
+  hmacKey: {
+    type: String,
+    default: null // Shared with primary owner for TOTP
+  },
+  // ── Spatial Volume Analytics (CS Phase 3) ─────────
+  occupancyPercent: {
+    type: Number,
+    default: 0,
+  },
+  fillPercentage: {
+    type: Number,
+    default: 0,
+  },
 }, {
   timestamps: true,
 });

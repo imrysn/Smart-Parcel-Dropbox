@@ -31,6 +31,11 @@ const userSchema = new mongoose.Schema({
     resetCodeExpiry: {
         type: Date,
         default: null
+    },
+    // ── Phase 4: Applied Cryptography ─────────
+    hmacKey: {
+        type: String,
+        default: null // Generated upon registration/login
     }
 }, {
     timestamps: true

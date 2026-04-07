@@ -174,6 +174,23 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
         regTokenReceived  = true;
       } else if (eventName == "deviceRegistered") {
         deviceJustRegistered = true;
+        
+        // Phase 6: Sync secret key to NVS
+        const char* incomingKey = doc[1]["hmacKey"] | "";
+        if (strlen(incomingKey) > 0) {
+          strncpy(hmacKey, incomingKey, sizeof(hmacKey)-1);
+          nvsPrefs.begin("smartbox", false);
+          nvsPrefs.putString("hmacKey", hmacKey);
+          
+          const char* incomingUser = doc[1]["primaryUserId"] | "";
+          if (strlen(incomingUser) > 0) {
+            strncpy(primaryUserId, incomingUser, sizeof(primaryUserId)-1);
+            nvsPrefs.putString("primaryUserId", primaryUserId);
+          }
+          
+          nvsPrefs.end();
+          Serial.print("[WS] hmacKey and primaryUserId synced: "); Serial.println(primaryUserId);
+        }
       } else if (eventName == "deviceUnregistered") {
         Serial.println("[WS] deviceUnregistered event! Clearing registration flag.");
         nvsPrefs.begin("smartbox", false);
@@ -228,22 +245,102 @@ void emitRequestOwnerSession() {
   arr.add("requestOwnerSession");
   arr.createNestedObject();
 
-  char output[128];
-  serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output);
   Serial.println("[WS] Emitted requestOwnerSession");
 }
 
+// ── Phase 7: Event-Sourced Persistence (Enqueue Offline Events) ──────
+
+void saveOfflineQueue() {
+  Preferences queuePrefs;
+  queuePrefs.begin("smartqueue", false);
+  queuePrefs.putInt("count", offlineQueueCount);
+  for (int i = 0; i < offlineQueueCount; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "item%d", i);
+    queuePrefs.putString(key, offlineQueue[i]);
+  }
+  queuePrefs.end();
+  Serial.print("[OFFLINE] Queue persisted to NVS (Count: "); Serial.print(offlineQueueCount); Serial.println(")");
+}
+
+void loadOfflineQueue() {
+  Preferences queuePrefs;
+  queuePrefs.begin("smartqueue", true); // Read-only
+  offlineQueueCount = queuePrefs.getInt("count", 0);
+  if (offlineQueueCount > MAX_OFFLINE_QUEUE) offlineQueueCount = MAX_OFFLINE_QUEUE;
+  
+  for (int i = 0; i < offlineQueueCount; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "item%d", i);
+    queuePrefs.getString(key, offlineQueue[i], 64);
+  }
+  queuePrefs.end();
+  if (offlineQueueCount > 0) {
+    Serial.print("[OFFLINE] Loaded "); Serial.print(offlineQueueCount); Serial.println(" events from NVS.");
+  }
+}
+
+void enqueueOfflineEvent(const String& type, const String& data) {
+  if (offlineQueueCount >= MAX_OFFLINE_QUEUE) {
+    Serial.println("[OFFLINE] ERROR: Queue full! DROPPING EVENT.");
+    return;
+  }
+  
+  String event = type + ":" + data;
+  strncpy(offlineQueue[offlineQueueCount], event.c_str(), 63);
+  offlineQueue[offlineQueueCount][63] = '\0';
+  offlineQueueCount++;
+  
+  saveOfflineQueue();
+  Serial.print("[OFFLINE] Enqueued locally: "); Serial.println(event);
+}
+
+void syncOfflineQueue() {
+  if (offlineQueueCount == 0 || !socketIO.isConnected()) return;
+  
+  Serial.print("[SYNC] Starting synchronization of "); 
+  Serial.print(offlineQueueCount); Serial.println(" events...");
+  
+  // We process one item per sync call to avoid blocking too long, 
+  // or we can loop through them if we're careful.
+  // For a thesis, a sequential loop with small delays is easiest to demonstrate.
+  for (int i = 0; i < offlineQueueCount; i++) {
+    String event = String(offlineQueue[i]);
+    int colonIdx = event.indexOf(':');
+    if (colonIdx == -1) continue;
+    
+    String type = event.substring(0, colonIdx);
+    String data = event.substring(colonIdx + 1);
+    
+    Serial.print("[SYNC] Processing "); Serial.print(i+1); Serial.print("/"); Serial.print(offlineQueueCount);
+    Serial.print(": "); Serial.println(event);
+    
+    if (type == "PICKUP") {
+      emitRegisterOwnerPickup(data);
+    } else if (type == "STATUS") {
+      int firstPipe = data.indexOf('|');
+      int lastPipe  = data.lastIndexOf('|');
+      if (firstPipe != -1 && lastPipe != -1) {
+        String trk  = data.substring(0, firstPipe);
+        String stat = data.substring(firstPipe + 1, lastPipe);
+        String mode = data.substring(lastPipe + 1);
+        emitStatusUpdate(trk, stat, mode);
+      }
+    }
+    
+    delay(200); // Small gap between sync emits
+  }
+  
+  // Clear the queue after successful sync
+  offlineQueueCount = 0;
+  saveOfflineQueue();
+  Serial.println("[SYNC] Synchronization complete. Queue cleared.");
+}
+
 void emitRegisterOwnerPickup(const String& trackingId) {
   if (!socketIO.isConnected()) {
-    if (offlineQueueCount < MAX_OFFLINE_QUEUE) {
-      strncpy(offlineQueue[offlineQueueCount], trackingId.c_str(), 63);
-      offlineQueue[offlineQueueCount][63] = '\0';
-      offlineQueueCount++;
-      Serial.print("[OFFLINE] Queued owner pickup: "); Serial.println(trackingId);
-    } else {
-      Serial.println("[OFFLINE] ERROR: Queue full. Cannot queue more pickups.");
-    }
+    enqueueOfflineEvent("PICKUP", trackingId);
     return;
   }
 
@@ -260,6 +357,12 @@ void emitRegisterOwnerPickup(const String& trackingId) {
 }
 
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode) {
+  if (!socketIO.isConnected()) {
+    String data = trackingId + "|" + status + "|" + mode;
+    enqueueOfflineEvent("STATUS", data);
+    return;
+  }
+
   StaticJsonDocument<256> doc;
   JsonArray arr = doc.to<JsonArray>();
   arr.add("statusUpdate");
@@ -295,6 +398,24 @@ void emitDoorState() {
   serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output);
   if (DEBUG_WS) { Serial.print("[WS] Emitted doorStateUpdate: "); Serial.println(output); }
+}
+
+void emitVolumeData() {
+  if (!socketIO.isConnected()) return;
+
+  StaticJsonDocument<128> doc;
+  JsonArray arr = doc.to<JsonArray>();
+  arr.add("spatialVolumeUpdate");
+  JsonObject data = arr.createNestedObject();
+  
+  float occupancy = getOccupancyPercentage();
+  data["occupancyPercent"] = occupancy;
+  data["rawDistance"] = lastUsDropoffDist; // For panelist transparency
+
+  char output[128];
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+  if (DEBUG_WS) { Serial.print("[WS] Emitted spatialVolumeUpdate: "); Serial.println(output); }
 }
 
 void handleRequestWiFiScan() {

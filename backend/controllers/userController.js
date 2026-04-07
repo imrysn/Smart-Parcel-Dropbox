@@ -41,7 +41,8 @@ exports.registerUser = async (req, res) => {
                 id: user._id,
                 email: user.email,
                 fullName: user.fullName,
-                role: user.role
+                role: user.role,
+                hmacKey: user.hmacKey
             }
         });
     } catch (error) {
@@ -84,7 +85,8 @@ exports.loginUser = async (req, res) => {
                 fullName: user.fullName,
                 role: user.role,
                 phoneNumber: user.phoneNumber,
-                address: user.address
+                address: user.address,
+                hmacKey: user.hmacKey
             }
         });
     } catch (error) {

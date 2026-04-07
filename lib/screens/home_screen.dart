@@ -20,6 +20,7 @@ import 'dropbox_control_screen.dart';
 
 import 'pickup_screen.dart';
 import 'owner_verify_screen.dart';
+import 'access_qr_screen.dart';
 import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
 import '../widgets/weekly_activity_chart.dart';
@@ -654,6 +655,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         weeklyData: readyPickupWeekly,
                       )),
                     ],
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  // Phase 5: Secure Access QR Action
+                  UserUi.premiumButton(
+                    label: 'GENERATE ACCESS QR',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (context) => const AccessQrScreen()),
+                    ),
+                    icon: Icons.qr_code_rounded,
                   ),
                   
                   const SizedBox(height: 12),

@@ -33,11 +33,13 @@ Preferences nvsPrefs;
 // Network State (NVS)
 char nvsWifiSSID[33]      = "";
 char nvsWifiPassword[64]  = "";
+char primaryUserId[32]    = ""; // Phase 6: Sync from backend
 bool   deviceRegistered = false;  
 unsigned long previousMillisWiFi = 0;
 unsigned long intervalWiFi = 10000;  
 
 char registrationToken[32] = ""; 
+char hmacKey[65]           = ""; 
 bool   regTokenReceived  = false;
 bool   regQrDrawn        = false;
 bool   deviceJustRegistered = false; 

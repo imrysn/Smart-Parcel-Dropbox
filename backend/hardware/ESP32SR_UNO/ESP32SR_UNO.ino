@@ -28,6 +28,7 @@
 #include <DNSServer.h>        // Required for Captive Portal
 #include <SocketIOclient.h>
 #include <ArduinoJson.h>
+#include <mbedtls/md.h>   // Required for HMAC-SHA256 offline authentication
 #include <esp_task_wdt.h> // ESP32 Task Watchdog Timer
 #include <Preferences.h>  // NVS (Non-Volatile Storage) for persisting credentials
 
@@ -217,8 +218,11 @@ void setup() {
   strncpy(nvsWifiSSID, s_ssid.c_str(), sizeof(nvsWifiSSID)-1);
   strncpy(nvsWifiPassword, s_pass.c_str(), sizeof(nvsWifiPassword)-1);
   deviceRegistered = nvsPrefs.getBool("registered", false);
+  nvsPrefs.getString("hmacKey", hmacKey, sizeof(hmacKey));
+  nvsPrefs.getString("primaryUserId", primaryUserId, sizeof(primaryUserId));
   nvsPrefs.end();
 
+  loadOfflineQueue();
   Serial.print("[NVS] Registered: "); Serial.println(deviceRegistered ? "YES" : "NO");
   Serial.print("[NVS] SSID: "); Serial.println(strlen(nvsWifiSSID) ? nvsWifiSSID : "(none)");
 
@@ -270,9 +274,26 @@ void loop() {
   
   // 1. Maintain background tasks
   socketIO.loop();
+  
+  // Phase 8: Connection Restoration & Queue Sync
+  static bool wasConnected = false;
+  bool isNowConnected = socketIO.isConnected();
+  if (isNowConnected && !wasConnected) {
+    Serial.println("[WS] Connection restored! Triggering Phase 8 Sync.");
+    syncOfflineQueue();
+  }
+  wasConnected = isNowConnected;
+
   // esp_task_wdt_reset(); // Disabled to prevent "task not found" spam after detaching main loop
   processServo();
   processSensors();
+  
+  // Phase 3: Periodic Spatial Volume Analytics Emission (Every 5s)
+  static unsigned long lastVolumeEmit = 0;
+  if (millis() - lastVolumeEmit > 5000) {
+    lastVolumeEmit = millis();
+    emitVolumeData();
+  }
   
   checkSerialCommands();
 
@@ -1123,8 +1144,26 @@ void loop() {
               actionDelayStart  = millis();
               actionDelayActive = true;
             } 
+            else if (verifyOfflineToken(scanned)) {
+              // Phase 6: Hardware Crypto-Verification Success
+              Serial.println("[FLOW] CRYPTO AUTHORIZATION: Offline signature verified.");
+              displayMessage("VALID ID", "OFFLINE AUTH");
+              triggerBuzzer(2);
+              
+              // Still try to emit status if we happen to be online but using offline bypass
+              if (socketIO.isConnected()) {
+                emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
+              } else {
+                // Phase 7/8 will handle queueing this later, but for now we just allow entry
+              }
+              
+              consecutiveScanFails = 0;
+              pendingNextState  = UNLOCKING_ENTRY;
+              actionDelayStart  = millis();
+              actionDelayActive = true;
+            }
             else if (socketIO.isConnected()) {
-              Serial.println("[FLOW] No local match. Requesting server verification...");
+              Serial.println("[FLOW] No local or crypto match. Requesting server verification...");
               displayMessage("VERIFYING...", "Please wait");
               emitVerifyScan(scanned, modeName);
               scanResultReceived = false;
@@ -1132,7 +1171,7 @@ void loop() {
               changeState(VERIFYING_SCAN);
             } 
             else {
-              Serial.println("[WARN] Offline and No local ID match.");
+              Serial.println("[WARN] Offline and No valid match found.");
               displayMessage("INVALID ID", "RETRY SCAN");
               triggerCyberChirp(2);
               currentTrackingId[0] = '\0'; 
@@ -1734,6 +1773,8 @@ void checkSerialCommands() {
       shakeServo(180);
       moveServoSmoothly(180);
       Serial.println("[TEST] Done.");
+    } else if (cmd == 'V') {
+      runFullDiagnosticSuite();
     }
   }
 }
@@ -1818,7 +1859,8 @@ void printSerialMenu() {
   Serial.println("------------------------------------------");
   Serial.println("  S=Reset  | U=Unlock All | D=US Diag | M=Monitor | N=Next | T=TFT Reset | C=WiFi | X=Scan Test");
   Serial.println("  1=Test DropOff (0°)  | 2=Test Pickup (180°)");
-  Serial.println("  V=View IDs & Status   | W=Network Info");
+  Serial.println("  V=Run Comprehensive Diagnostic Suite (DSP, Crypto, Queue)");
+  Serial.println("  W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");
   Serial.println("  R2:<id> = Register Pick Up ID  (offline)");
   Serial.println("  N:<token>  = Simulate QR scan (dev bypass)");

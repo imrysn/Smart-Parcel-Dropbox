@@ -55,6 +55,12 @@
 #define HUD_CORNER    6
 #define BAR_HEIGHT    24
 
+// Physical Constants (cm) for volume analytics
+#define BIN_HEIGHT_PLATFORM  35.0
+#define BIN_HEIGHT_PICKUP    35.0
+#define BIN_HEIGHT_DROPOFF   35.0
+#define BIN_MAX_VOLUME       30000.0 // Effective Volume in cm3 (approx 30x30x33)
+
 // ============================================================
 //  STATE MACHINE
 // ============================================================
@@ -133,11 +139,13 @@ extern bool   ownerVerifyTimedOut;
 extern Preferences nvsPrefs;
 extern char nvsWifiSSID[33];
 extern char nvsWifiPassword[64];
+extern char primaryUserId[32]; // Phase 6: Sync from backend
 extern bool   deviceRegistered;
 extern unsigned long previousMillisWiFi;
 extern unsigned long intervalWiFi;
 
 extern char registrationToken[32];
+extern char hmacKey[65];
 extern bool   regTokenReceived;
 extern bool   regQrDrawn;
 extern bool   deviceJustRegistered;
@@ -212,6 +220,7 @@ void drawLockscreenText(const char* line1, const char* line2);
 void drawDeviceUnregisteredScreen();
 void changeState(SystemState newState);
 void emitDoorState();
+void emitVolumeData();
 void emitRequestOwnerSession();
 void emitVerifyRider(const String& riderId);
 void emitRegisterOwnerPickup(const String& trackingId);
@@ -231,3 +240,4 @@ extern const int US_DROPOFF[2];
 void changeState(SystemState newState);
 void displayMessage(const String& title, const String& subtitle);
 void drawTimeoutScreen(const char* title, const char* subtitle);
+float getOccupancyPercentage();

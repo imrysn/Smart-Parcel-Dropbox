@@ -7,7 +7,7 @@ import '../../config/api_config.dart';
 
 class RiderManagementScreen extends StatefulWidget {
   final bool isEmbedded;
-  const RiderManagementScreen({Key? key, this.isEmbedded = false}) : super(key: key);
+  const RiderManagementScreen({super.key, this.isEmbedded = false});
 
   @override
   State<RiderManagementScreen> createState() => _RiderManagementScreenState();
@@ -24,9 +24,11 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   }
 
   Future<void> _fetchRiders() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/riders'));
+      if (!mounted) return; // Guard after async gap
       if (response.statusCode == 200) {
         setState(() {
           _riders = jsonDecode(response.body);

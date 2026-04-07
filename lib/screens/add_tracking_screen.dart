@@ -4,6 +4,7 @@ import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import 'ocr_scanner_screen.dart';
 
 /// Add Tracking Screen - Register new tracking ID
 class AddTrackingScreen extends StatefulWidget {
@@ -126,17 +127,37 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
                   labelText: 'Tracking ID',
                   hintText: 'Enter tracking number from shop',
                   prefixIcon: const Icon(Icons.qr_code_2),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.content_paste),
-                    tooltip: 'Paste from clipboard',
-                    onPressed: () async {
-                      final data = await Clipboard.getData('text/plain');
-                      if (data != null && data.text != null) {
-                        setState(() {
-                          _trackingIdController.text = data.text!;
-                        });
-                      }
-                    },
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.center_focus_strong, color: UserTheme.primaryOrange),
+                        tooltip: 'AI OCR Scan',
+                        onPressed: () async {
+                          final result = await Navigator.push<String>(
+                            context,
+                            MaterialPageRoute(builder: (context) => const OcrScannerScreen()),
+                          );
+                          if (result != null && mounted) {
+                            setState(() {
+                              _trackingIdController.text = result;
+                            });
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.content_paste),
+                        tooltip: 'Paste from clipboard',
+                        onPressed: () async {
+                          final data = await Clipboard.getData('text/plain');
+                          if (data != null && data.text != null) {
+                            setState(() {
+                              _trackingIdController.text = data.text!;
+                            });
+                          }
+                        },
+                      ),
+                    ],
                   ),
                 ),
                 validator: (value) {

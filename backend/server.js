@@ -593,6 +593,36 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ── Phase 3: Spatial Volume Update (ESP32 → backend) ──────────────────
+  socket.on('spatialVolumeUpdate', async ({ occupancyPercent, rawDistance }) => {
+    try {
+      // Find the hardware record
+      const dropbox = await Dropbox.findOne({ isRegistered: true }).sort({ updatedAt: -1 });
+      if (dropbox) {
+        dropbox.occupancyPercent = occupancyPercent;
+        
+        // Simple predictive heuristic: 
+        // For now, let's keep it simple: occupancy maps to fillPercentage.
+        // In the future, we can add history-based capacity prediction here.
+        dropbox.fillPercentage = Math.min(100, Math.round(occupancyPercent));
+        dropbox.lastSeenAt = new Date();
+        await dropbox.save();
+        
+        // Broadcast to mobile apps for live HUD updates
+        io.emit('spatialVolumeHUD', { 
+          deviceId: dropbox.deviceId,
+          occupancyPercent: dropbox.occupancyPercent,
+          fillPercentage: dropbox.fillPercentage,
+          rawDistance
+        });
+        
+        // if (DEBUG_WS) console.log(`📊 Volume Update: ${dropbox.fillPercentage}% (Raw: ${rawDistance}cm)`);
+      }
+    } catch (err) {
+      console.error('❌ spatialVolumeUpdate error:', err.message);
+    }
+  });
+
   // ── Device Registration (hardware → backend → app) ─────────────────────
   // ESP32 emits this when in DEVICE_UNREGISTERED state and user presses BTN1.
   // Payload: { deviceId: "AA:BB:CC:DD:EE:FF" }  (MAC address)
@@ -606,11 +636,16 @@ io.on('connection', (socket) => {
     console.log(`🆕 requestDeviceRegistration → deviceId: ${deviceId}, token: ${token}, alreadyConnected: ${alreadyConnected}`);
     // Send token back to hardware so it can render as QR + readable code
     socket.emit('registrationToken', { token, pin });
-    // Update lastSeenAt for existing registration if already registered
     try {
       await Dropbox.findOneAndUpdate({ deviceId }, { $set: { lastSeenAt: new Date() } });
     } catch (_) {}
   });
+
+  // Feature #4 — Helper to generate cryptographically secure keys
+  const generateSymmetricKey = () => {
+    const crypto = require('crypto');
+    return crypto.randomBytes(32).toString('hex');
+  };
 
   // ── User registers device via app QR scan ───────────────────────────────
   // App emits this after scanning the QR code shown on the LCD.
@@ -667,6 +702,21 @@ io.on('connection', (socket) => {
       }
 
       const registeredUserCount = dropbox.userIds ? dropbox.userIds.length : 1;
+      
+      // Feature #4 — Cryptographic Key Allocation
+      // The Dropbox and the Primary Owner share a symmetric key for offline TOTP.
+      if (!dropbox.hmacKey) {
+        const sharedKey = generateSymmetricKey();
+        dropbox.hmacKey = sharedKey;
+        await dropbox.save();
+        
+        const user = await User.findById(userId);
+        if (user) {
+          user.hmacKey = sharedKey;
+          await user.save();
+        }
+      }
+
       console.log(`  ✅ Device registered: ${deviceId} → user: ${userId} (total users: ${registeredUserCount})`);
 
       // Notify the registering app client
@@ -675,8 +725,12 @@ io.on('connection', (socket) => {
         dropbox,
         alreadyConnected: !!entry.alreadyConnected,
       });
-      // Notify hardware to save registered flag
-      io.to('esp32_device').emit('deviceRegistered', { deviceId });
+      // Notify hardware to save registered flag and sync secret key
+      io.to('esp32_device').emit('deviceRegistered', { 
+        deviceId, 
+        hmacKey: dropbox.hmacKey,
+        primaryUserId: dropbox.primaryUserId
+      });
     } catch (err) {
       console.error('❌ registerDevice DB error:', err.message);
       socket.emit('deviceRegistrationFailed', { reason: 'server_error' });
