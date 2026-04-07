@@ -364,10 +364,10 @@ void loop() {
             setupWiFi();
             setupSocketIO();
             
-            // Wait for connection (up to 15s) - especially needed for Cloud SSL
+            // Wait for connection (up to 30s) - Cloud SSL takes ~25s
             Serial.println("[WS] Waiting for cloud handshake...");
             unsigned long startWait = millis();
-            while (!socketIO.isConnected() && millis() - startWait < 15000) {
+            while (!socketIO.isConnected() && millis() - startWait < 30000) {
               socketIO.loop();
               if ((millis() - startWait) % 1000 < 100) {
                 Serial.print(".");
