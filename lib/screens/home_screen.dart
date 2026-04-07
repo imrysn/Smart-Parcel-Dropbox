@@ -665,11 +665,125 @@ class _HomeScreenState extends State<HomeScreen> {
                   
                   const SizedBox(height: 12),
                   _buildRetailerJungle(allOrders),
+                  
+                  const SizedBox(height: 24),
+                  _buildTechnicalDepthSection(),
                 ],
               );
             },
           ),
           const SizedBox(height: 100), // Bottom padding for floating nav bar
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTechnicalDepthSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        UserUi.sectionTitle(
+          context, 
+          'Technical Analytics', 
+          subtitle: 'Live CS algorithms \u0026 security verification'
+        ),
+        const SizedBox(height: 12),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1.4,
+          children: [
+            _buildDepthCard(
+              'DSP Engine', 
+              'EMA (α=0.25)', 
+              'Filtering Active', 
+              Icons.waves_rounded, 
+              UserTheme.primaryOrange,
+              true
+            ),
+            _buildDepthCard(
+              'Security', 
+              'HMAC-SHA256', 
+              'Symmetric Sync', 
+              Icons.security_rounded, 
+              UserTheme.statusSuccess,
+              true
+            ),
+            _buildDepthCard(
+              'Sync Data', 
+              'Event-Sourced', 
+              'NVS Persistence', 
+              Icons.sync_rounded, 
+              UserTheme.accentAmberDark,
+              false
+            ),
+            _buildDepthCard(
+              'AI Vision', 
+              'ML Kit OCR', 
+              'Regex Optimized', 
+              Icons.psychology_rounded, 
+              UserTheme.gradientPink,
+              false
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDepthCard(String title, String main, String sub, IconData icon, Color color, bool pulsing) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return UserUi.glassCard(
+      context,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      borderRadius: 16,
+      color: isDark ? color.withOpacity(0.05) : color.withOpacity(0.02),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 16),
+              const SizedBox(width: 6),
+              Text(
+                title, 
+                style: TextStyle(
+                  fontSize: 10, 
+                  fontWeight: FontWeight.w900, 
+                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                  letterSpacing: 1
+                )
+              ),
+              const Spacer(),
+              if (pulsing)
+                Container(
+                  width: 6, height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color,
+                    boxShadow: [BoxShadow(color: color.withOpacity(0.5), blurRadius: 4, spreadRadius: 1)],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(main, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+          const SizedBox(height: 2),
+          Text(
+            sub, 
+            style: TextStyle(
+              fontSize: 10, 
+              color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+              fontWeight: FontWeight.w500
+            )
+          ),
         ],
       ),
     );

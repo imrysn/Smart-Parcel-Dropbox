@@ -4,7 +4,7 @@ class ApiConfig {
   static const String baseUrl = 'https://smart-parcel-dropbox-depth.onrender.com/api';
   
   // Socket.IO connects to the root server URL (no /api)
-  // IMPORTANT: For local hotspot testing, use http:// and your PC's IP
+  // IMPORTANT: For local hotspot testing, use http:// and PC's IP
   static const String socketUrl = 'https://smart-parcel-dropbox-depth.onrender.com';
   // static const String socketUrl = 'https://smart-parcel-dropbox.onrender.com';  // production
   
