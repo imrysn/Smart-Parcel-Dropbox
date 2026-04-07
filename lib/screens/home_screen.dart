@@ -658,16 +658,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   
                   const SizedBox(height: 12),
-                  // Phase 5: Secure Access QR Action
-                  UserUi.premiumButton(
-                    label: 'GENERATE ACCESS QR',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => const AccessQrScreen()),
-                    ),
-                    icon: Icons.qr_code_rounded,
-                  ),
-                  
-                  const SizedBox(height: 12),
                   WeeklyActivityChart(
                     receivedData: dropOffWeekly,
                     deliveredData: deliveredWeekly,

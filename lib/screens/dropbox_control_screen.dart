@@ -11,6 +11,7 @@ import '../services/auth_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/biometric_service.dart';
 import 'hardware_registration_screen.dart';
+import 'access_qr_screen.dart';
 
 // ─── Door type constants matching ESP32 firmware ───────────────────────────
 const String kDoorTop      = 'top';      // LOCK_TOP / REED_TOP
@@ -429,6 +430,14 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 16),
+            UserUi.premiumButton(
+              label: 'GENERATE ACCESS QR',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const AccessQrScreen()),
+              ),
+              icon: Icons.qr_code_rounded,
             ),
           ],
         ],
