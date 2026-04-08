@@ -33,3 +33,9 @@
 -dontwarn io.flutter.**
 -dontwarn androidx.**
 -dontwarn android.**
+
+# Google ML Kit - Text Recognition
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.ml.** { *; }
+-keep class com.google.android.libraries.barhopper.** { *; }
+-keep class com.google.android.gms.vision.** { *; }

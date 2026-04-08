@@ -39,7 +39,7 @@ android {
 
     defaultConfig {
         applicationId "com.example.smart_parcel_dropbox"
-        minSdkVersion flutter.minSdkVersion // Required for local_auth and biometric features
+        minSdkVersion flutter.minSdkVersion // Required for ML Kit, local_auth and biometric features
         targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
