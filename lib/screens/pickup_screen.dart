@@ -151,7 +151,27 @@ class _PickupScreenState extends State<PickupScreen> {
             );
           }
 
-          final pickups = snapshot.data ?? [];
+          final List<TrackingModel> pickups = snapshot.data ?? [];
+
+          // Apply Smart Sorting
+          pickups.sort((a, b) {
+            // Priority Score: Lower is Higher (Top of list)
+            int getScore(String status) {
+              if (status == 'awaiting_pickup' || status == 'pending') return 0;
+              if (status == 'ready_for_pickup') return 1;
+              return 2; // retrieved, done
+            }
+
+            int scoreA = getScore(a.status);
+            int scoreB = getScore(b.status);
+
+            if (scoreA != scoreB) return scoreA.compareTo(scoreB);
+
+            // Secondary Sort: Newest First
+            final timeA = a.registeredAt ?? DateTime(2000);
+            final timeB = b.registeredAt ?? DateTime(2000);
+            return timeB.compareTo(timeA);
+          });
 
           if (pickups.isEmpty) {
             return UserUi.emptyState(

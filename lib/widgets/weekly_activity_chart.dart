@@ -5,11 +5,13 @@ import '../config/user_theme.dart';
 class WeeklyActivityChart extends StatelessWidget {
   final List<int> receivedData;
   final List<int> deliveredData;
+  final List<String>? labels;
 
   const WeeklyActivityChart({
     super.key,
     required this.receivedData,
     required this.deliveredData,
+    this.labels,
   });
 
   @override
@@ -223,6 +225,9 @@ class WeeklyActivityChart extends StatelessWidget {
   }
 
   String _getWeekDay(int value) {
+    if (labels != null && value >= 0 && value < labels!.length) {
+      return labels![value];
+    }
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     if (value >= 0 && value < 7) return days[value];
     return '';

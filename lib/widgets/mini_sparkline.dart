@@ -15,27 +15,25 @@ class MiniSparkline extends StatelessWidget {
   Widget build(BuildContext context) {
     if (data.isEmpty) return const SizedBox.shrink();
 
-    // If data is all zeros or flat, let's create a subtle aesthetic wave
-    // to match the "premium" look in the reference image
-    bool isFlat = data.every((e) => e == data[0]);
-    List<double> displayData;
-    
-    if (isFlat) {
-      // Create a subtle upward trending wave for a "living" UI feel
-      displayData = [0.2, 0.5, 0.4, 0.8, 0.7, 1.2, 1.5];
-    } else {
-      displayData = data.map((e) => e.toDouble()).toList();
-    }
+    // Use only real data points
+    final List<double> displayData = data.map((e) => e.toDouble()).toList();
 
     double maxVal = displayData.reduce((a, b) => a > b ? a : b);
     double minVal = displayData.reduce((a, b) => a < b ? a : b);
     
-    // Add some padding to the Y axis to prevent clipping and keep it centered
-    double yPadding = (maxVal - minVal) * 0.2;
-    if (yPadding == 0) yPadding = 1.0;
-    
-    double yMin = minVal - yPadding;
-    double yMax = maxVal + yPadding;
+    // Determine Y-axis range
+    double yMin, yMax;
+    if (maxVal == 0 && minVal == 0) {
+      // If everything is zero, show a flat line in the middle of the box
+      yMin = -1.0;
+      yMax = 3.0; // Higher max to keep the line at the lower end
+    } else {
+      // Add some padding to the Y axis to prevent clipping and keep it centered
+      double range = maxVal - minVal;
+      double yPadding = range == 0 ? 1.0 : range * 0.3;
+      yMin = minVal - yPadding;
+      yMax = maxVal + yPadding;
+    }
 
     final spots = List.generate(displayData.length, (i) {
       return FlSpot(i.toDouble(), displayData[i]);

@@ -359,6 +359,19 @@ class _HomeScreenState extends State<HomeScreen> {
     return dailyCounts;
   }
 
+  List<String> _getWeeklyLabels() {
+    final now = DateTime.now();
+    final List<String> labels = [];
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    for (int i = 6; i >= 0; i--) {
+      final date = now.subtract(Duration(days: i));
+      // DateTime.weekday: 1=Mon, 2=Tue, ..., 7=Sun
+      labels.add(days[date.weekday - 1]);
+    }
+    return labels;
+  }
+
   Widget _buildNoDropboxBanner() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
@@ -659,6 +672,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   WeeklyActivityChart(
                     receivedData: dropOffWeekly,
                     deliveredData: deliveredWeekly,
+                    labels: _getWeeklyLabels(),
                   ),
                   
                   const SizedBox(height: 12),
@@ -1097,6 +1111,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 // 3. RETRIEVED - Final History (Collected by owner or rider)
                 filtered = allOrders.where((o) => o.status == 'retrieved' || o.status == 'done').toList();
               }
+
+              // Apply Smart Sorting
+              filtered.sort((a, b) {
+                // Priority Score: Lower is Higher (Top of list)
+                int getScore(String status) {
+                  if (status == 'pending' || status == 'in_transit' || status == 'awaiting_pickup') return 0;
+                  if (status == 'ready_for_pickup') return 1;
+                  return 2; // delivered, retrieved, done
+                }
+
+                int scoreA = getScore(a.status);
+                int scoreB = getScore(b.status);
+
+                if (scoreA != scoreB) return scoreA.compareTo(scoreB);
+
+                // Secondary Sort: Newest First
+                final timeA = a.registeredAt ?? DateTime(2000);
+                final timeB = b.registeredAt ?? DateTime(2000);
+                return timeB.compareTo(timeA);
+              });
 
               if (filtered.isEmpty) {
                 String title; String subtitle; IconData icon;
