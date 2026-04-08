@@ -66,6 +66,11 @@ void executeScanningSession() {
   unsigned long sessionStart = millis();
   unsigned long lastTriggerTime = 0;
 
+  // DRAIN BUFFER: Clear any residual data (like previous echoes or noise) before starting
+  while (scannerSerial.available()) {
+    scannerSerial.read();
+  }
+
   while (!scanned && (millis() - sessionStart < 5000)) {
     // Non-blocking trigger every 500ms
     if (millis() - lastTriggerTime >= 500) {
@@ -73,28 +78,32 @@ void executeScanningSession() {
       lastTriggerTime = millis();
     }
     
-    // Continuous Polling: Prevent SoftwareSerial (64-byte buffer) from overflowing.
+    // Continuous Polling
     if (scannerSerial.available()) {
+      delay(50); // Short delay to allow the full packet to arrive via SoftwareSerial
       String barcode = "";
+      
       while (scannerSerial.available()) {
         char c = scannerSerial.read();
         if (c != '\n' && c != '\r') barcode += c;
         delay(2);
       }
       
-      delay(30);
-      while (scannerSerial.available()) {
-        char c = scannerSerial.read();
-        if (c != '\n' && c != '\r') barcode += c;
-      }
-
-      if (barcode.startsWith("T")) { barcode.remove(0, 1); }
+      // Basic sanitization (remove non-printable characters)
       barcode = cleanString(barcode);
+
+      // Handle common artifacts
+      if (barcode.startsWith("T")) { barcode.remove(0, 1); }
+      
+      // DISREGARD TRAILING T: Fix for random serial artifact reported by user
+      if (barcode.length() > 0 && (barcode.endsWith("T") || barcode.endsWith("t"))) {
+        barcode.remove(barcode.length() - 1);
+      }
 
       if (barcode.length() > 3) {
         Serial.println(barcode); 
         scanned = true; 
-        delay(3000); // Prevent double-scans
+        delay(3000); // Cooldown to prevent multiple triggers for the same parcel
       }
     }
     

@@ -37,6 +37,40 @@ const pendingRegistrations = new Map();
 // Automated Admin Tracking — always enabled
 const autoAcceptMode = true; // Any scanned barcode is auto-registered
 
+/**
+ * Flexible Tracking ID Matcher
+ * 
+ * Some couriers (Shopee/J&T) add a 'T' or other suffixes to barcodes
+ * that might not be in the user's registered ID.
+ */
+async function findTrackingFlexibly(inputId) {
+  if (!inputId) return null;
+  
+  // 1. Try exact match
+  let tracking = await Tracking.findOne({ trackingId: inputId });
+  if (tracking) return tracking;
+  
+  // 2. Try match after removing trailing 'T'
+  if (inputId.toUpperCase().endsWith('T')) {
+    const trimmedId = inputId.substring(0, inputId.length - 1);
+    console.log(`🔍 [FLEX-MATCH] Trying with trimmed ID: ${trimmedId} (Original: ${inputId})`);
+    tracking = await Tracking.findOne({ trackingId: trimmedId });
+    if (tracking) {
+      console.log(`✅ [FLEX-MATCH] Match found after trimming 'T'`);
+      return tracking;
+    }
+  }
+  
+  // 3. Try matching if DB record has 'T' but scan doesn't
+  tracking = await Tracking.findOne({ trackingId: inputId + 'T' });
+  if (tracking) {
+    console.log(`✅ [FLEX-MATCH] Match found by appending 'T' back to scan`);
+    return tracking;
+  }
+
+  return null;
+}
+
 
 // Initialize Express app
 const app = express();
@@ -219,7 +253,7 @@ io.on('connection', (socket) => {
   socket.on('verifyScan', async ({ trackingId, mode }) => {
     console.log(`🔍 verifyScan → trackingId: ${trackingId}, mode: ${mode}`);
     try {
-      let tracking = await Tracking.findOne({ trackingId });
+      let tracking = await findTrackingFlexibly(trackingId);
 
       // Case 1: Tracking ID doesn't exist at all
       if (!tracking) {
@@ -443,13 +477,17 @@ io.on('connection', (socket) => {
   socket.on('registerOwnerPickup', async ({ trackingId }) => {
     console.log(`📦 registerOwnerPickup → trackingId: ${trackingId}`);
     try {
-      // Find tracking to get userId for notification
-      let tracking = await Tracking.findOne({ trackingId });
+      // Find tracking flexibly to get userId for notification
+      let tracking = await findTrackingFlexibly(trackingId);
+      
+      // Use the actual registered tracking ID from the database for the update
+      // so we don't accidentally create a duplicate with/without the 'T'
+      const actualId = tracking ? tracking.trackingId : trackingId;
 
       // Default to null if upserted a new one, but if we create it here we need a mode
       // so Flutter knows it's a pickup.
       await Tracking.updateOne(
-        { trackingId },
+        { trackingId: actualId },
         {
           $set: {
             status: 'awaiting_pickup',
@@ -502,14 +540,15 @@ io.on('connection', (socket) => {
   socket.on('statusUpdate', async ({ trackingId, status, mode }) => {
     console.log(`📦 statusUpdate → ${trackingId}: ${status}`);
     try {
-      const tracking = await Tracking.findOne({ trackingId });
+      const tracking = await findTrackingFlexibly(trackingId);
+      const actualId = tracking ? tracking.trackingId : trackingId;
 
       const update = { status };
       if (status === 'delivered') update.deliveredAt = new Date();
       if (status === 'retrieved') update.retrievedAt = new Date();
       if (status === 'done') update.doneAt = new Date();
-
-      await Tracking.updateOne({ trackingId }, { $set: update });
+  
+      await Tracking.updateOne({ trackingId: actualId }, { $set: update });
 
       if (tracking && tracking.userId) {
         let title = 'Status Update';
