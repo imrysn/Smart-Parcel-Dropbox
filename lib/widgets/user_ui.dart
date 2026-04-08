@@ -26,25 +26,61 @@ class UserUi {
   static Widget glassCard(
     BuildContext context, {
     required Widget child,
-    double blur = 12.0,
-    double borderRadius = 20.0,
+    double blur = 24.0,
+    double borderRadius = 28.0,
     EdgeInsetsGeometry? padding,
+    EdgeInsetsGeometry? margin,
     Color? color,
     Border? border,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
     return Container(
-      padding: padding,
+      margin: margin,
       decoration: BoxDecoration(
-        color: color ?? (isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.85)),
         borderRadius: BorderRadius.circular(borderRadius),
-        border: border ?? Border.all(
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.black.withOpacity(0.05),
-          width: 0.5,
+        boxShadow: [
+          // 1. Large soft ambient shadow
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.04),
+            blurRadius: 32,
+            offset: const Offset(0, 12),
+          ),
+          // 2. Sharp contact shadow for depth
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.5 : 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+          child: Container(
+            padding: padding,
+            decoration: BoxDecoration(
+              color: color ?? (isDark ? Colors.white.withOpacity(0.03) : Colors.white.withOpacity(0.75)),
+              borderRadius: BorderRadius.circular(borderRadius),
+              // --- Edge Lighting Effect ---
+              border: border ?? Border.all(
+                color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withValues(alpha: 0.5),
+                width: 0.8,
+              ),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  isDark ? Colors.white.withOpacity(0.04) : Colors.white.withOpacity(0.2),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+            child: child,
+          ),
         ),
       ),
-      child: child,
     );
   }
 

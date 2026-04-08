@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
-import '../widgets/fade_animation.dart';
 import '../services/dropbox_service.dart';
 import '../services/websocket_service.dart';
 import '../services/service_locator.dart';
@@ -20,7 +19,6 @@ import 'dropbox_control_screen.dart';
 
 import 'pickup_screen.dart';
 import 'owner_verify_screen.dart';
-import 'access_qr_screen.dart';
 import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
 import '../widgets/weekly_activity_chart.dart';
@@ -52,8 +50,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Stream<Map<String, dynamic>?>? _doorStateStream;
   StreamSubscription<bool>? _connectionSub;
   StreamSubscription<Map<String, dynamic>>? _registrationSub;
+  StreamSubscription? _binSub;
 
   bool _appConnected = false;
+  int _currentCapacity = 0;
 
   // Current user ID
   String? _userId;
@@ -103,6 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _notificationsCountStream = null;
     _connectionSub?.cancel();
     _registrationSub?.cancel();
+    _binSub?.cancel();
     super.dispose();
   }
 
@@ -136,6 +137,19 @@ class _HomeScreenState extends State<HomeScreen> {
       // Listen to both registration and unregistration to update _hasDropbox
       _registrationSub = _databaseService.deviceRegisteredStream.listen((_) => _checkDropbox());
       _databaseService.deviceUnregisteredStream.listen((_) => _checkDropbox());
+
+      // ── Real-time Telemetry for Hero Dashboard ──
+      _binSub?.cancel();
+      _binSub = WebSocketService().binStatusUpdates.listen((data) {
+        if (mounted) {
+          final dynamic rawLevel = data['US_DROPOFF'];
+          final num fillLevel = (rawLevel is num) ? rawLevel : 30.0;
+          setState(() {
+            double percent = 100.0 - (((fillLevel.toDouble() - 5.0).clamp(0.0, 25.0) / 25.0) * 100.0);
+            _currentCapacity = percent.round().clamp(0, 100);
+          });
+        }
+      });
     }
   }
 
@@ -313,11 +327,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     }),
                   ),
                 ),
+              ),
+            ),
           ),
         ),
-      ),
-    ),
-    body: _getSelectedTab(),
+        body: _getSelectedTab(),
       ),
     );
   }
@@ -363,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildNoDropboxBanner() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return FadeAnimation(0.2, Container(
+    return Container(
       margin: const EdgeInsets.only(bottom: 24),
       child: UserUi.glassCard(
         context,
@@ -416,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-    ));
+    );
   }
 
   Widget _buildMiniStatCard({
@@ -427,23 +441,38 @@ class _HomeScreenState extends State<HomeScreen> {
     required List<int> weeklyData,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    return UserUi.surfaceCard(
-      context,
-      padding: const EdgeInsets.all(14),
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        border: Border.all(
+          color: color.withOpacity(isDark ? 0.2 : 0.15),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: color.withOpacity(0.2)),
                 ),
-                child: Icon(icon, color: color, size: 22),
+                child: Icon(icon, color: color, size: 20),
               ),
               MiniSparkline(data: weeklyData, color: color),
             ],
@@ -452,21 +481,33 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(
             value,
             style: TextStyle(
-              fontSize: 32,
+              fontSize: 34,
               fontWeight: FontWeight.w900,
               color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-              letterSpacing: -1,
+              letterSpacing: -1.5,
+              height: 1,
             ),
           ),
+          const SizedBox(height: 4),
           Text(
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w700,
               color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
-              letterSpacing: 0.2,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            height: 3,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              gradient: LinearGradient(
+                colors: [color, color.withOpacity(0.2)],
+              ),
             ),
           ),
         ],
@@ -474,7 +515,310 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildDeviceHeroCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: _doorStateStream,
+      builder: (context, doorSnap) {
+        final doorState = doorSnap.data;
+        final command = doorState?['command'] as String?;
+        final isOpen = command == 'open';
+        final Color connColor = _appConnected ? UserTheme.statusSuccess : UserTheme.statusError;
+        final Color doorColor = isOpen ? UserTheme.statusWarning : UserTheme.statusSuccess;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(UserTheme.radiusXL),
+            gradient: isDark
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF1A1A2E),
+                      const Color(0xFF16213E),
+                      UserTheme.primaryOrange.withOpacity(0.15),
+                    ],
+                  )
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      UserTheme.sunsetStart,
+                      UserTheme.sunsetMid,
+                      UserTheme.sunsetEnd.withOpacity(0.85),
+                    ],
+                  ),
+            boxShadow: [
+              BoxShadow(
+                color: UserTheme.primaryOrange.withOpacity(isDark ? 0.15 : 0.35),
+                blurRadius: 32,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(UserTheme.radiusXL),
+            child: Stack(
+              children: [
+                // Decorative background circle
+                Positioned(
+                  right: -40,
+                  top: -40,
+                  child: Container(
+                    width: 180,
+                    height: 180,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.05),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 20,
+                  bottom: -30,
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withOpacity(0.04),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header row
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white.withOpacity(0.2)),
+                            ),
+                            child: const Icon(Icons.sensors_rounded, color: Colors.white, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'SMART DROPBOX',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                                Text(
+                                  'Device Monitor',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.65),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Live pulse indicator
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.white.withOpacity(0.2)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: connColor,
+                                    boxShadow: [
+                                      BoxShadow(color: connColor.withOpacity(0.6), blurRadius: 6, spreadRadius: 1),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _appConnected ? 'ONLINE' : 'OFFLINE',
+                                  style: TextStyle(
+                                    color: connColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      // Status tiles row
+                      Row(
+                        children: [
+                          // Capacity tile
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                                border: Border.all(color: Colors.white.withOpacity(0.15)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.thermostat_rounded, color: Colors.white.withOpacity(0.7), size: 14),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'CAPACITY',
+                                        style: TextStyle(
+                                          color: Colors.white.withOpacity(0.65),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.8,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _appConnected ? '$_currentCapacity%' : '--',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -1,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      value: _appConnected ? (_currentCapacity / 100).clamp(0.0, 1.0) : 0,
+                                      backgroundColor: Colors.white.withOpacity(0.15),
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        _currentCapacity > 80
+                                            ? UserTheme.statusError
+                                            : _currentCapacity > 50
+                                                ? UserTheme.statusWarning
+                                                : UserTheme.statusSuccess,
+                                      ),
+                                      minHeight: 5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Door status tile
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _selectedIndex = 3),
+                              child: Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                                  border: Border.all(color: Colors.white.withOpacity(0.15)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(Icons.door_front_door_rounded, color: Colors.white.withOpacity(0.7), size: 14),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'DOOR',
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.65),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.8,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: _appConnected ? doorColor : Colors.grey,
+                                            boxShadow: _appConnected
+                                                ? [BoxShadow(color: doorColor.withOpacity(0.6), blurRadius: 6, spreadRadius: 1)]
+                                                : null,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _appConnected ? (isOpen ? 'OPEN' : 'LOCKED') : '--',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: -0.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Tap to manage',
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.55),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Icon(Icons.arrow_forward_rounded, color: Colors.white.withOpacity(0.55), size: 10),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildRetailerJungle(List<TrackingModel> orders) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final Map<String, int> counts = {
       'Shopee': 0, 'Lazada': 0, 'TikTok': 0, 'Amazon': 0, 'Others': 0,
     };
@@ -505,24 +849,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
+                    color: (isDark ? Colors.white : UserTheme.primaryOrange).withOpacity(0.18),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Icon(Icons.auto_graph_rounded, color: Colors.white, size: 24),
+                  child: Icon(Icons.auto_graph_rounded, color: isDark ? Colors.white : UserTheme.primaryOrange, size: 24),
                 ),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Ecommerce Platforms Used',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
+                      color: isDark ? Colors.white : UserTheme.dayTextPrimary,
+                      fontSize: 18,
                       fontWeight: FontWeight.w800,
                       letterSpacing: -0.5,
                     ),
                   ),
                 ),
-                UserUi.statusPill(label: '${orders.length} Parcels', color: Colors.white),
+                UserUi.statusPill(label: '${orders.length} Parcels', color: isDark ? Colors.white : UserTheme.primaryOrange),
               ],
             ),
             const SizedBox(height: 24),
@@ -537,11 +881,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Text(
                           entry.key,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                          style: TextStyle(color: isDark ? Colors.white : UserTheme.dayTextPrimary, fontWeight: FontWeight.w700, fontSize: 14),
                         ),
                         Text(
                           '${entry.value}',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                          style: TextStyle(color: isDark ? Colors.white : UserTheme.dayTextPrimary, fontWeight: FontWeight.w900, fontSize: 16),
                         ),
                       ],
                     ),
@@ -551,7 +895,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         Container(
                           height: 8,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
@@ -560,9 +904,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Container(
                             height: 8,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [UserTheme.accentAmberLight, Colors.white]),
+                              gradient: LinearGradient(colors: [UserTheme.primaryOrange, UserTheme.accentAmberLight]),
                               borderRadius: BorderRadius.circular(10),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)],
+                              boxShadow: [BoxShadow(color: UserTheme.primaryOrange.withOpacity(0.2), blurRadius: 4)],
                             ),
                           ),
                         ),
@@ -580,210 +924,193 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildActiveOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // ── Greeting Header ──
+          FutureBuilder<Map<String, dynamic>?>(
+            future: _userDataFuture,
+            builder: (context, snap) {
+              final name = (snap.data?['fullName'] as String? ?? '').split(' ').first;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name.isNotEmpty ? 'Hello, $name 👋' : 'Hello there 👋',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Your parcels are being monitored.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
+          // ── Device Hero Card ──
+          _buildDeviceHeroCard(),
+
+          if (!_hasDropbox) _buildNoDropboxBanner(),
 
           StreamBuilder<List<TrackingModel>>(
             stream: _databaseService.getUserTrackingIds(_userId!),
             initialData: _databaseService.cachedTracking,
             builder: (context, snapshot) {
               final allOrders = snapshot.data ?? [];
-              
-              // Calculate specific state metrics
-              final activeDropOffCount = allOrders.where((o) => 
+
+              final activeDropOffCount = allOrders.where((o) =>
                 o.mode == 'drop_off' && ['pending', 'in_transit'].contains(o.status)).length;
-              final dropOffBinCount = allOrders.where((o) => 
+              final dropOffBinCount = allOrders.where((o) =>
                 o.mode == 'drop_off' && o.status == 'delivered').length;
-                
-              final activePickupCount = allOrders.where((o) => 
+              final activePickupCount = allOrders.where((o) =>
                 o.mode == 'pickup' && o.status == 'pending').length;
-              final pickUpBinCount = allOrders.where((o) => 
+              final pickUpBinCount = allOrders.where((o) =>
                 o.mode == 'pickup' && o.status == 'ready_for_pickup').length;
 
               final dropOffWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off');
               final pickUpWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup');
-              final deliveredWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off' && ['delivered', 'done'].contains(o.status));
-              final readyPickupWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup' && o.status == 'ready_for_pickup');
+              final deliveredWeekly = _calculateWeeklyData(allOrders, (o) =>
+                o.mode == 'drop_off' && ['delivered', 'done'].contains(o.status));
+              final readyPickupWeekly = _calculateWeeklyData(allOrders, (o) =>
+                o.mode == 'pickup' && o.status == 'ready_for_pickup');
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (!_hasDropbox) _buildNoDropboxBanner(),
-                  UserUi.sectionTitle(
-                    context,
-                    'Dashboard overview',
-                    subtitle: 'Live counts from your parcel activity',
+                  // ── Section Label ──
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: UserTheme.primaryOrange,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'PARCEL ACTIVITY',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.5,
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+
                   GridView.count(
                     crossAxisCount: 2,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 1.08,
+                    childAspectRatio: 1.05,
                     children: [
-                      FadeAnimation(0.3, _buildMiniStatCard(
+                      _buildMiniStatCard(
                         title: 'Active Orders',
                         value: '$activeDropOffCount',
                         icon: Icons.local_shipping_rounded,
                         color: UserTheme.primaryOrange,
                         weeklyData: dropOffWeekly,
-                      )),
-                      FadeAnimation(0.4, _buildMiniStatCard(
+                      ),
+                      _buildMiniStatCard(
                         title: 'Drop-Off Bin',
                         value: '$dropOffBinCount',
                         icon: Icons.inbox_rounded,
                         color: UserTheme.accentAmberDark,
                         weeklyData: deliveredWeekly,
-                      )),
-                      FadeAnimation(0.5, _buildMiniStatCard(
+                      ),
+                      _buildMiniStatCard(
                         title: 'Active Pickups',
                         value: '$activePickupCount',
                         icon: Icons.outbox_rounded,
                         color: UserTheme.gradientPink,
                         weeklyData: pickUpWeekly,
-                      )),
-                      FadeAnimation(0.6, _buildMiniStatCard(
+                      ),
+                      _buildMiniStatCard(
                         title: 'Pick-Up Bin',
                         value: '$pickUpBinCount',
                         icon: Icons.inventory_2_rounded,
                         color: UserTheme.primaryOrangeDark,
                         weeklyData: readyPickupWeekly,
-                      )),
+                      ),
                     ],
                   ),
-                  
-                  const SizedBox(height: 12),
-                  WeeklyActivityChart(
-                    receivedData: dropOffWeekly,
-                    deliveredData: deliveredWeekly,
+
+                  const SizedBox(height: 16),
+
+                  // ── Weekly Activity Chart ──
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: UserTheme.statusInfo,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '7-DAY ACTIVITY',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.5,
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  
-                  const SizedBox(height: 12),
+                  UserUi.surfaceCard(
+                    context,
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: WeeklyActivityChart(
+                      receivedData: dropOffWeekly,
+                      deliveredData: deliveredWeekly,
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
                   _buildRetailerJungle(allOrders),
-                  
-                  const SizedBox(height: 24),
-                  _buildTechnicalDepthSection(),
                 ],
               );
             },
           ),
-          const SizedBox(height: 100), // Bottom padding for floating nav bar
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTechnicalDepthSection() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        UserUi.sectionTitle(
-          context, 
-          'Technical Analytics', 
-          subtitle: 'Live CS algorithms \u0026 security verification'
-        ),
-        const SizedBox(height: 12),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.4,
-          children: [
-            _buildDepthCard(
-              'DSP Engine', 
-              'EMA (α=0.25)', 
-              'Filtering Active', 
-              Icons.waves_rounded, 
-              UserTheme.primaryOrange,
-              true
-            ),
-            _buildDepthCard(
-              'Security', 
-              'HMAC-SHA256', 
-              'Symmetric Sync', 
-              Icons.security_rounded, 
-              UserTheme.statusSuccess,
-              true
-            ),
-            _buildDepthCard(
-              'Sync Data', 
-              'Event-Sourced', 
-              'NVS Persistence', 
-              Icons.sync_rounded, 
-              UserTheme.accentAmberDark,
-              false
-            ),
-            _buildDepthCard(
-              'AI Vision', 
-              'ML Kit OCR', 
-              'Regex Optimized', 
-              Icons.psychology_rounded, 
-              UserTheme.gradientPink,
-              false
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDepthCard(String title, String main, String sub, IconData icon, Color color, bool pulsing) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    return UserUi.glassCard(
-      context,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      borderRadius: 16,
-      color: isDark ? color.withOpacity(0.05) : color.withOpacity(0.02),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                title, 
-                style: TextStyle(
-                  fontSize: 10, 
-                  fontWeight: FontWeight.w900, 
-                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                  letterSpacing: 1
-                )
-              ),
-              const Spacer(),
-              if (pulsing)
-                Container(
-                  width: 6, height: 6,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color,
-                    boxShadow: [BoxShadow(color: color.withOpacity(0.5), blurRadius: 4, spreadRadius: 1)],
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(main, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
-          const SizedBox(height: 2),
-          Text(
-            sub, 
-            style: TextStyle(
-              fontSize: 10, 
-              color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-              fontWeight: FontWeight.w500
-            )
-          ),
+          const SizedBox(height: 100),
         ],
       ),
     );

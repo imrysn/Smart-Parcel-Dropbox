@@ -19,22 +19,22 @@ class WeeklyActivityChart extends StatelessWidget {
     for (var val in receivedData) if (val > maxVal) maxVal = val;
     for (var val in deliveredData) if (val > maxVal) maxVal = val;
     
-    // Scale Y-axis to nearest multiple of 7 or at least 28 as in screenshot
-    double yMax = (maxVal < 28) ? 28 : (maxVal + 7 - (maxVal % 7)).toDouble();
+    // Scale Y-axis - more sensitive to low data (if maxVal is low, don't floor at 28)
+    double yMax;
+    if (maxVal == 0) {
+      yMax = 5.0;
+    } else if (maxVal <= 5) {
+      yMax = 5.0;
+    } else if (maxVal < 20) {
+      yMax = 20.0;
+    } else {
+      yMax = (maxVal + 7 - (maxVal % 7)).toDouble();
+    }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      decoration: BoxDecoration(
-        color: UserTheme.backgroundCard,
-        borderRadius: BorderRadius.circular(UserTheme.radiusXL),
-        boxShadow: [
-          BoxShadow(
-            color: UserTheme.primaryOrange.withOpacity(0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-        border: Border.all(color: UserTheme.textMuted.withOpacity(0.12)),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: const BoxDecoration(
+        color: Colors.transparent,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -44,18 +44,18 @@ class WeeklyActivityChart extends StatelessWidget {
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: UserTheme.primaryOrange.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
+                    color: UserTheme.primaryOrange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.bar_chart_rounded, color: UserTheme.primaryOrange, size: 20),
+                  child: const Icon(Icons.bar_chart_rounded, color: UserTheme.primaryOrange, size: 16),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 const Text(
                   'Weekly activity',
                   style: TextStyle(
-                    fontSize: 17,
+                    fontSize: 15,
                     fontWeight: FontWeight.w800,
                     color: UserTheme.textPrimary,
                     letterSpacing: -0.3,
@@ -64,9 +64,9 @@ class WeeklyActivityChart extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           AspectRatio(
-            aspectRatio: 1.5,
+            aspectRatio: 2.2,
             child: BarChart(
               BarChartData(
                 alignment: BarChartAlignment.spaceAround,
@@ -119,47 +119,22 @@ class WeeklyActivityChart extends StatelessWidget {
                           child: Text(
                             _getWeekDay(value.toInt()),
                             style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                              color: Colors.grey[500],
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         );
                       },
-                      reservedSize: 30,
+                      reservedSize: 28,
                     ),
                   ),
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      interval: 7,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          value.toInt().toString(),
-                          style: TextStyle(
-                            color: Colors.grey[500],
-                            fontSize: 11,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                 ),
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 7,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: Colors.grey.withOpacity(0.1),
-                      strokeWidth: 1,
-                      dashArray: [5, 5],
-                    );
-                  },
-                ),
+                gridData: const FlGridData(show: false),
                 borderData: FlBorderData(show: false),
                 barGroups: List.generate(7, (i) {
                   return BarChartGroupData(
@@ -168,14 +143,14 @@ class WeeklyActivityChart extends StatelessWidget {
                       BarChartRodData(
                         toY: receivedData[i].toDouble(),
                         color: UserTheme.accentAmberDark,
-                        width: 8,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                        width: 6,
+                        borderRadius: BorderRadius.circular(3),
                       ),
                       BarChartRodData(
                         toY: deliveredData[i].toDouble(),
                         color: UserTheme.gradientPink,
-                        width: 8,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                        width: 6,
+                        borderRadius: BorderRadius.circular(3),
                       ),
                     ],
                   );
