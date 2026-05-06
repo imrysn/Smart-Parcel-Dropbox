@@ -10,7 +10,10 @@ exports.registerTracking = async (req, res) => {
 
         const exists = await Tracking.findOne({ trackingId });
         if (exists) {
-            return res.status(400).json({ message: 'Tracking ID already registered' });
+            console.log(`[TESTING] Tracking ID ${trackingId} already exists. Overwriting for reuse.`);
+            // Clean up old records for a fresh start
+            await Tracking.deleteOne({ trackingId });
+            await DeliveryLog.deleteMany({ trackingId });
         }
 
         const tracking = await Tracking.create({
