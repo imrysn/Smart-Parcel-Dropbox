@@ -352,32 +352,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               ),
               const Spacer(),
               if (_hasDropbox) ...[
-                // Show how many accounts share this device
-                if (_registeredUserCount > 1)
-                  Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: UserTheme.primaryOrange.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: UserTheme.primaryOrange.withOpacity(0.4)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.group_rounded, size: 12, color: UserTheme.primaryOrange),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$_registeredUserCount users',
-                          style: const TextStyle(
-                            color: UserTheme.primaryOrange,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 _buildStatusIndicator(),
               ],
             ],
