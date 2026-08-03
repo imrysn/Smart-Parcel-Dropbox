@@ -1261,6 +1261,7 @@ void loop() {
 
         // Wait for door to physically close (reed=0) before engaging solenoid
         // Prevents the lock pin from driving against an open door frame
+        bool isTimeout = (millis() - stateStartTime > 15000);
         if (doorWasOpened && digitalRead(REED_TOP) == 0) {
           digitalWrite(LOCK_TOP, HIGH);  // LOCK
           lockTopOpen = false;
@@ -1268,6 +1269,14 @@ void loop() {
           Serial.println("[FLOW] Door closed → Lock ENGAGED. Proceeding.");
           triggerBuzzer(1);
           changeState(WAITING_PLACEMENT_STABLE);
+        } else if (isTimeout) {
+          digitalWrite(LOCK_TOP, HIGH);  // LOCK
+          lockTopOpen = false;
+          emitDoorState();
+          Serial.println("[FLOW] WARNING: Door unlock timed out (15s). Lock ENGAGED. Resetting.");
+          displayMessage("TIMEOUT", "Door Not Opened");
+          triggerBuzzer(3);
+          changeState(RESETTING);
         }
       }
       break;

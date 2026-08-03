@@ -331,4 +331,259 @@ class UserUi {
       itemBuilder: (_, __) => shimmerCard(context, height: cardHeight),
     );
   }
+
+  /// Carrier Badge Widget (Shopee, Lazada, J&T, TikTok, Amazon, FedEx, DHL, etc.)
+  static Widget carrierBadge(String platform) {
+    final name = platform.trim();
+    Color bg = const Color(0xFFE2E8F0);
+    Color fg = const Color(0xFF334155);
+    IconData icon = Icons.local_shipping_outlined;
+
+    if (name.toLowerCase().contains('shopee')) {
+      bg = const Color(0xFFFFF3E0);
+      fg = const Color(0xFFEE4D2D);
+      icon = Icons.shopping_bag_outlined;
+    } else if (name.toLowerCase().contains('lazada')) {
+      bg = const Color(0xFFE0F2FE);
+      fg = const Color(0xFF0284C7);
+      icon = Icons.storefront_outlined;
+    } else if (name.toLowerCase().contains('tiktok')) {
+      bg = const Color(0xFFF1F5F9);
+      fg = const Color(0xFF0F172A);
+      icon = Icons.video_library_outlined;
+    } else if (name.toLowerCase().contains('j&t') || name.toLowerCase().contains('jt')) {
+      bg = const Color(0xFFFFE4E6);
+      fg = const Color(0xFFE11D48);
+      icon = Icons.directions_bus_outlined;
+    } else if (name.toLowerCase().contains('amazon')) {
+      bg = const Color(0xFFFEF3C7);
+      fg = const Color(0xFFD97706);
+      icon = Icons.inventory_2_outlined;
+    } else if (name.toLowerCase().contains('fedex')) {
+      bg = const Color(0xFFF3E8FF);
+      fg = const Color(0xFF7E22CE);
+      icon = Icons.flight_takeoff_outlined;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            name.isEmpty ? 'Parcel' : name,
+            style: TextStyle(
+              color: fg,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Live Hardware / App Pulsing Status Indicator Badge
+  static Widget pulsingStatusBadge({required bool isOnline, String? label}) {
+    final color = isOnline ? UserTheme.statusSuccess : UserTheme.statusWarning;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withOpacity(0.6),
+                  blurRadius: 6,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label ?? (isOnline ? 'BOX ONLINE' : 'OFFLINE'),
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Interactive Delivery Timeline Widget (0: Pending, 1: In Transit, 2: Delivered/In Box, 3: Collected)
+  static Widget deliveryTimeline({required int stageIndex, required BuildContext context}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeColor = UserTheme.primaryOrange;
+    final inactiveColor = isDark ? Colors.white.withOpacity(0.15) : Colors.black.withOpacity(0.12);
+
+    final stages = [
+      {'label': 'Registered', 'icon': Icons.edit_note_outlined},
+      {'label': 'In Transit', 'icon': Icons.local_shipping_outlined},
+      {'label': 'In Box', 'icon': Icons.all_inbox_outlined},
+      {'label': 'Collected', 'icon': Icons.verified_outlined},
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: List.generate(stages.length, (i) {
+          final isCompleted = i <= stageIndex;
+          final isCurrent = i == stageIndex;
+
+          return Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isCompleted ? activeColor : inactiveColor,
+                          boxShadow: isCurrent
+                              ? [
+                                  BoxShadow(
+                                    color: activeColor.withOpacity(0.4),
+                                    blurRadius: 8,
+                                    spreadRadius: 1,
+                                  )
+                                ]
+                              : null,
+                        ),
+                        child: Icon(
+                          stages[i]['icon'] as IconData,
+                          size: 14,
+                          color: isCompleted ? Colors.white : (isDark ? Colors.white54 : Colors.black38),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        stages[i]['label'] as String,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                          color: isCompleted
+                              ? (isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary)
+                              : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (i < stages.length - 1)
+                  Container(
+                    height: 2,
+                    width: 12,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    color: i < stageIndex ? activeColor : inactiveColor,
+                  ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  /// Quick Action Power Tile
+  static Widget quickActionTile({
+    required BuildContext context,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required VoidCallback onTap,
+    Color? iconColor,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = iconColor ?? UserTheme.primaryOrange;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+            borderRadius: BorderRadius.circular(UserTheme.radiusL),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.08) : UserTheme.dayTextMuted.withOpacity(0.12),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.25 : 0.04),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: primary, size: 22),
+              ),
+              const SizedBox(height: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
+
