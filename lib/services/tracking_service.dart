@@ -252,6 +252,117 @@ class TrackingService {
     }
   }
 
+  /// Fetch Daily Digest statistics for business dashboard
+  Future<Map<String, dynamic>?> fetchDailyDigest() async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.business}/daily-digest'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['data'];
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching daily digest: $e');
+      return null;
+    }
+  }
+
+  /// Stage an outbound customer order
+  Future<Map<String, dynamic>> stageOutboundPackage({
+    required String trackingId,
+    required String shopName,
+    required String customerName,
+    String? customerPhone,
+    String? courierName,
+  }) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.business}/outbound-staging'),
+        headers: headers,
+        body: jsonEncode({
+          'trackingId': trackingId,
+          'shopName': shopName,
+          'customerName': customerName,
+          'customerPhone': customerPhone,
+          'courierName': courierName,
+        }),
+      );
+
+      final body = jsonDecode(response.body);
+      if (response.statusCode == 201) {
+        final userId = await _authService.currentUserId;
+        if (userId != null) await refreshTracking(userId);
+        return body['data'];
+      } else {
+        throw body['message'] ?? 'Failed to stage outbound package';
+      }
+    } catch (e) {
+      throw 'Outbound staging error: $e';
+    }
+  }
+
+  /// Batch stage multiple outbound customer packages
+  Future<List<dynamic>> batchStageOutboundPackages({
+    required List<Map<String, String>> packages,
+    required String shopName,
+    bool openDoor = true,
+  }) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.business}/batch-outbound-staging'),
+        headers: headers,
+        body: jsonEncode({
+          'packages': packages,
+          'shopName': shopName,
+          'openDoor': openDoor,
+        }),
+      );
+
+      final body = jsonDecode(response.body);
+      if (response.statusCode == 201) {
+        final userId = await _authService.currentUserId;
+        if (userId != null) await refreshTracking(userId);
+        return body['data'];
+      } else {
+        throw body['message'] ?? 'Failed to batch stage outbound packages';
+      }
+    } catch (e) {
+      throw 'Batch outbound staging error: $e';
+    }
+  }
+
+  /// Generate customer dispatch notification link/text
+  Future<Map<String, String>?> generateDispatchLink(String trackingId) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.business}/generate-dispatch-link'),
+        headers: headers,
+        body: jsonEncode({'trackingId': trackingId}),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        final data = body['data'];
+        return {
+          'text': data['text']?.toString() ?? '',
+          'shareText': (data['shareText'] ?? data['text'])?.toString() ?? '',
+        };
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error generating dispatch text: $e');
+      return null;
+    }
+  }
+
   /// Dispose resources
   void dispose() {
     _trackingController.close();

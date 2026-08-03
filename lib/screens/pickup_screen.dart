@@ -315,33 +315,30 @@ class _PickupScreenState extends State<PickupScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.of(context).pop();
-              try {
-                // Show loading indicator
+
+              // 1. OPTIMISTIC UI FEEDBACK
+              if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Deleting ${tracking.trackingId}...'),
-                    duration: const Duration(seconds: 1),
+                    content: Text('Deleted ${tracking.trackingId}'),
+                    backgroundColor: UserTheme.statusSuccess,
+                    duration: const Duration(seconds: 2),
                   ),
                 );
-                
+              }
+
+              // 2. ASYNC BACKGROUND SYNC
+              try {
                 await widget.databaseService.deleteTrackingId(
                   userId: widget.userId,
                   trackingId: tracking.trackingId,
                 );
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Pickup deleted successfully'),
-                      backgroundColor: UserTheme.statusSuccess,
-                    ),
-                  );
-                }
               } catch (e) {
+                // 3. ROLLBACK / ERROR ALERT
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Error: $e'),
+                      content: Text('Network error. Delete failed: $e'),
                       backgroundColor: UserTheme.statusError,
                     ),
                   );

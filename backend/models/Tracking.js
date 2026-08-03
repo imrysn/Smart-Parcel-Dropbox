@@ -30,7 +30,19 @@ const trackingSchema = new mongoose.Schema({
   registeredAt: { type: Date, default: Date.now },
   deliveredAt: { type: Date },
   retrievedAt: { type: Date },
-  doneAt: { type: Date }   // Set when rider marks parcel as collected
+  doneAt: { type: Date },   // Set when rider marks parcel as collected
+
+  // Business Fulfillment extensions
+  direction: {
+    type: String,
+    enum: ['INBOUND_SUPPLIER', 'OUTBOUND_CUSTOMER'],
+    default: 'INBOUND_SUPPLIER'
+  },
+  customerName: { type: String, trim: true },
+  customerPhone: { type: String, trim: true },
+  courierName: { type: String, trim: true },
+  courierOtp: { type: String, trim: true },
+  courierOtpExpiresAt: { type: Date }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Tracking', trackingSchema);

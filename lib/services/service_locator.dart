@@ -15,6 +15,7 @@ import 'scan_log_service.dart';
 import 'device_control_service.dart';
 import 'biometric_service.dart';
 import 'dropbox_service.dart';
+import 'task_service.dart';
 
 /// Service Locator for Dependency Injection
 /// Provides centralized access to all services
@@ -33,6 +34,7 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton(() => DeviceControlService());
   getIt.registerLazySingleton(() => NotificationService());
   getIt.registerLazySingleton(() => DropboxService());
+  getIt.registerLazySingleton(() => TaskService());
 
   // Legacy DatabaseService (facade for backward compatibility)
   // TODO: Remove after all screens are migrated to new services

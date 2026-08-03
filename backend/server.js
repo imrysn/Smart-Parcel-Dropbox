@@ -122,7 +122,18 @@ app.use('/api/delivery-logs', deliveryLogRoutes);
 app.use('/api/riders', riderRoutes);
 
 const dropboxRoutes = require('./routes/dropboxRoutes');
+const businessRoutes = require('./routes/businessRoutes');
+const taskRoutes = require('./routes/taskRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
+const financialRoutes = require('./routes/financialRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+
 app.use('/api/dropbox', dropboxRoutes);
+app.use('/api/business', businessRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/financial', financialRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

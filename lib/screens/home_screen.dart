@@ -18,13 +18,26 @@ import 'admin/rider_management_screen.dart';
 import 'dropbox_control_screen.dart';
 
 import 'pickup_screen.dart';
+import 'task_manager_screen.dart';
 import 'owner_verify_screen.dart';
 import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
 import '../widgets/weekly_activity_chart.dart';
 import '../widgets/mini_sparkline.dart';
+import '../widgets/daily_digest_card.dart';
+import '../widgets/financial_digest_card.dart';
+import '../models/transaction_model.dart';
+import '../services/financial_service.dart';
+import 'add_pickup_screen.dart';
+import 'financial_screen.dart';
+import '../services/tracking_service.dart';
 import '../widgets/user_ui.dart';
 import '../config/user_theme.dart';
+import '../presentation/components/status_pill.dart';
+import '../presentation/components/carrier_badge.dart';
+import '../presentation/components/delivery_timeline.dart';
+import '../presentation/components/in_box_spotlight.dart';
+import '../presentation/screens/home/home_view_model.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -40,6 +53,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final DropboxService _dropboxService = getIt<DropboxService>();
   int _selectedIndex = 0;
   int _ordersTabIndex = 0; // 0: Delivered, 1: Pick Up, 2: Retrieved
+  final TextEditingController _searchController = TextEditingController();
+  String _selectedFilterTag = 'All';
 
   bool _hasDropbox = true;
 
@@ -58,6 +73,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Cache FutureBuilder future to prevent recreation on every rebuild
   Future<Map<String, dynamic>?>? _userDataFuture;
+  Map<String, dynamic>? _dailyDigestData;
+  FinancialSummaryModel? _financialSummary;
 
   @override
   void initState() {
@@ -74,8 +91,24 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_userId != null) {
         _userDataFuture = _databaseService.getUserData(_userId!);
         _checkDropbox();
+        _loadDailyDigest();
       }
       setState(() {});
+    }
+  }
+
+  Future<void> _loadDailyDigest() async {
+    try {
+      final digest = await getIt<TrackingService>().fetchDailyDigest();
+      final finData = await FinancialService().fetchFinancialSummary();
+      if (mounted) {
+        setState(() {
+          if (digest != null) _dailyDigestData = digest;
+          _financialSummary = finData['summary'];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading daily digest: $e');
     }
   }
 
@@ -153,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return 'Orders';
       case 2:
-        return 'Pick Up';
+        return 'Craft Task Pipeline';
       case 3:
         return 'Dropbox Management';
       case 4:
@@ -258,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       IconData icon; IconData activeIcon; String label;
                       if (index == 0) { icon = Icons.grid_view_outlined; activeIcon = Icons.grid_view_rounded; label = 'Home'; }
                       else if (index == 1) { icon = Icons.inventory_2_outlined; activeIcon = Icons.inventory_2_rounded; label = 'Orders'; }
-                      else if (index == 2) { icon = Icons.outbox_outlined; activeIcon = Icons.outbox_rounded; label = 'Pickup'; }
+                      else if (index == 2) { icon = Icons.checklist_rounded; activeIcon = Icons.task_alt_rounded; label = 'Tasks'; }
                       else if (index == 3) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
                       else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
 
@@ -370,6 +403,149 @@ class _HomeScreenState extends State<HomeScreen> {
       labels.add(days[date.weekday - 1]);
     }
     return labels;
+  }
+
+  Widget _buildSmartGreetingBanner(String userDisplayName) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hour = DateTime.now().hour;
+    String greeting;
+    IconData greetingIcon;
+    if (hour < 12) {
+      greeting = 'Good Morning';
+      greetingIcon = Icons.wb_sunny_outlined;
+    } else if (hour < 17) {
+      greeting = 'Good Afternoon';
+      greetingIcon = Icons.wb_sunny_rounded;
+    } else {
+      greeting = 'Good Evening';
+      greetingIcon = Icons.nights_stay_rounded;
+    }
+
+    final isOnline = _appConnected;
+    final statusColor = isOnline ? const Color(0xFF10B981) : UserTheme.statusError;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: UserTheme.primaryOrange.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(greetingIcon, color: UserTheme.primaryOrange, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$greeting, $userDisplayName',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isOnline ? 'Smart Dropbox Synced • Atlas Cloud Live' : 'System Offline • Connecting to Hardware...',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          UserUi.statusPill(
+            label: isOnline ? 'SYNCED' : 'OFFLINE',
+            color: statusColor,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilterBar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tags = ['All', 'In Box', 'In Transit', 'Pickups', 'Collected'];
+
+    return Column(
+      children: [
+        TextField(
+          controller: _searchController,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            hintText: 'Search by tracking #, courier, or recipient...',
+            hintStyle: const TextStyle(fontSize: 13),
+            prefixIcon: const Icon(Icons.search_rounded, size: 20),
+            suffixIcon: _searchController.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() {});
+                    },
+                  )
+                : null,
+            filled: true,
+            fillColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(UserTheme.radiusL),
+              borderSide: BorderSide(
+                color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(UserTheme.radiusL),
+              borderSide: BorderSide(
+                color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: tags.map((tag) {
+              final isSelected = _selectedFilterTag == tag;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(tag),
+                  selected: isSelected,
+                  selectedColor: UserTheme.primaryOrange,
+                  labelStyle: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                    color: isSelected ? Colors.white : (isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary),
+                  ),
+                  backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                  onSelected: (val) {
+                    if (val) setState(() => _selectedFilterTag = tag);
+                  },
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
   }
 
   Widget _buildNoDropboxBanner() {
@@ -589,99 +765,485 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildHeroIotControlUnit(BuildContext context, bool isDark, int dropOffBinCount, TrackingModel? inBoxParcel) {
+    final isOnline = _appConnected;
+    final statusColor = isOnline ? const Color(0xFF10B981) : UserTheme.statusError;
+    final hasPackage = dropOffBinCount > 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [
+                  UserTheme.primaryOrange.withOpacity(0.22),
+                  Colors.indigo.shade900.withOpacity(0.45),
+                ]
+              : [
+                  UserTheme.primaryOrange.withOpacity(0.12),
+                  Colors.white.withOpacity(0.95),
+                ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isDark ? UserTheme.primaryOrange.withOpacity(0.35) : UserTheme.primaryOrange.withOpacity(0.25),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: UserTheme.primaryOrange.withOpacity(isDark ? 0.15 : 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top Status Bar: Hub Tag + Connectivity + Door State
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: UserTheme.primaryOrange.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.markunread_mailbox_rounded, color: UserTheme.primaryOrange, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SMART DROPBOX HUB',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.0,
+                            color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor)),
+                            const SizedBox(width: 4),
+                            Text(
+                              isOnline ? 'Online • Wi-Fi 100%' : 'Offline',
+                              style: TextStyle(fontSize: 10, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                UserUi.statusPill(
+                  label: hasPackage ? 'PARCEL INSIDE' : 'SECURE & LOCKED',
+                  color: hasPackage ? UserTheme.primaryOrange : const Color(0xFF10B981),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Middle Spec: Package Bin Status Indicator
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        hasPackage ? '$dropOffBinCount Package Deposited' : 'Empty & Ready',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      if (hasPackage && inBoxParcel != null) ...[
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: UserTheme.primaryOrange.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                inBoxParcel.shopName,
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: UserTheme.primaryOrange),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Waybill #${inBoxParcel.trackingId}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  fontFamily: 'monospace',
+                                  color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        Text(
+                          'Optical IR sensor active for incoming deliveries',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Bottom Primary IoT Dual Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => setState(() => _selectedIndex = 3),
+                    icon: const Icon(Icons.lock_open_rounded, size: 18),
+                    label: const Text('UNLOCK DOOR'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: UserTheme.primaryOrange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 4,
+                      shadowColor: UserTheme.primaryOrange.withOpacity(0.4),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 0.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() => _selectedIndex = 3),
+                    icon: Icon(hasPackage ? Icons.qr_code_rounded : Icons.qr_code_scanner_rounded, size: 18),
+                    label: Text(hasPackage ? 'VIEW QR' : 'QR ACCESS'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.2), width: 1.5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 0.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernSummaryGrid(BuildContext context, bool isDark, int dropOffBinCount) {
+    final awaitingPickup = _dailyDigestData?['awaitingPickupCount'] ?? 0;
+    final supplierStockIn = _dailyDigestData?['supplierStockInCount'] ?? 0;
+    final netProfit = _financialSummary?.netProfit ?? 0.0;
+    final marginPercent = _financialSummary?.marginPercent ?? 0.0;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _buildCompactSummaryTile(
+                context: context,
+                isDark: isDark,
+                title: 'Outbound Pickups',
+                value: '$awaitingPickup',
+                subtitle: awaitingPickup > 0 ? 'Parcels ready' : 'Queue clear',
+                icon: Icons.outbox_rounded,
+                iconColor: UserTheme.primaryOrange,
+                badgeLabel: 'PICKUP',
+                badgeColor: UserTheme.primaryOrange,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => PickupScreen(userId: _userId!, databaseService: _databaseService)),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildCompactSummaryTile(
+                context: context,
+                isDark: isDark,
+                title: 'Supplier Stock In',
+                value: '$supplierStockIn',
+                subtitle: 'Inbound supplies',
+                icon: Icons.inventory_2_rounded,
+                iconColor: Colors.tealAccent.shade700,
+                badgeLabel: 'SUPPLY',
+                badgeColor: Colors.teal,
+                onTap: () => setState(() => _selectedIndex = 1),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildCompactSummaryTile(
+                context: context,
+                isDark: isDark,
+                title: 'Business Profit',
+                value: '₱${netProfit.toStringAsFixed(0)}',
+                subtitle: '${marginPercent.toStringAsFixed(1)}% Margin',
+                icon: Icons.account_balance_wallet_rounded,
+                iconColor: netProfit >= 0 ? UserTheme.statusSuccess : UserTheme.statusError,
+                badgeLabel: netProfit >= 0 ? 'PROFIT' : 'LOSS',
+                badgeColor: netProfit >= 0 ? UserTheme.statusSuccess : UserTheme.statusError,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const FinancialScreen()),
+                  ).then((_) => _loadDailyDigest());
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildCompactSummaryTile(
+                context: context,
+                isDark: isDark,
+                title: 'Dropbox Bin',
+                value: '$dropOffBinCount',
+                subtitle: dropOffBinCount > 0 ? 'Parcels inside' : 'Empty bin',
+                icon: Icons.all_inbox_rounded,
+                iconColor: Colors.indigoAccent,
+                badgeLabel: dropOffBinCount > 0 ? 'PARCELS' : 'SECURE',
+                badgeColor: dropOffBinCount > 0 ? UserTheme.primaryOrange : Colors.indigo,
+                onTap: () => setState(() => _selectedIndex = 3),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompactSummaryTile({
+    required BuildContext context,
+    required bool isDark,
+    required String title,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+    required Color iconColor,
+    required String badgeLabel,
+    required Color badgeColor,
+    required VoidCallback onTap,
+  }) {
+    return UserUi.glassCard(
+      context,
+      blur: 12,
+      padding: const EdgeInsets.all(14),
+      color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 20),
+                ),
+                UserUi.statusPill(label: badgeLabel, color: badgeColor),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildActiveOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-
           StreamBuilder<List<TrackingModel>>(
             stream: _databaseService.getUserTrackingIds(_userId!),
             initialData: _databaseService.cachedTracking,
             builder: (context, snapshot) {
               final allOrders = snapshot.data ?? [];
-              
-              // Calculate specific state metrics
-              final activeDropOffCount = allOrders.where((o) => 
-                o.mode == 'drop_off' && ['pending', 'in_transit'].contains(o.status)).length;
               final dropOffBinCount = allOrders.where((o) => 
                 o.mode == 'drop_off' && o.status == 'delivered').length;
-                
-              final activePickupCount = allOrders.where((o) => 
-                o.mode == 'pickup' && o.status == 'pending').length;
-              final pickUpBinCount = allOrders.where((o) => 
-                o.mode == 'pickup' && o.status == 'ready_for_pickup').length;
-
-              final dropOffWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off');
-              final pickUpWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup');
-              final deliveredWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'drop_off' && ['delivered', 'done'].contains(o.status));
-              final readyPickupWeekly = _calculateWeeklyData(allOrders, (o) => o.mode == 'pickup' && o.status == 'ready_for_pickup');
+              final inBoxParcel = allOrders.where((o) => o.status == 'delivered').firstOrNull;
+              final recentOrders = allOrders.take(2).toList();
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (!_hasDropbox) _buildNoDropboxBanner(),
-                  UserUi.sectionTitle(
-                    context,
-                    'Dashboard overview',
-                    subtitle: 'Live counts from your parcel activity',
-                  ),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 1.08,
+
+                  // ─── Single Unified Tesla/Apple Home Hero IoT Control Unit ───
+                  _buildHeroIotControlUnit(context, isDark, dropOffBinCount, inBoxParcel),
+
+                  const SizedBox(height: 10),
+
+                  // ─── Minimalist Recent Activity Header ───
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildMiniStatCard(
-                        title: 'Active Orders',
-                        value: '$activeDropOffCount',
-                        icon: Icons.local_shipping_rounded,
-                        color: UserTheme.primaryOrange,
-                        weeklyData: dropOffWeekly,
+                      Text(
+                        'Recent Deliveries',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                        ),
                       ),
-                      _buildMiniStatCard(
-                        title: 'Drop-Off Bin',
-                        value: '$dropOffBinCount',
-                        icon: Icons.inbox_rounded,
-                        color: UserTheme.accentAmberDark,
-                        weeklyData: deliveredWeekly,
-                      ),
-                      _buildMiniStatCard(
-                        title: 'Active Pickups',
-                        value: '$activePickupCount',
-                        icon: Icons.outbox_rounded,
-                        color: UserTheme.gradientPink,
-                        weeklyData: pickUpWeekly,
-                      ),
-                      _buildMiniStatCard(
-                        title: 'Pick-Up Bin',
-                        value: '$pickUpBinCount',
-                        icon: Icons.inventory_2_rounded,
-                        color: UserTheme.primaryOrangeDark,
-                        weeklyData: readyPickupWeekly,
+                      TextButton(
+                        onPressed: () => setState(() => _selectedIndex = 1),
+                        child: const Row(
+                          children: [
+                            Text(
+                              'View Orders',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: UserTheme.primaryOrange),
+                            ),
+                            SizedBox(width: 4),
+                            Icon(Icons.arrow_forward_rounded, size: 14, color: UserTheme.primaryOrange),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                  
-                  const SizedBox(height: 12),
-                  WeeklyActivityChart(
-                    receivedData: dropOffWeekly,
-                    deliveredData: deliveredWeekly,
-                    labels: _getWeeklyLabels(),
-                  ),
-                  
-                  const SizedBox(height: 12),
-                  _buildRetailerJungle(allOrders),
+                  const SizedBox(height: 8),
+
+                  // ─── Recent 2 Deliveries Stream ───
+                  if (recentOrders.isEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'No recent activity',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    ...recentOrders.map((order) {
+                      int stageIndex = 0;
+                      if (order.status == 'in_transit') stageIndex = 1;
+                      else if (order.status == 'delivered') stageIndex = 2;
+                      else if (order.status == 'done') stageIndex = 3;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                          borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                          border: Border.all(
+                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            CarrierBadge(shopName: order.shopName),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    order.trackingId,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      fontFamily: 'monospace',
+                                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    order.getStatusText(),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            UserUi.statusPill(
+                              label: order.status.toUpperCase(),
+                              color: order.status == 'delivered' ? UserTheme.primaryOrange : (order.status == 'done' ? UserTheme.statusSuccess : Colors.indigo),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
                 ],
               );
             },
           ),
-          const SizedBox(height: 100), // Bottom padding for floating nav bar
+          const SizedBox(height: 140), // Extended padding for floating navbar clearance
         ],
       ),
     );
@@ -1010,33 +1572,30 @@ class _HomeScreenState extends State<HomeScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.of(context).pop();
-              try {
-                // Show loading indicator
+              
+              // 1. OPTIMISTIC UI FEEDBACK
+              if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Deleting ${tracking.trackingId}...'),
-                    duration: const Duration(seconds: 1),
+                    content: Text('Deleted ${tracking.trackingId}'),
+                    backgroundColor: UserTheme.statusSuccess,
+                    duration: const Duration(seconds: 2),
                   ),
                 );
-                
+              }
+
+              // 2. ASYNC BACKGROUND NETWORK SYNC
+              try {
                 await _databaseService.deleteTrackingId(
                   userId: _userId!,
                   trackingId: tracking.trackingId,
                 );
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Tracking deleted successfully'),
-                      backgroundColor: UserTheme.statusSuccess,
-                    ),
-                  );
-                }
               } catch (e) {
+                // 3. ROLLBACK ON FAILURE
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Error: $e'),
+                      content: Text('Network error. Delete failed: $e'),
                       backgroundColor: UserTheme.statusError,
                     ),
                   );
@@ -1062,7 +1621,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // ── Status Segment Control (Master Categories) ──
         Container(
-          margin: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
@@ -1072,45 +1631,73 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _buildSegmentItem(0, 'PENDING', Icons.pending_actions_rounded),
               _buildSegmentItem(1, 'DELIVERED', Icons.local_shipping_rounded),
-              _buildSegmentItem(2, 'RETRIEVED', Icons.history_rounded),
+              _buildSegmentItem(2, 'OUTBOUND', Icons.unarchive_rounded),
+              _buildSegmentItem(3, 'RETRIEVED', Icons.history_rounded),
             ],
           ),
         ),
 
-        // ── Filtered List Based on Status ──
-        Expanded(
-          child: StreamBuilder<List<TrackingModel>>(
-            stream: _databaseService.getUserTrackingIds(_userId!),
-            initialData: _databaseService.cachedTracking,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return UserUi.emptyState(
-                  context,
-                  icon: Icons.cloud_off_rounded,
-                  title: 'Could not load orders',
-                  subtitle: 'Check your connection and pull down to refresh.',
-                );
-              }
+        // ── Outbound Tab View OR Filtered Inbound List ──
+        if (_ordersTabIndex == 2)
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  DailyDigestCard(
+                    digestData: _dailyDigestData,
+                    onRefresh: _loadDailyDigest,
+                    onAddOutbound: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const AddPickupScreen()),
+                      ).then((_) => _loadDailyDigest());
+                    },
+                  ),
+                  SizedBox(
+                    height: 600,
+                    child: PickupScreen(
+                      userId: _userId!,
+                      databaseService: _databaseService,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          Expanded(
+            child: StreamBuilder<List<TrackingModel>>(
+              stream: _databaseService.getUserTrackingIds(_userId!),
+              initialData: _databaseService.cachedTracking,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return UserUi.emptyState(
+                    context,
+                    icon: Icons.cloud_off_rounded,
+                    title: 'Could not load orders',
+                    subtitle: 'Check your connection and pull down to refresh.',
+                  );
+                }
 
-              // Show shimmering skeletons while waiting for first data
-              if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data ?? []).isEmpty) {
-                return UserUi.shimmerList(context, count: 5);
-              }
+                // Show shimmering skeletons while waiting for first data
+                if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data ?? []).isEmpty) {
+                  return UserUi.shimmerList(context, count: 5);
+                }
 
-              List<TrackingModel> allOrders = snapshot.data ?? [];
-              List<TrackingModel> filtered;
+                List<TrackingModel> allOrders = snapshot.data ?? [];
+                List<TrackingModel> filtered;
 
-              // Apply Refined User-Requested Status Logic
-              if (_ordersTabIndex == 0) {
-                // 1. PENDING - Just added, waiting for activity
-                filtered = allOrders.where((o) => o.status == 'pending' || o.status == 'in_transit').toList();
-              } else if (_ordersTabIndex == 1) {
-                // 2. DELIVERED - Courier dropped off, physically in the box
-                filtered = allOrders.where((o) => o.mode == 'drop_off' && o.status == 'delivered').toList();
-              } else {
-                // 3. RETRIEVED - Final History (Collected by owner or rider)
-                filtered = allOrders.where((o) => o.status == 'retrieved' || o.status == 'done').toList();
-              }
+                // Apply Refined User-Requested Status Logic
+                if (_ordersTabIndex == 0) {
+                  // 1. PENDING - Just added, waiting for activity
+                  filtered = allOrders.where((o) => o.status == 'pending' || o.status == 'in_transit').toList();
+                } else if (_ordersTabIndex == 1) {
+                  // 2. DELIVERED - Courier dropped off, physically in the box
+                  filtered = allOrders.where((o) => o.mode == 'drop_off' && o.status == 'delivered').toList();
+                } else {
+                  // 3. RETRIEVED - Final History (Collected by owner or rider)
+                  filtered = allOrders.where((o) => o.status == 'retrieved' || o.status == 'done').toList();
+                }
 
               // Apply Smart Sorting
               filtered.sort((a, b) {
@@ -1230,10 +1817,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildAllOrdersTab();
       case 2:
-        return PickupScreen(
-          userId: _userId!,
-          databaseService: _databaseService,
-        );
+        return const TaskManagerScreen();
       case 3:
         return const DropboxControlScreen();
       case 4:
@@ -1259,28 +1843,6 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         var pickups = snapshot.data ?? [];
-
-        // Mock data for UI demonstration if list is empty
-        if (pickups.isEmpty) {
-          pickups = [
-            TrackingModel(
-              trackingId: 'PICKUP-12345',
-              userId: _userId!,
-              shopName: 'Return Parcel (Shopee)',
-              status: 'ready_for_pickup',
-              mode: 'pickup',
-              registeredAt: DateTime.now().subtract(const Duration(hours: 2)),
-            ),
-            TrackingModel(
-              trackingId: 'PICKUP-67890',
-              userId: _userId!,
-              shopName: 'Document to Office',
-              status: 'pending',
-              mode: 'pickup',
-              registeredAt: DateTime.now().subtract(const Duration(days: 1)),
-            ),
-          ];
-        }
 
         if (pickups.isEmpty) {
           return Center(

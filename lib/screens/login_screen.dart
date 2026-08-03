@@ -364,7 +364,43 @@ class _LoginScreenState extends State<LoginScreen> {
                                   onTap: _login,
                                   icon: Icons.login_rounded,
                                 ),
-                          const SizedBox(height: 32),
+                          const SizedBox(height: 24),
+                          Text(
+                            'QUICK DEMO LOGIN',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.2,
+                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              ActionChip(
+                                avatar: const Icon(Icons.person_rounded, size: 14, color: UserTheme.primaryOrange),
+                                label: const Text('Raysan (User)'),
+                                backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                                onPressed: () {
+                                  _emailController.text = 'imrays23@gmail.com';
+                                  _passwordController.text = 'password123';
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              ActionChip(
+                                avatar: const Icon(Icons.admin_panel_settings_rounded, size: 14, color: Color(0xFF10B981)),
+                                label: const Text('Brant (Admin)'),
+                                backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                                onPressed: () {
+                                  _emailController.text = 'brantcordova0@gmail.com';
+                                  _passwordController.text = 'password123';
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [

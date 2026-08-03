@@ -14,6 +14,10 @@ class ApiConfig {
   static const String notifications = '$baseUrl/notifications';
   static const String deviceControl = '$baseUrl/device-control';
   static const String dropbox = '$baseUrl/dropbox';
+  static const String business = '$baseUrl/business';
+  static const String tasks = '$baseUrl/tasks';
+  static const String financial = '$baseUrl/financial';
+  static const String payments = '$baseUrl/payments';
 
   // User Management Admin Endpoints
   static const String pendingUsers = '$baseUrl/users/pending';
