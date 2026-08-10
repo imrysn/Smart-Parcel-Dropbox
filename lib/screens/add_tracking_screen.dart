@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
+import '../widgets/camera_barcode_scanner_dialog.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 
@@ -126,17 +127,45 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
                   labelText: 'Tracking ID',
                   hintText: 'Enter tracking number from shop',
                   prefixIcon: const Icon(Icons.qr_code_2),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.content_paste),
-                    tooltip: 'Paste from clipboard',
-                    onPressed: () async {
-                      final data = await Clipboard.getData('text/plain');
-                      if (data != null && data.text != null) {
-                        setState(() {
-                          _trackingIdController.text = data.text!;
-                        });
-                      }
-                    },
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_scanner_rounded, color: UserTheme.primaryOrange),
+                        tooltip: 'Scan Waybill Barcode with Camera',
+                        onPressed: () async {
+                          final result = await CameraBarcodeScannerDialog.scan(context);
+                          if (result != null) {
+                            setState(() {
+                              _trackingIdController.text = result.trackingId;
+                              if (_shopNameController.text.isEmpty) {
+                                _shopNameController.text = result.detectedCourier;
+                              }
+                            });
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Scanned: ${result.trackingId} (${result.detectedCourier})'),
+                                  backgroundColor: UserTheme.statusSuccess,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.content_paste),
+                        tooltip: 'Paste from clipboard',
+                        onPressed: () async {
+                          final data = await Clipboard.getData('text/plain');
+                          if (data != null && data.text != null) {
+                            setState(() {
+                              _trackingIdController.text = data.text!;
+                            });
+                          }
+                        },
+                      ),
+                    ],
                   ),
                 ),
                 validator: (value) {

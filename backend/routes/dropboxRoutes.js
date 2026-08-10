@@ -3,8 +3,92 @@ const router = express.Router();
 const Dropbox = require('../models/Dropbox');
 const { authMiddleware } = require('../utils/auth');
 
+const { pendingRegistrations } = require('../controllers/hardwareController');
+
 // All dropbox routes are protected
 router.use(authMiddleware);
+
+/**
+ * POST /api/dropbox/claim
+ * Claim and pair an unboxed hardware dropbox device to the authenticated owner account.
+ */
+router.post('/claim', async (req, res) => {
+  try {
+    const { token, deviceId, name, buttonConfirmed } = req.body;
+
+    if (!token && !deviceId) {
+      return res.status(400).json({ message: 'Token or deviceId is required to claim hardware' });
+    }
+
+    let targetDeviceId = deviceId;
+
+    // Validate token if provided
+    if (token) {
+      const formattedToken = token.trim().toUpperCase();
+      const pending = pendingRegistrations.get(formattedToken);
+      if (pending) {
+        if (pending.expiresAtMs < Date.now()) {
+          pendingRegistrations.delete(formattedToken);
+          return res.status(400).json({ message: 'Pairing token has expired. Please refresh on physical box LCD.' });
+        }
+        targetDeviceId = pending.deviceId;
+        pendingRegistrations.delete(formattedToken);
+      }
+    }
+
+    if (!targetDeviceId) {
+      return res.status(400).json({ message: 'Invalid pairing token or device ID' });
+    }
+
+    // Find existing device document or create new active device record
+    let dropbox = await Dropbox.findOne({ deviceId: targetDeviceId });
+
+    if (!dropbox) {
+      dropbox = new Dropbox({
+        deviceId: targetDeviceId,
+        primaryUserId: req.userId,
+        userIds: [req.userId],
+        name: name || 'My Smart Parcel Dropbox',
+        isRegistered: true,
+        status: 'online'
+      });
+    } else {
+      // Add user to userIds array if not already present
+      if (!dropbox.userIds.includes(req.userId)) {
+        dropbox.userIds.push(req.userId);
+      }
+      if (!dropbox.primaryUserId) {
+        dropbox.primaryUserId = req.userId;
+      }
+      dropbox.isRegistered = true;
+      dropbox.status = 'online';
+      if (name) dropbox.name = name;
+    }
+
+    await dropbox.save();
+
+    // Broadcast WebSocket notification to hardware box
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('deviceRegistered', {
+        deviceId: targetDeviceId,
+        primaryUserId: dropbox.primaryUserId,
+        userIds: dropbox.userIds
+      });
+    }
+
+    console.log(`✅ [DEVICE-CLAIMED] Device: ${targetDeviceId} claimed by User: ${req.userId}`);
+
+    res.json({
+      success: true,
+      message: 'Dropbox paired successfully',
+      dropbox
+    });
+  } catch (error) {
+    console.error('Error claiming dropbox:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
 
 /**
  * GET /api/dropbox/:userId

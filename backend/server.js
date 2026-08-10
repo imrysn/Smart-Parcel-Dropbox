@@ -122,6 +122,7 @@ app.use('/api/delivery-logs', deliveryLogRoutes);
 app.use('/api/riders', riderRoutes);
 
 const dropboxRoutes = require('./routes/dropboxRoutes');
+const hardwareRoutes = require('./routes/hardwareRoutes');
 const businessRoutes = require('./routes/businessRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
@@ -129,6 +130,7 @@ const financialRoutes = require('./routes/financialRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 
 app.use('/api/dropbox', dropboxRoutes);
+app.use('/api/hardware', hardwareRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/webhooks', webhookRoutes);

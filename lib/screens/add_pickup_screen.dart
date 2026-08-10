@@ -597,12 +597,29 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                         labelText: 'Courier Partner',
                         prefixIcon: Icon(Icons.alt_route_rounded),
                       ),
-                      items: ['J&T Express', 'NinjaVan', 'PosLaju', 'DHL Express', 'Spx', 'Lalamove'].map((c) {
+                      items: ['J&T Express', 'NinjaVan', 'PosLaju', 'DHL Express', 'Spx', 'Flash Express', 'Lalamove'].map((c) {
                         return DropdownMenuItem(value: c, child: Text(c));
                       }).toList(),
                       onChanged: (val) {
                         if (val != null) setState(() => _selectedCourierOutbound = val);
                       },
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: ['J&T Express', 'Spx', 'Flash Express', 'NinjaVan', 'Lalamove'].map((courier) {
+                        final isSelected = _selectedCourierOutbound == courier;
+                        return ChoiceChip(
+                          label: Text(courier, style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                          selected: isSelected,
+                          selectedColor: UserTheme.primaryOrange,
+                          labelStyle: TextStyle(color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87)),
+                          onSelected: (selected) {
+                            if (selected) setState(() => _selectedCourierOutbound = courier);
+                          },
+                        );
+                      }).toList(),
                     ),
                     const SizedBox(height: 28),
                     UserUi.premiumButton(

@@ -318,7 +318,30 @@ class _PaymentQrScreenState extends State<PaymentQrScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: UserTheme.primaryOrange,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        final gcash = _gcashNumberController.text.isNotEmpty ? "🔹 GCash: ${_gcashNumberController.text.trim()} (${_gcashNameController.text.trim()})" : "";
+                        final maya = _mayaNumberController.text.isNotEmpty ? "🔹 Maya: ${_mayaNumberController.text.trim()} (${_mayaNameController.text.trim()})" : "";
+                        final bank = _bankAccountNumberController.text.isNotEmpty ? "🔹 ${_bankNameController.text.trim()}: ${_bankAccountNumberController.text.trim()} (${_bankAccountNameController.text.trim()})" : "";
+
+                        final formatted = "💳 PAYMENT DETAILS:\n$gcash\n$maya\n$bank\n\nPlease send proof of payment once completed. Thank you!";
+                        Clipboard.setData(ClipboardData(text: formatted));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Payment details copied for customer DMs!'), backgroundColor: UserTheme.statusSuccess),
+                        );
+                      },
+                      icon: const Icon(Icons.copy_all_rounded, size: 18),
+                      label: const Text('COPY FORMATTED PAYMENT INFO FOR DMs', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: UserTheme.primaryOrange,
+                        side: const BorderSide(color: UserTheme.primaryOrange, width: 1.5),
+                        minimumSize: const Size(double.infinity, 46),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   ],

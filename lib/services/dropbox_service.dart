@@ -42,6 +42,34 @@ class DropboxService {
     });
   }
 
+  /// REST fallback to claim and pair hardware device.
+  Future<Map<String, dynamic>> claimDevice({
+    required String token,
+    required String deviceName,
+    bool buttonConfirmed = true,
+  }) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.dropbox}/claim'),
+        headers: headers,
+        body: jsonEncode({
+          'token': token,
+          'name': deviceName,
+          'buttonConfirmed': buttonConfirmed,
+        }),
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        final err = jsonDecode(response.body);
+        throw err['message'] ?? 'Failed to pair device';
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   /// Unregister device via both Socket.IO and REST (for redundancy).
   Future<void> unregisterDevice(String userId) async {
     // 1. Socket emission

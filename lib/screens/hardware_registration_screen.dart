@@ -7,7 +7,6 @@ import '../services/dropbox_service.dart';
 import '../services/auth_service.dart';
 import '../services/service_locator.dart';
 import '../config/user_theme.dart';
-import '../widgets/user_ui.dart';
 import 'hardware_config_screen.dart';
 
 /// Hardware Registration Screen

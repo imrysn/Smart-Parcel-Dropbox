@@ -313,20 +313,80 @@ class _TaskManagerScreenState extends State<TaskManagerScreen> with SingleTicker
               )
             : null,
         body: _viewMode == 0
-            ? RefreshIndicator(
-                onRefresh: _loadTasks,
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildStageList('INQUIRY'),
-                    _buildStageList('CRAFTING'),
-                    _buildStageList('READY_FOR_BOX'),
-                    _buildStageList('SHIPPED'),
-                  ],
-                ),
+            ? Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildStageSummaryItem('Inquiries', _tasksGrouped['INQUIRY']?.length ?? 0, UserTheme.accentAmberDark),
+                        _buildStageSummaryItem('Crafting', _tasksGrouped['CRAFTING']?.length ?? 0, UserTheme.primaryOrange),
+                        _buildStageSummaryItem('Ready Box', _tasksGrouped['READY_FOR_BOX']?.length ?? 0, UserTheme.sunsetEnd),
+                        _buildStageSummaryItem('Shipped', _tasksGrouped['SHIPPED']?.length ?? 0, UserTheme.statusSuccess),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: _loadTasks,
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildStageList('INQUIRY'),
+                          _buildStageList('CRAFTING'),
+                          _buildStageList('READY_FOR_BOX'),
+                          _buildStageList('SHIPPED'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               )
             : const FinancialScreen(),
       ),
+    );
+  }
+
+  Widget _buildStageSummaryItem(String label, int count, Color accentColor) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+          ),
+        ),
+      ],
     );
   }
 
