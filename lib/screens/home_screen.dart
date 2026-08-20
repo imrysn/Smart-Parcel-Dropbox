@@ -869,7 +869,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        hasPackage ? '$dropOffBinCount Package Deposited' : 'Empty & Ready',
+                        hasPackage ? '$dropOffBinCount Package Delivered' : 'Empty & Ready',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w900,

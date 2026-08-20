@@ -37,24 +37,30 @@ const pendingRegistrations = new Map();
 // Automated Admin Tracking — always enabled
 const autoAcceptMode = true; // Any scanned barcode is auto-registered
 
+function escapeRegex(text) {
+  return (text || '').replace(/[-[\]{}()*+?.:\\^$|#\s]/g, '\\$&');
+}
+
 /**
- * Flexible Tracking ID Matcher
+ * Flexible Tracking ID Matcher (Case-insensitive)
  * 
  * Some couriers (Shopee/J&T) add a 'T' or other suffixes to barcodes
  * that might not be in the user's registered ID.
  */
 async function findTrackingFlexibly(inputId) {
   if (!inputId) return null;
+  const clean = inputId.trim();
+  const escaped = escapeRegex(clean);
   
-  // 1. Try exact match
-  let tracking = await Tracking.findOne({ trackingId: inputId });
+  // 1. Try case-insensitive exact match
+  let tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
   if (tracking) return tracking;
   
   // 2. Try match after removing trailing 'T'
-  if (inputId.toUpperCase().endsWith('T')) {
-    const trimmedId = inputId.substring(0, inputId.length - 1);
+  if (clean.toUpperCase().endsWith('T')) {
+    const trimmedId = escapeRegex(clean.substring(0, clean.length - 1));
     console.log(`🔍 [FLEX-MATCH] Trying with trimmed ID: ${trimmedId} (Original: ${inputId})`);
-    tracking = await Tracking.findOne({ trackingId: trimmedId });
+    tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${trimmedId}$`, 'i') } });
     if (tracking) {
       console.log(`✅ [FLEX-MATCH] Match found after trimming 'T'`);
       return tracking;
@@ -62,7 +68,8 @@ async function findTrackingFlexibly(inputId) {
   }
   
   // 3. Try matching if DB record has 'T' but scan doesn't
-  tracking = await Tracking.findOne({ trackingId: inputId + 'T' });
+  const appended = escapeRegex(clean + 'T');
+  tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${appended}$`, 'i') } });
   if (tracking) {
     console.log(`✅ [FLEX-MATCH] Match found by appending 'T' back to scan`);
     return tracking;

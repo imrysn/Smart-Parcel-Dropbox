@@ -15,17 +15,44 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final DatabaseService _databaseService = DatabaseService();
   final AuthService _authService = AuthService();
+  late final ScrollController _scrollController;
   String? _userId;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController()..addListener(_onScroll);
     _initUser();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _userId == null) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+
+    if (currentScroll >= maxScroll - 200) {
+      if (_databaseService.hasMoreNotifications && !_databaseService.isFetchingMoreNotifications) {
+        _databaseService.fetchNotifications(_userId!);
+      }
+    }
   }
 
   Future<void> _initUser() async {
     _userId = await _authService.currentUserId;
     if (mounted) setState(() {});
+  }
+
+  Future<void> _onRefresh() async {
+    if (_userId != null) {
+      await _databaseService.refreshNotifications(_userId!);
+    }
   }
 
   @override
@@ -56,24 +83,60 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         body: StreamBuilder<List<NotificationModel>>(
           stream: _databaseService.getUserNotifications(_userId!),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator(color: UserTheme.primaryOrange));
             }
 
             final notifications = snapshot.data ?? [];
             if (notifications.isEmpty) {
-              return UserUi.emptyState(
-                context,
-                icon: Icons.notifications_off_rounded,
-                title: 'All caught up!',
-                subtitle: 'Your recent alerts and parcel updates will show up here.',
+              return RefreshIndicator(
+                color: UserTheme.primaryOrange,
+                onRefresh: _onRefresh,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Container(
+                    height: MediaQuery.of(context).size.height * 0.7,
+                    alignment: Alignment.center,
+                    child: UserUi.emptyState(
+                      context,
+                      icon: Icons.notifications_off_rounded,
+                      title: 'All caught up!',
+                      subtitle: 'Your recent alerts and parcel updates will show up here.',
+                    ),
+                  ),
+                ),
               );
             }
 
-            return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-              itemCount: notifications.length,
-              itemBuilder: (context, index) => _buildNotificationCard(notifications[index]),
+            final showBottomSpinner = _databaseService.hasMoreNotifications;
+
+            return RefreshIndicator(
+              color: UserTheme.primaryOrange,
+              onRefresh: _onRefresh,
+              child: ListView.builder(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+                itemCount: notifications.length + (showBottomSpinner ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == notifications.length) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: UserTheme.primaryOrange,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  return _buildNotificationCard(notifications[index]);
+                },
+              ),
             );
           },
         ),

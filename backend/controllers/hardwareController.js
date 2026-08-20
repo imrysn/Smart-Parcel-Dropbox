@@ -96,19 +96,31 @@ const verifyBarcode = async (req, res) => {
       return res.status(403).json({ allowed: false, message: 'No registered owners for this device' });
     }
 
-    // 3. Search for tracking record linked to device users
+    // 3. Search for tracking record linked to device users (case-insensitive)
+    function escapeRegex(text) {
+      return (text || '').replace(/[-[\]{}()*+?.:\\^$|#\s]/g, '\\$&');
+    }
+    const escaped = escapeRegex(sanitizedBarcode);
+
     let tracking = await Tracking.findOne({
-      trackingId: sanitizedBarcode,
+      trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') },
       userId: { $in: registeredUsers }
     });
 
     // Flexible trim/append 'T' fallback for Shopee/J&T
     if (!tracking && sanitizedBarcode.toUpperCase().endsWith('T')) {
-      const trimmed = sanitizedBarcode.substring(0, sanitizedBarcode.length - 1);
-      tracking = await Tracking.findOne({ trackingId: trimmed, userId: { $in: registeredUsers } });
+      const trimmed = escapeRegex(sanitizedBarcode.substring(0, sanitizedBarcode.length - 1));
+      tracking = await Tracking.findOne({ 
+        trackingId: { $regex: new RegExp(`^${trimmed}$`, 'i') }, 
+        userId: { $in: registeredUsers } 
+      });
     }
     if (!tracking) {
-      tracking = await Tracking.findOne({ trackingId: sanitizedBarcode + 'T', userId: { $in: registeredUsers } });
+      const appended = escapeRegex(sanitizedBarcode + 'T');
+      tracking = await Tracking.findOne({ 
+        trackingId: { $regex: new RegExp(`^${appended}$`, 'i') }, 
+        userId: { $in: registeredUsers } 
+      });
     }
 
     if (!tracking) {
