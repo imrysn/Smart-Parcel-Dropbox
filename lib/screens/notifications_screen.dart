@@ -494,10 +494,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return;
     }
 
-    // 5. Pickup / Task notifications -> Tasks page (Index 2)
+    // 5. Pickup / Ledger notifications -> Ledger page (Index 2)
     if (typeLower.contains('pickup') || titleLower.contains('pickup')) {
       if (mounted) {
-        Navigator.of(context).pop({'tabIndex': 2}); // Tasks tab
+        Navigator.of(context).pop({'tabIndex': 2}); // Ledger tab
       }
       return;
     }

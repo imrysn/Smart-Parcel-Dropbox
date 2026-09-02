@@ -270,42 +270,45 @@ class _FinancialScreenState extends State<FinancialScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final canPop = Navigator.of(context).canPop();
 
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          title: Text(
-            'Financial Ledger & Expenses',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-            ),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.qr_code_2_rounded, color: UserTheme.primaryOrange),
-              tooltip: 'GCash / Maya / Bank Payment Requests',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => const PaymentQrScreen()),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.download_rounded, color: UserTheme.primaryOrange),
-              tooltip: 'Export CSV Ledger',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Financial CSV ledger generated & ready for download!'), backgroundColor: UserTheme.statusSuccess),
-                );
-              },
-            ),
-          ],
-        ),
+        appBar: canPop
+            ? AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: Text(
+                  'Financial Ledger & Expenses',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                  ),
+                ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_2_rounded, color: UserTheme.primaryOrange),
+                    tooltip: 'GCash / Maya / Bank Payment Requests',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const PaymentQrScreen()),
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.download_rounded, color: UserTheme.primaryOrange),
+                    tooltip: 'Export CSV Ledger',
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Financial CSV ledger generated & ready for download!'), backgroundColor: UserTheme.statusSuccess),
+                      );
+                    },
+                  ),
+                ],
+              )
+            : null,
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _showAddTransactionDialog,
           backgroundColor: UserTheme.statusSuccess,

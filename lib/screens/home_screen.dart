@@ -30,6 +30,7 @@ import '../models/transaction_model.dart';
 import '../services/financial_service.dart';
 import 'add_pickup_screen.dart';
 import 'financial_screen.dart';
+import 'payment_qr_screen.dart';
 import '../services/tracking_service.dart';
 import '../widgets/user_ui.dart';
 import '../config/user_theme.dart';
@@ -186,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return 'Orders';
       case 2:
-        return 'Craft Task Pipeline';
+        return 'Business Financials';
       case 3:
         return 'Dropbox Management';
       case 4:
@@ -258,6 +259,26 @@ class _HomeScreenState extends State<HomeScreen> {
           title: _getAppBarTitle(),
           centerTitle: false,
           actions: [
+            if (_selectedIndex == 2) ...[
+              IconButton(
+                icon: const Icon(Icons.qr_code_2_rounded, color: UserTheme.primaryOrange),
+                tooltip: 'GCash / Maya / Bank Payment Requests',
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const PaymentQrScreen()),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.download_rounded, color: UserTheme.primaryOrange),
+                tooltip: 'Export CSV Ledger',
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Financial CSV ledger generated & ready for download!'), backgroundColor: UserTheme.statusSuccess),
+                  );
+                },
+              ),
+            ],
             if (_userId != null)
               NotificationBadge(
                 userId: _userId!,
@@ -299,7 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       IconData icon; IconData activeIcon; String label;
                       if (index == 0) { icon = Icons.grid_view_outlined; activeIcon = Icons.grid_view_rounded; label = 'Home'; }
                       else if (index == 1) { icon = Icons.inventory_2_outlined; activeIcon = Icons.inventory_2_rounded; label = 'Orders'; }
-                      else if (index == 2) { icon = Icons.checklist_rounded; activeIcon = Icons.task_alt_rounded; label = 'Tasks'; }
+                      else if (index == 2) { icon = Icons.account_balance_wallet_outlined; activeIcon = Icons.account_balance_wallet_rounded; label = 'Ledger'; }
                       else if (index == 3) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
                       else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
 
@@ -910,7 +931,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ] else ...[
                         Text(
-                          'Optical IR sensor active for incoming deliveries',
+                          'QR Scanner active for incoming deliveries.',
                           style: TextStyle(
                             fontSize: 12,
                             color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
