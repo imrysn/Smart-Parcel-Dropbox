@@ -11,7 +11,6 @@ import '../services/auth_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/biometric_service.dart';
 import 'hardware_registration_screen.dart';
-import '../presentation/components/telemetry_barometer_card.dart';
 import '../presentation/components/emergency_lockdown_card.dart';
 import '../presentation/components/qr_access_badge_card.dart';
 
@@ -291,7 +290,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
@@ -307,12 +305,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 const SizedBox(height: 12),
                 if (_hasDropbox) ...[
                   _buildConnectionBanner(),
-                  const SizedBox(height: 16),
-                  TelemetryBarometerCard(
-                    wifiRssi: _esp32Connected ? '-64 dBm' : 'Offline',
-                    batteryVoltage: '12.4V DC',
-                    internalTemp: '28°C',
-                  ),
                   const SizedBox(height: 16),
                   EmergencyLockdownCard(
                     isLockdownActive: _isLockdownActive,

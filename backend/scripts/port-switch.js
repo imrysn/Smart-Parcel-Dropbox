@@ -30,9 +30,9 @@ const LOCAL = {
 
 const RENDER = {
     label: 'PRODUCTION (Render.com)',
-    dartBase: "https://smart-parcel-dropbox.onrender.com/api",
-    dartSocket: "https://smart-parcel-dropbox.onrender.com",
-    inoHost: "smart-parcel-dropbox.onrender.com",
+    dartBase: "https://smart-parcel-dropbox-depth.onrender.com/api",
+    dartSocket: "https://smart-parcel-dropbox-depth.onrender.com",
+    inoHost: "smart-parcel-dropbox-depth.onrender.com",
     inoPort: "443",
     inoBegin: "socketIO.beginSSL(",
 };

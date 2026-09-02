@@ -262,6 +262,14 @@ class _HomeScreenState extends State<HomeScreen> {
               NotificationBadge(
                 userId: _userId!,
                 databaseService: _databaseService,
+                onSelectTab: (tabIndex, {subTabIndex}) {
+                  setState(() {
+                    _selectedIndex = tabIndex;
+                    if (subTabIndex != null) {
+                      _ordersTabIndex = subTabIndex;
+                    }
+                  });
+                },
               ),
             _buildConnectivityIndicator(),
             const SizedBox(width: 12),
@@ -910,44 +918,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Bottom Primary IoT Dual Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => setState(() => _selectedIndex = 3),
-                    icon: const Icon(Icons.lock_open_rounded, size: 18),
-                    label: const Text('UNLOCK DOOR'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: UserTheme.primaryOrange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 4,
-                      shadowColor: UserTheme.primaryOrange.withOpacity(0.4),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 0.5),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => setState(() => _selectedIndex = 3),
-                    icon: Icon(hasPackage ? Icons.qr_code_rounded : Icons.qr_code_scanner_rounded, size: 18),
-                    label: Text(hasPackage ? 'VIEW QR' : 'QR ACCESS'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: BorderSide(color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.2), width: 1.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 0.5),
-                    ),
                   ),
                 ),
               ],
@@ -1619,13 +1589,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Column(
       children: [
-        // ── Status Segment Control (Master Categories) ──
+        // ── Status Segment Control (Master Categories - 100% Screen Fit) ──
         Container(
-          margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          padding: const EdgeInsets.all(4),
+          margin: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(16),
+            color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
+            ),
           ),
           child: Row(
             children: [
@@ -1776,32 +1749,48 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
           decoration: BoxDecoration(
             color: isSelected ? UserTheme.primaryOrange : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: isSelected 
-              ? [BoxShadow(color: UserTheme.primaryOrange.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 3))]
-              : null,
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: UserTheme.primaryOrange.withOpacity(0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.max,
             children: [
               Icon(
-                icon, 
-                size: 14, 
-                color: isSelected ? Colors.white : (isDark ? Colors.white60 : Colors.black45)
+                icon,
+                size: 13,
+                color: isSelected
+                    ? Colors.white
+                    : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
               ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.5,
-                  color: isSelected ? Colors.white : (isDark ? Colors.white60 : Colors.black45),
+              const SizedBox(width: 3),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      letterSpacing: 0.2,
+                      color: isSelected
+                          ? Colors.white
+                          : (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary),
+                    ),
+                  ),
                 ),
-                maxLines: 1,
               ),
             ],
           ),

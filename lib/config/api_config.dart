@@ -1,12 +1,10 @@
 class ApiConfig {
   // LOCAL TESTING: PC must be connected to the Android hotspot
   // LOCAL TESTING: PC IP on your current network/hotspot
-  static const String baseUrl = 'https://smart-parcel-dropbox.onrender.com/api';
+  static const String baseUrl = 'https://smart-parcel-dropbox-depth.onrender.com/api';
   
   // Socket.IO connects to the root server URL (no /api)
-  // IMPORTANT: For local hotspot testing, use http:// and your PC's IP
-  // static const String socketUrl = 'http://localhost:5000';
-  static const String socketUrl = 'https://smart-parcel-dropbox.onrender.com';  // production
+  static const String socketUrl = 'https://smart-parcel-dropbox-depth.onrender.com';
   
   static const String users = '$baseUrl/users';
   static const String tracking = '$baseUrl/tracking';
