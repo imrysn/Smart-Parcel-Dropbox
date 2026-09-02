@@ -24,6 +24,30 @@ class NotificationModel {
     this.data,
   });
 
+  NotificationModel copyWith({
+    String? id,
+    String? userId,
+    String? type,
+    String? title,
+    String? message,
+    bool? isRead,
+    DateTime? timestamp,
+    String? trackingId,
+    Map<String, dynamic>? data,
+  }) {
+    return NotificationModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      type: type ?? this.type,
+      title: title ?? this.title,
+      message: message ?? this.message,
+      isRead: isRead ?? this.isRead,
+      timestamp: timestamp ?? this.timestamp,
+      trackingId: trackingId ?? this.trackingId,
+      data: data ?? this.data,
+    );
+  }
+
   /// Create NotificationModel from Map (JSON)
   factory NotificationModel.fromMap(Map<String, dynamic> data) {
     return NotificationModel(

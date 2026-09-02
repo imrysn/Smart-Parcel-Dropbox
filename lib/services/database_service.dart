@@ -284,6 +284,12 @@ class DatabaseService {
   Future<void> refreshNotifications(String userId) =>
       _notification.refreshNotifications(userId);
 
+  Future<void> fetchNotifications(String userId, {bool isRefresh = false}) =>
+      _notification.fetchNotifications(userId, isRefresh: isRefresh);
+
+  bool get hasMoreNotifications => _notification.hasMore;
+  bool get isFetchingMoreNotifications => _notification.isFetchingMore;
+
   Future<void> createNotification({
     required String userId,
     required String type,

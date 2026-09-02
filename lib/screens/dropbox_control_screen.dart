@@ -706,37 +706,89 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
     final ssidController = TextEditingController(text: ssid);
     final passController = TextEditingController();
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    bool isJoining = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
-        title: Text(isManual ? 'Manual Config' : '$ssid Setup'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isManual) TextField(controller: ssidController, decoration: const InputDecoration(labelText: 'SSID')),
-            const SizedBox(height: 12),
-            TextField(controller: passController, obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline_rounded))),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
-          SizedBox(
-            width: 120, height: 44,
-            child: UserUi.premiumButton(
-              label: 'JOIN',
-              fontSize: 14,
-              onTap: () {
-                if (ssidController.text.isNotEmpty) {
-                  getIt<DropboxService>().pushHardwareConfig(ssid: ssidController.text, password: passController.text);
-                  Navigator.pop(context); Navigator.pop(context);
-                }
-              },
+      barrierDismissible: !isJoining,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final targetSsid = ssidController.text.trim();
+          final isValid = targetSsid.isNotEmpty;
+
+          return AlertDialog(
+            backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
+            title: Text(isManual ? 'Manual Config' : '$ssid Setup'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isManual)
+                  TextField(
+                    controller: ssidController,
+                    onChanged: (_) => setDialogState(() {}),
+                    decoration: const InputDecoration(labelText: 'SSID'),
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: Icon(Icons.lock_outline_rounded),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            actions: [
+              TextButton(
+                onPressed: isJoining ? null : () => Navigator.pop(dialogContext),
+                child: const Text('CANCEL'),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 100, minHeight: 42),
+                child: UserUi.premiumButton(
+                  label: isJoining ? 'JOINING...' : 'JOIN',
+                  fontSize: 13,
+                  fullWidth: false,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  isLoading: isJoining,
+                  color: !isValid || isJoining ? Colors.grey : null,
+                  onTap: () async {
+                    if (targetSsid.isEmpty) return;
+                    setDialogState(() => isJoining = true);
+
+                    try {
+                      getIt<DropboxService>().pushHardwareConfig(
+                        ssid: targetSsid,
+                        password: passController.text,
+                      );
+                      
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Pushing Wi-Fi credentials for "$targetSsid"...'),
+                            backgroundColor: UserTheme.primaryOrange,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                      
+                      await Future.delayed(const Duration(milliseconds: 600));
+                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                      if (this.context.mounted) Navigator.pop(this.context);
+                    } catch (e) {
+                      if (dialogContext.mounted) {
+                        setDialogState(() => isJoining = false);
+                      }
+                    }
+                  },
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

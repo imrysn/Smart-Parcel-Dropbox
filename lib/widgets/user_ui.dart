@@ -75,7 +75,7 @@ class UserUi {
     );
   }
 
-  /// Premium Button with optional color support.
+  /// Premium Button with optional color, custom padding, and loading support.
   static Widget premiumButton({
     required String label,
     required VoidCallback onTap,
@@ -84,6 +84,8 @@ class UserUi {
     Color? color,
     Color textColor = Colors.white,
     double fontSize = 16,
+    EdgeInsetsGeometry? padding,
+    bool isLoading = false,
   }) {
     return Container(
       width: fullWidth ? double.infinity : null,
@@ -102,19 +104,29 @@ class UserUi {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {
+          onTap: isLoading ? null : () {
             HapticFeedback.mediumImpact();
             onTap();
           },
           borderRadius: BorderRadius.circular(UserTheme.radiusM),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+            padding: padding ?? const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (icon != null) ...[
-                  Icon(icon, color: Colors.white, size: 20),
+                if (isLoading) ...[
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(textColor),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ] else if (icon != null) ...[
+                  Icon(icon, color: textColor, size: 18),
                   const SizedBox(width: 8),
                 ],
                 Flexible(
