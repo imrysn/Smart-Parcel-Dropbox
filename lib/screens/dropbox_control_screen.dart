@@ -537,18 +537,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               UserUi.statusPill(label: isOpen ? 'OPEN' : 'LOCKED', color: isOpen ? UserTheme.statusSuccess : UserTheme.statusError),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Icon(Icons.sensors_rounded, size: 12, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
-              const SizedBox(width: 6),
-              Text(
-                reedOpen == null ? 'Sensor: Unknown' : (reedOpen ? 'Sensor: OPEN' : 'Sensor: CLOSED'),
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: reedOpen == true ? UserTheme.primaryOrange : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted)),
-              ),
-            ],
-          ),
           const SizedBox(height: 16),
           UserUi.premiumButton(
             label: isProcessing ? 'PROCESSING...' : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR'),

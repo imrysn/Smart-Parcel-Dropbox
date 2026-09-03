@@ -309,12 +309,15 @@ class _FinancialScreenState extends State<FinancialScreen> {
                 ],
               )
             : null,
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _showAddTransactionDialog,
-          backgroundColor: UserTheme.statusSuccess,
-          foregroundColor: Colors.white,
-          icon: const Icon(Icons.add_rounded),
-          label: const Text('Log Revenue / Expense'),
+        floatingActionButton: Padding(
+          padding: EdgeInsets.only(bottom: canPop ? 0 : 80),
+          child: FloatingActionButton.extended(
+            onPressed: _showAddTransactionDialog,
+            backgroundColor: UserTheme.statusSuccess,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Log Revenue / Expense'),
+          ),
         ),
         body: RefreshIndicator(
           onRefresh: _loadFinancialData,
