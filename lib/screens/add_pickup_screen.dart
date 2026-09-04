@@ -307,6 +307,11 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         await Clipboard.setData(ClipboardData(text: body));
       }
 
+      // Automatically trigger SMS dispatch immediately if rider phone is provided
+      if (riderPhone.isNotEmpty) {
+        await launchSms(riderPhone, pickupPassText);
+      }
+
       if (mounted) {
         final isDark = Theme.of(context).brightness == Brightness.dark;
         await showDialog(
@@ -408,20 +413,33 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     if (riderPhone.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.green.withOpacity(0.3)),
+                          color: Colors.green.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green.withOpacity(0.35)),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.sms_outlined, color: Colors.green, size: 16),
-                            const SizedBox(width: 6),
+                            const Icon(Icons.mark_email_read_rounded, color: Colors.green, size: 20),
+                            const SizedBox(width: 8),
                             Expanded(
-                              child: Text(
-                                'Rider: $riderPhone',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.green),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'SMS Automatically Dispatched',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green),
+                                  ),
+                                  Text(
+                                    'To Rider: $riderPhone',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? Colors.white70 : Colors.black87,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -440,14 +458,14 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
-                        icon: const Icon(Icons.sms_rounded, size: 18),
-                        label: const Text('SEND SMS TO RIDER', style: TextStyle(fontWeight: FontWeight.bold)),
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('RE-OPEN SMS TO RIDER', style: TextStyle(fontWeight: FontWeight.bold)),
                         onPressed: () async {
                           await launchSms(riderPhone, pickupPassText);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('SMS opened for $riderPhone! (Copied to clipboard)'),
+                                content: Text('SMS re-opened for $riderPhone! (Copied to clipboard)'),
                                 backgroundColor: UserTheme.statusSuccess,
                               ),
                             );
