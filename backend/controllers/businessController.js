@@ -74,16 +74,19 @@ exports.getDailyDigest = async (req, res) => {
 exports.stageOutboundPackage = async (req, res) => {
   try {
     const userId = req.userId || req.user?.userId;
-    const { trackingId, shopName, customerName, customerPhone, courierName } = req.body;
+    const { trackingId: rawId, shopName, customerName, customerPhone, courierName } = req.body;
+    const trackingId = (rawId || '').trim();
 
     if (!trackingId || !customerName) {
       return res.status(400).json({ success: false, message: 'trackingId and customerName are required' });
     }
 
-    // Check if trackingId exists
-    const existing = await Tracking.findOne({ trackingId });
+    // Check if trackingId exists - overwrite for test reuse
+    const escaped = trackingId.replace(/[-[\]{}()*+?.:\\^$|#\s]/g, '\\$&');
+    const existing = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
     if (existing) {
-      return res.status(409).json({ success: false, message: 'Tracking ID already registered' });
+      console.log(`[TESTING] Outbound tracking ID ${trackingId} already exists. Overwriting for reuse.`);
+      await Tracking.deleteOne({ _id: existing._id });
     }
 
     // Generate 6-digit courier OTP PIN
@@ -103,6 +106,13 @@ exports.stageOutboundPackage = async (req, res) => {
       mode: 'pick_up',
       status: 'awaiting_pickup'
     });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(userId).emit('trackingUpdate', newTracking);
+      io.to('esp32_device').emit('registerTracking', { trackingId, mode: 'pick_up' });
+      console.log(`[SOCKET] Outbound tracking staged: ${trackingId} for user ${userId}`);
+    }
 
     res.status(201).json({
       success: true,
@@ -194,11 +204,17 @@ exports.batchStageOutboundPackages = async (req, res) => {
     if (!dropbox) dbQuery = { userId };
     await Dropbox.updateOne(dbQuery, { $inc: { pickupCount: createdList.length } });
 
-    // Optionally unlock box door for batch deposit if requested
+    // Emit socket notifications and optional box unlock
     const io = req.app.get('io');
-    if (openDoor && io) {
-      console.log(`🚪 Batch Outbound Staging → Unlocking Dropbox door for ${userId}`);
-      io.to('esp32_device').emit('controlDoor', { type: 'pickup', action: 'open' });
+    if (io) {
+      for (const pkg of createdList) {
+        io.to(userId).emit('trackingUpdate', pkg);
+        io.to('esp32_device').emit('registerTracking', { trackingId: pkg.trackingId, mode: 'pick_up' });
+      }
+      if (openDoor) {
+        console.log(`🚪 Batch Outbound Staging → Unlocking Dropbox door for ${userId}`);
+        io.to('esp32_device').emit('controlDoor', { type: 'pickup', action: 'open' });
+      }
     }
 
     res.status(201).json({

@@ -294,13 +294,23 @@ class TrackingService {
         }),
       );
 
-      final body = jsonDecode(response.body);
-      if (response.statusCode == 201) {
+      Map<String, dynamic>? body;
+      try {
+        body = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {
+        // Non-JSON response (e.g. HTML 404/502 from server or proxy)
+      }
+
+      if (response.statusCode == 201 && body != null) {
         final userId = await _authService.currentUserId;
         if (userId != null) await refreshTracking(userId);
         return body['data'];
       } else {
-        throw body['message'] ?? 'Failed to stage outbound package';
+        final msg = body?['message'] ??
+            (response.statusCode == 404
+                ? 'Outbound staging route not found on server (404). Please ensure server is updated.'
+                : 'Server error (HTTP ${response.statusCode}). Please try again.');
+        throw msg;
       }
     } catch (e) {
       throw 'Outbound staging error: $e';
@@ -325,13 +335,23 @@ class TrackingService {
         }),
       );
 
-      final body = jsonDecode(response.body);
-      if (response.statusCode == 201) {
+      Map<String, dynamic>? body;
+      try {
+        body = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {
+        // Non-JSON response
+      }
+
+      if (response.statusCode == 201 && body != null) {
         final userId = await _authService.currentUserId;
         if (userId != null) await refreshTracking(userId);
         return body['data'];
       } else {
-        throw body['message'] ?? 'Failed to batch stage outbound packages';
+        final msg = body?['message'] ??
+            (response.statusCode == 404
+                ? 'Batch staging route not found on server (404). Please ensure server is updated.'
+                : 'Server error (HTTP ${response.statusCode}). Please try again.');
+        throw msg;
       }
     } catch (e) {
       throw 'Batch outbound staging error: $e';
