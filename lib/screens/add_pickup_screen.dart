@@ -284,8 +284,8 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
       );
 
       final pickupPassText = 
-          "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
-          "Tracking ID / Waybill: $trackingId\n"
+          "SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
+          "Tracking ID: $trackingId\n"
           "Courier: $courierName\n"
           "Customer: $customerName\n\n"
           "Pickup Instructions:\n"
@@ -313,289 +313,340 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         final isDark = Theme.of(context).brightness == Brightness.dark;
         await showDialog(
           context: context,
-          builder: (context) => Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            backgroundColor: isDark ? UserTheme.nightCard : Colors.white,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: Container(
-              width: 360,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Top Header Row with Status & Close button
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
+          builder: (dialogContext) {
+            String? feedbackMsg;
+            bool isCodeCopied = false;
+            bool isPassCopied = false;
+
+            return StatefulBuilder(
+              builder: (context, setModalState) {
+                void triggerFeedback(String msg, {bool passCopied = false, bool codeCopied = false}) {
+                  setModalState(() {
+                    feedbackMsg = msg;
+                    if (passCopied) isPassCopied = true;
+                    if (codeCopied) isCodeCopied = true;
+                  });
+                  Future.delayed(const Duration(milliseconds: 2500), () {
+                    if (dialogContext.mounted) {
+                      setModalState(() {
+                        if (feedbackMsg == msg) feedbackMsg = null;
+                        isPassCopied = false;
+                        isCodeCopied = false;
+                      });
+                    }
+                  });
+                }
+
+                return Dialog(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  backgroundColor: isDark ? UserTheme.nightCard : Colors.white,
+                  insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  child: Container(
+                    width: 360,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Top Header Row with Status & Close button
+                          Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: UserTheme.statusSuccess.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: const [
-                                    Icon(Icons.check_circle_rounded, size: 12, color: UserTheme.statusSuccess),
-                                    SizedBox(width: 4),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: UserTheme.statusSuccess.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: const [
+                                          Icon(Icons.check_circle_rounded, size: 12, color: UserTheme.statusSuccess),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'ORDER STAGED',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w800,
+                                              color: UserTheme.statusSuccess,
+                                              letterSpacing: 0.8,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
                                     Text(
-                                      'ORDER STAGED',
-                                      style: TextStyle(
-                                        fontSize: 10,
+                                      '$courierName Pickup Pass',
+                                      style: const TextStyle(
+                                        fontSize: 18,
                                         fontWeight: FontWeight.w800,
-                                        color: UserTheme.statusSuccess,
-                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Hold QR to optical reader to unlock',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '$courierName Pickup Pass',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Hold QR to optical reader to unlock',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                              InkWell(
+                                onTap: () => Navigator.of(dialogContext).pop(),
+                                borderRadius: BorderRadius.circular(20),
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? UserTheme.nightSurface : Colors.grey.shade100,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    size: 18,
+                                    color: isDark ? Colors.white70 : Colors.black54,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                        InkWell(
-                          onTap: () => Navigator.of(context).pop(),
-                          borderRadius: BorderRadius.circular(20),
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: isDark ? UserTheme.nightSurface : Colors.grey.shade100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.close_rounded,
-                              size: 18,
-                              color: isDark ? Colors.white70 : Colors.black54,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
 
-                    const SizedBox(height: 16),
+                          const SizedBox(height: 16),
 
-                    // HERO CENTERPIECE: Elevated High-Contrast QR Code Pass
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.grey.shade200, width: 1.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Main BIG QR Code
-                            QrImageView(
-                              data: trackingId,
-                              version: QrVersions.auto,
-                              size: 220,
-                              backgroundColor: Colors.white,
-                              padding: const EdgeInsets.all(6),
-                            ),
-                            const SizedBox(height: 10),
-
-                            // Tracking Code Pill with one-tap copy
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          // HERO CENTERPIECE: Elevated High-Contrast QR Code Pass
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.grey.shade200, width: 1.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.06),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
                               ),
-                              child: Row(
+                              child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.qr_code_2_rounded, size: 16, color: Color(0xFF64748B)),
-                                  const SizedBox(width: 6),
-                                  SelectableText(
-                                    trackingId,
-                                    style: const TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16,
-                                      color: Color(0xFF0F172A),
-                                      letterSpacing: 1.5,
-                                    ),
+                                  // Main BIG QR Code
+                                  QrImageView(
+                                    data: trackingId,
+                                    version: QrVersions.auto,
+                                    size: 220,
+                                    backgroundColor: Colors.white,
+                                    padding: const EdgeInsets.all(6),
                                   ),
-                                  const SizedBox(width: 8),
-                                  InkWell(
-                                    onTap: () {
-                                      Clipboard.setData(ClipboardData(text: trackingId));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Waybill / Tracking ID copied!'),
-                                          duration: Duration(seconds: 1),
+                                  const SizedBox(height: 10),
+
+                                  // Tracking Code Pill with one-tap copy
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF8FAFC),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.qr_code_2_rounded, size: 16, color: Color(0xFF64748B)),
+                                        const SizedBox(width: 6),
+                                        SelectableText(
+                                          trackingId,
+                                          style: const TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 16,
+                                            color: Color(0xFF0F172A),
+                                            letterSpacing: 1.5,
+                                          ),
                                         ),
-                                      );
-                                    },
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(2.0),
-                                      child: Icon(Icons.copy_rounded, size: 14, color: Color(0xFF64748B)),
+                                        const SizedBox(width: 8),
+                                        InkWell(
+                                          onTap: () {
+                                            Clipboard.setData(ClipboardData(text: trackingId));
+                                            triggerFeedback('Waybill ID copied to clipboard!', codeCopied: true);
+                                          },
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(2.0),
+                                            child: Icon(
+                                              isCodeCopied ? Icons.check_circle_rounded : Icons.copy_rounded,
+                                              size: 14,
+                                              color: isCodeCopied ? Colors.green : const Color(0xFF64748B),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
                               ),
                             ),
+                          ),
 
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // SMS Automated Dispatch Status
-                    if (riderPhone.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.09),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.green.withOpacity(0.25)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.mark_email_read_rounded, color: Colors.green, size: 15),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                'SMS auto-sent to Rider ($riderPhone)',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.green,
-                                ),
-                                overflow: TextOverflow.ellipsis,
+                          // SMS Automated Dispatch Status
+                          if (riderPhone.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.09),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green.withOpacity(0.25)),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 16),
-
-                    // Action Controls: Balanced & Modern
-                    Row(
-                      children: [
-                        if (riderPhone.isNotEmpty) ...[
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.green.shade700,
-                                side: BorderSide(color: Colors.green.shade600),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              icon: const Icon(Icons.refresh_rounded, size: 16),
-                              label: const Text(
-                                'Re-send SMS',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                              ),
-                              onPressed: () async {
-                                await launchSms(riderPhone, pickupPassText);
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('SMS re-opened for $riderPhone! (Copied to clipboard)'),
-                                      backgroundColor: UserTheme.statusSuccess,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.mark_email_read_rounded, color: Colors.green, size: 15),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      'SMS auto-sent to Rider ($riderPhone)',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.green,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                  );
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                        ],
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: UserTheme.primaryOrange,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            icon: const Icon(Icons.share_rounded, size: 16),
-                            label: const Text(
-                              'Share Pass',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                            ),
-                            onPressed: () async {
-                              await Clipboard.setData(ClipboardData(text: pickupPassText));
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Pickup Pass copied! Share via WhatsApp / Messenger.'),
-                                    backgroundColor: UserTheme.statusSuccess,
                                   ),
-                                );
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
+                                ],
+                              ),
+                            ),
+                          ],
 
-                    const SizedBox(height: 8),
+                          // In-Modal Immediate Feedback Toast (In front of dialog)
+                          if (feedbackMsg != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: UserTheme.statusSuccess,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.12),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 15),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      feedbackMsg!,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
 
-                    // Subtle Done button
-                    Center(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: Text(
-                          'DONE',
-                          style: TextStyle(
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                            letterSpacing: 0.8,
+                          const SizedBox(height: 16),
+
+                          // Action Controls: Balanced & Modern
+                          Row(
+                            children: [
+                              if (riderPhone.isNotEmpty) ...[
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.green.shade700,
+                                      side: BorderSide(color: Colors.green.shade600),
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                                    label: const Text(
+                                      'Re-send SMS',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                    ),
+                                    onPressed: () async {
+                                      await launchSms(riderPhone, pickupPassText);
+                                      triggerFeedback('SMS re-opened for $riderPhone!');
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                              ],
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isPassCopied ? Colors.green.shade700 : UserTheme.primaryOrange,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  icon: Icon(
+                                    isPassCopied ? Icons.check_rounded : Icons.share_rounded,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    isPassCopied ? 'Pass Copied!' : 'Share Pass',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                  onPressed: () async {
+                                    await Clipboard.setData(ClipboardData(text: pickupPassText));
+                                    triggerFeedback('Pickup Pass copied to clipboard!', passCopied: true);
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
+
+                          const SizedBox(height: 8),
+
+                          // Subtle Done button
+                          Center(
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () => Navigator.of(dialogContext).pop(),
+                              child: Text(
+                                'DONE',
+                                style: TextStyle(
+                                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+                  ),
+                );
+              },
+            );
+          },
         );
 
         if (mounted) Navigator.of(context).pop();
