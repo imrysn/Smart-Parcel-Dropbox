@@ -4,7 +4,6 @@ import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
 import '../models/tracking_model.dart';
 import 'tracking_details_screen.dart';
-import 'admin/rider_management_screen.dart';
 import 'owner_verify_screen.dart';
 
 /// Pickup Screen - Manages items waiting to be picked up by couriers
@@ -25,17 +24,13 @@ class PickupScreen extends StatefulWidget {
 }
 
 class _PickupScreenState extends State<PickupScreen> {
-  int _currentTab = 0; // 0 = Pickup, 1 = Riders
-
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        floatingActionButton: _currentTab == 0 ? Padding(
+        floatingActionButton: Padding(
           padding: const EdgeInsets.only(bottom: 80.0),
           child: FloatingActionButton(
             onPressed: () {
@@ -48,75 +43,9 @@ class _PickupScreenState extends State<PickupScreen> {
             heroTag: 'pickup_verify_fab',
             child: const Icon(Icons.qr_code_scanner),
           ),
-        ) : null,
-        body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-              child: _buildToggleButton(),
-            ),
-            Expanded(
-              child: IndexedStack(
-                index: _currentTab,
-                children: [
-                  _buildPickupList(),
-                  const RiderManagementScreen(isEmbedded: true),
-                ],
-              ),
-            ),
-          ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildToggleButton() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return UserUi.glassCard(
-      context,
-      blur: 8,
-      borderRadius: 16,
-      padding: const EdgeInsets.all(4),
-      color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
-      child: Row(
-        children: [
-          _buildTabItem(0, 'PICKUP QUEUE', Icons.hourglass_empty_rounded),
-          _buildTabItem(1, 'MANAGE RIDERS', Icons.motorcycle_rounded),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTabItem(int index, String label, IconData icon) {
-    final isSelected = _currentTab == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _currentTab = index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            gradient: isSelected ? UserTheme.sunsetGradient : null,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: isSelected ? [BoxShadow(color: UserTheme.primaryOrange.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))] : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 16, color: isSelected ? Colors.white : UserTheme.primaryOrange.withOpacity(0.5)),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 11,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
+        body: SafeArea(
+          child: _buildPickupList(),
         ),
       ),
     );
@@ -304,17 +233,17 @@ class _PickupScreenState extends State<PickupScreen> {
   void _confirmDelete(TrackingModel tracking) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Delete Pickup?'),
         content: Text('Are you sure you want to remove ${tracking.shopName} (${tracking.trackingId}) from your list?\n\nThis action cannot be undone.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('CANCEL'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
 
               // 1. OPTIMISTIC UI FEEDBACK
               if (mounted) {
