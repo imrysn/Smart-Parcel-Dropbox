@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../../config/user_theme.dart';
 
 /// Single-responsibility component for QR Access Badge Card.
@@ -69,12 +70,18 @@ class QrAccessBadgeCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.qr_code_2_rounded, size: 64, color: Colors.black),
+                child: QrImageView(
+                  data: qrToken,
+                  version: QrVersions.auto,
+                  size: 68,
+                  backgroundColor: Colors.white,
+                  padding: const EdgeInsets.all(2),
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(

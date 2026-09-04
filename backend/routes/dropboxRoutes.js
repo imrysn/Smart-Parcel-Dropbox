@@ -27,7 +27,8 @@ router.post('/claim', async (req, res) => {
       const formattedToken = token.trim().toUpperCase();
       const pending = pendingRegistrations.get(formattedToken);
       if (pending) {
-        if (pending.expiresAtMs < Date.now()) {
+        const expiry = pending.expiresAtMs || pending.expiresAt;
+        if (expiry && expiry < Date.now()) {
           pendingRegistrations.delete(formattedToken);
           return res.status(400).json({ message: 'Pairing token has expired. Please refresh on physical box LCD.' });
         }

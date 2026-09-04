@@ -23,13 +23,20 @@ class ScanLogModel {
     this.status,
   });
 
+  static DateTime _safeParseTimestamp(dynamic val) {
+    if (val == null) return DateTime.now();
+    if (val is DateTime) return val;
+    if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+    return DateTime.tryParse(val.toString()) ?? DateTime.now();
+  }
+
   /// Create ScanLogModel from Map (JSON)
   factory ScanLogModel.fromMap(Map<String, dynamic> data) {
     return ScanLogModel(
       id: data['id'] ?? data['_id'] ?? '',
       scannedCode: data['scannedCode'] ?? '',
       accessGranted: data['accessGranted'] ?? false,
-      timestamp: data['timestamp'] != null ? DateTime.parse(data['timestamp'].toString()) : DateTime.now(),
+      timestamp: _safeParseTimestamp(data['timestamp']),
       trackingId: data['trackingId'],
       userId: data['userId'],
       reason: data['reason'],

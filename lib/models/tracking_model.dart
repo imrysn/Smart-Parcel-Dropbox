@@ -38,6 +38,13 @@ class TrackingModel {
     this.courierOtp,
   });
 
+  static DateTime? _safeParseDate(dynamic val) {
+    if (val == null) return null;
+    if (val is DateTime) return val;
+    if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+    return DateTime.tryParse(val.toString());
+  }
+
   /// Create TrackingModel from Map (JSON)
   factory TrackingModel.fromMap(Map<String, dynamic> data) {
     return TrackingModel(
@@ -46,11 +53,11 @@ class TrackingModel {
       shopName: data['shopName'] ?? '',
       status: data['status'] ?? 'pending',
       mode: data['mode'] ?? 'drop_off',
-      registeredAt: data['createdAt'] != null ? DateTime.parse(data['createdAt']) : (data['registeredAt'] != null ? DateTime.parse(data['registeredAt']) : null),
+      registeredAt: _safeParseDate(data['createdAt']) ?? _safeParseDate(data['registeredAt']),
       expectedDeliveryDate: data['expectedDeliveryDate'],
-      deliveredAt: data['deliveredAt'] != null ? DateTime.parse(data['deliveredAt']) : null,
-      retrievedAt: data['retrievedAt'] != null ? DateTime.parse(data['retrievedAt']) : null,
-      doneAt:      data['doneAt']      != null ? DateTime.parse(data['doneAt'])      : null,
+      deliveredAt: _safeParseDate(data['deliveredAt']),
+      retrievedAt: _safeParseDate(data['retrievedAt']),
+      doneAt:      _safeParseDate(data['doneAt']),
       direction:   data['direction']   ?? 'INBOUND_SUPPLIER',
       customerName: data['customerName'],
       customerPhone: data['customerPhone'],

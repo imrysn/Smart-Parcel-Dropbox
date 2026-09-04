@@ -54,6 +54,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   bool _isLockdownActive = false;
   String _currentOtp = '849204';
   int _otpSecondsLeft = 840; // 14 mins
+  late String _ownerQrToken;
 
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
@@ -61,6 +62,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   @override
   void initState() {
     super.initState();
+    _ownerQrToken = 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}';
     _ws = getIt<WebSocketService>();
     _pulseController = AnimationController(duration: const Duration(seconds: 2), vsync: this)..repeat(reverse: true);
     _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
@@ -155,6 +157,19 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       return;
     }
 
+    final isOpen = _doorOpen[doorType]!;
+    if (_isLockdownActive && !isOpen) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Cannot unlock door while Emergency Lockdown is active. Disable lockdown first.'),
+          backgroundColor: UserTheme.statusError,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
     if (isDesktop) {
@@ -240,6 +255,17 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       return;
     }
     final isOpen = _doorOpen[doorType]!;
+    if (_isLockdownActive && !isOpen) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Cannot unlock door while Emergency Lockdown is active. Disable lockdown first.'),
+          backgroundColor: UserTheme.statusError,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() { _doorProcessing[doorType] = true; _doorOpen[doorType] = !isOpen; });
     _ws.emitControlDoor(doorType, isOpen ? 'close' : 'open');
     Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _doorProcessing[doorType] = false); });
@@ -310,9 +336,19 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                     isLockdownActive: _isLockdownActive,
                     onToggle: (val) {
                       setState(() => _isLockdownActive = val);
+                      if (val) {
+                        // Immediately close and lock any doors that were open
+                        for (final doorType in [kDoorTop, kDoorPickup, kDoorReceived]) {
+                          if (_doorOpen[doorType] == true) {
+                            _ws.emitControlDoor(doorType, 'close');
+                            _doorOpen[doorType] = false;
+                          }
+                        }
+                      }
+                      ScaffoldMessenger.of(context).clearSnackBars();
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text(val ? '⚠️ Emergency Lockdown Active' : '✅ System Security Nominal'),
+                          content: Text(val ? '⚠️ Emergency Lockdown Active: All doors secured' : '✅ System Security Nominal'),
                           backgroundColor: val ? UserTheme.statusError : UserTheme.statusSuccess,
                           behavior: SnackBarBehavior.floating,
                         ),
@@ -323,9 +359,11 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   UserUi.sectionTitle(context, 'Hardware QR Access Badge', subtitle: 'Hold code in front of MH-ET barcode scanner'),
                   const SizedBox(height: 12),
                   QrAccessBadgeCard(
-                    qrToken: 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}',
+                    qrToken: _ownerQrToken,
                     onRefresh: () {
-                      setState(() {});
+                      setState(() {
+                        _ownerQrToken = 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}';
+                      });
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Dynamic QR Access Token Refreshed'), behavior: SnackBarBehavior.floating),
                       );
@@ -551,10 +589,18 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
           ),
           const SizedBox(height: 16),
           UserUi.premiumButton(
-            label: isProcessing ? 'PROCESSING...' : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR'),
+            label: isProcessing
+                ? 'PROCESSING...'
+                : (_isLockdownActive && !isOpen
+                    ? 'LOCKED (LOCKDOWN)'
+                    : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR')),
             onTap: isProcessing ? () {} : () => _requestDoorAuth(doorType),
             icon: isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
-            color: !_esp32Connected ? Colors.grey : (isOpen ? UserTheme.statusError : accentColor),
+            color: !_esp32Connected
+                ? Colors.grey
+                : (_isLockdownActive && !isOpen
+                    ? Colors.grey
+                    : (isOpen ? UserTheme.statusError : accentColor)),
           ),
         ],
       ),

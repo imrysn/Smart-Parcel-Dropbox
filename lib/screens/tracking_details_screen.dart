@@ -270,7 +270,8 @@ class TrackingDetailsScreen extends StatelessWidget {
 
   Widget _buildTimelineItem(BuildContext context, Map<String, dynamic> log, bool isLast) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final time = DateTime.parse(log['timestamp'].toString());
+    final rawTs = log['timestamp']?.toString() ?? '';
+    final time = DateTime.tryParse(rawTs) ?? DateTime.now();
 
     return IntrinsicHeight(
       child: Row(

@@ -222,11 +222,11 @@ void setup() {
   Serial.print("[NVS] Registered: "); Serial.println(deviceRegistered ? "YES" : "NO");
   Serial.print("[NVS] SSID: "); Serial.println(strlen(nvsWifiSSID) ? nvsWifiSSID : "(none)");
 
-  if (strlen(nvsWifiSSID) > 0) {
+  if (strlen(nvsWifiSSID) > 0 || strlen(WIFI_SSID) > 0) {
     setupWiFi();
     setupSocketIO();
   } else {
-    Serial.println("[BOOT] No saved SSID. WiFi will be set up during registration.");
+    Serial.println("[BOOT] No saved SSID or config.h WiFi credentials. Connect via app registration.");
   }
 
   if (!deviceRegistered) {
@@ -482,15 +482,22 @@ void loop() {
 
       // Registration confirmed by backend
       if (deviceJustRegistered) {
+        deviceJustRegistered = false; // Reset one-time flag immediately
         nvsPrefs.begin("smartbox", false);
         nvsPrefs.putBool("registered", true);
         nvsPrefs.end();
         deviceRegistered = true;
-        displayMessage("REGISTERED!", "Connect WiFi in app");
+        displayMessage("REGISTERED!", "Device Paired");
         triggerCyberChirp(1);
-        delay(2000);
-        // Stay here until app pushes WiFi config
-        // When applyHardwareConfig is received, firmware reboots
+        delay(1500);
+
+        // If WiFi is already online and connected, transition to operational home screen
+        if (WiFi.status() == WL_CONNECTED && socketIO.isConnected()) {
+          showHomeScreen();
+          changeState(IDLE);
+        } else {
+          displayMessage("REGISTERED!", "Connect WiFi in app");
+        }
       }
 
       // Retry: BTN1 re-requests token

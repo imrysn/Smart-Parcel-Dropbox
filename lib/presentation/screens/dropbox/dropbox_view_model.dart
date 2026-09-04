@@ -47,10 +47,14 @@ class DropboxViewModel extends ChangeNotifier {
   }
 
   void unlockDoor(String doorType) {
+    if (isLockdownActive) {
+      return;
+    }
+
     doorProcessing[doorType] = true;
     notifyListeners();
 
-    _ws.controlDoor(doorType);
+    _ws.emitControlDoor(doorType, 'open');
 
     // Auto reset processing state after 3 seconds
     Timer(const Duration(seconds: 3), () {
