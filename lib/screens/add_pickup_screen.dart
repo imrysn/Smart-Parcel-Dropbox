@@ -283,15 +283,19 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
+      final qrPassUrl = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$trackingId";
+
       final pickupPassText = 
-          "SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
+          "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
           "Tracking ID: $trackingId\n"
           "Courier: $courierName\n"
           "Customer: $customerName\n\n"
+          "👉 Open your QR Pass and present to Dropbox:\n"
+          "$qrPassUrl\n\n"
           "Pickup Instructions:\n"
-          "1. Arrive at the Smart Parcel Drop Box.\n"
-          "2. Press the physical 'PICKUP' button.\n"
-          "3. Scan this Tracking ID / Waybill QR code at the optical scanner.\n"
+          "1. Tap the link above to display your QR code.\n"
+          "2. Press the physical 'PICKUP' button on the Dropbox.\n"
+          "3. Hold your phone screen to the optical scanner.\n"
           "4. The pickup door will unlock automatically!";
 
       Future<void> launchSms(String phone, String body) async {

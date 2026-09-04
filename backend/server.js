@@ -181,6 +181,62 @@ app.get('/', (req, res) => {
   });
 });
 
+// Public Digital Courier Pickup Pass Mobile Web View
+app.get('/pass/:trackingId', async (req, res) => {
+  try {
+    const { trackingId } = req.params;
+    const tracking = await Tracking.findOne({ trackingId });
+    const courier = tracking?.courierName || 'Courier';
+    const customer = tracking?.customerName || 'Customer';
+    const shop = tracking?.shopName || 'Smart Parcel Dropbox';
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(trackingId)}`;
+
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pickup Pass - ${trackingId}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    body { background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    .card { background: #1e293b; border-radius: 24px; padding: 28px 24px; width: 100%; max-width: 380px; text-align: center; border: 1px solid #334155; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
+    .badge { display: inline-block; background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; letter-spacing: 1px; margin-bottom: 12px; }
+    h1 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+    .subtitle { color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
+    .qr-box { background: #ffffff; padding: 18px; border-radius: 18px; display: inline-block; margin-bottom: 14px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2); }
+    .qr-box img { display: block; width: 220px; height: 220px; }
+    .tracking-code { font-family: monospace; font-size: 17px; font-weight: 700; color: #cbd5e1; letter-spacing: 2px; margin-bottom: 18px; }
+    .steps { background: rgba(15, 23, 42, 0.6); border-radius: 14px; padding: 14px; text-align: left; font-size: 12px; color: #94a3b8; line-height: 1.6; border: 1px solid #334155; }
+    .steps strong { color: #f8fafc; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">COURIER PICKUP PASS</div>
+    <h1>${courier} Pickup</h1>
+    <div class="subtitle">Order for ${customer} • ${shop}</div>
+    <div class="qr-box">
+      <img src="${qrUrl}" alt="QR Code">
+    </div>
+    <div class="tracking-code">${trackingId}</div>
+    <div class="steps">
+      <strong>How to Unlock:</strong><br>
+      1. Arrive at the Smart Parcel Drop Box.<br>
+      2. Press the physical <strong>PICKUP</strong> button.<br>
+      3. Hold this QR code to the optical scanner.<br>
+      4. Door unlocks automatically!
+    </div>
+  </div>
+</body>
+</html>
+    `);
+  } catch (err) {
+    res.status(500).send('Error loading pickup pass');
+  }
+});
+
 // Socket.IO middleware for authentication
 const { verifyToken } = require('./utils/auth');
 
