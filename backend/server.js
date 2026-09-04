@@ -34,8 +34,8 @@ const pendingOwnerAlerts = new Map();
 // Device Registration — one-time tokens { token → { deviceId, expiresAtMs } }
 const pendingRegistrations = new Map();
 
-// Automated Admin Tracking — always enabled
-const autoAcceptMode = true; // Any scanned barcode is auto-registered
+// Automated Admin Tracking — disabled by default so random barcodes/QRs are rejected
+let autoAcceptMode = false;
 
 function escapeRegex(text) {
   return (text || '').replace(/[-[\]{}()*+?.:\\^$|#\s]/g, '\\$&');
@@ -277,18 +277,36 @@ io.on('connection', (socket) => {
 
       // Case 1: Tracking ID doesn't exist at all
       if (!tracking) {
-        console.log(`  ✨ AUTO-REGISTER: Creating new tracking for ${trackingId}`);
-        // Find the first admin to assign this to, or use a system placeholder
-        const adminUser = await User.findOne({ role: 'admin' });
-        const userId = adminUser ? adminUser._id.toString() : 'hardware_auto_accepted';
-        
-        tracking = await Tracking.create({
-          trackingId,
-          userId,
-          shopName: 'Auto-Accepted Parcel',
-          status: 'pending',
-          mode: mode || 'drop_off'
-        });
+        if (autoAcceptMode) {
+          console.log(`  ✨ AUTO-REGISTER (TEST MODE): Creating new tracking for ${trackingId}`);
+          const adminUser = await User.findOne({ role: 'admin' });
+          const userId = adminUser ? adminUser._id.toString() : 'hardware_auto_accepted';
+          
+          tracking = await Tracking.create({
+            trackingId,
+            userId,
+            shopName: 'Auto-Accepted Parcel',
+            status: 'pending',
+            mode: mode || 'drop_off'
+          });
+        } else {
+          console.log(`  ❌ UNREGISTERED BARCODE REJECTED: ${trackingId}`);
+          await ScanLog.create({
+            scannedId: trackingId,
+            accessGranted: false,
+            mode: mode,
+            status: 'rejected',
+            reason: 'not_registered'
+          });
+          socket.emit('scanResult', {
+            valid: false,
+            trackingId,
+            mode,
+            userId: null,
+            reason: 'not_registered'
+          });
+          return;
+        }
       }
 
       // Case 2: Already completed — parcel was already delivered/done/retrieved
@@ -325,10 +343,12 @@ io.on('connection', (socket) => {
       // E.g., a pick_up scan on a parcel that is still 'pending',
       // or a drop_off scan on a parcel that is already 'awaiting_pickup'.
       const isPickUpMode = (mode === 'pick_up' || mode === 'pickup');
-      const expectedStatus = isPickUpMode ? 'awaiting_pickup' : 'pending';
+      const allowedStatuses = isPickUpMode
+        ? ['ready_for_pickup', 'awaiting_pickup', 'pending']
+        : ['pending', 'in_transit'];
 
-      if (tracking.status !== expectedStatus) {
-        console.log(`  ⚠️  WRONG STATUS (${tracking.status}): ${trackingId} expected ${expectedStatus} for mode ${mode}`);
+      if (!allowedStatuses.includes(tracking.status)) {
+        console.log(`  ⚠️  WRONG STATUS (${tracking.status}): ${trackingId} expected one of [${allowedStatuses.join(', ')}] for mode ${mode}`);
         await ScanLog.create({
           scannedId: trackingId,
           accessGranted: false,
@@ -845,9 +865,10 @@ io.on('connection', (socket) => {
   });
 
   // ── Automated Admin Tracking Events ─────────────────────────────────────
-  // Always-on automation: keep compatibility for existing clients.
   socket.on('toggleAutoAccept', () => {
-    socket.emit('autoAcceptStatus', { enabled: autoAcceptMode });
+    autoAcceptMode = !autoAcceptMode;
+    console.log(`🤖 autoAcceptMode toggled: ${autoAcceptMode}`);
+    io.emit('autoAcceptStatus', { enabled: autoAcceptMode });
   });
   socket.on('getAutoAcceptStatus', () => {
     socket.emit('autoAcceptStatus', { enabled: autoAcceptMode });
