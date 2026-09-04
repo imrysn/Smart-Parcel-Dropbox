@@ -283,7 +283,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
-      final qrPassUrl = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$trackingId";
+      final qrPassUrl = "https://quickchart.io/qr?text=$trackingId";
 
       final pickupPassText = 
           "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
