@@ -75,6 +75,15 @@ async function findTrackingFlexibly(inputId) {
     return tracking;
   }
 
+  // 4. Try matching Courier Pickup OTP PIN (e.g. 6-digit PIN scanned or entered)
+  if (/^\d{6}$/.test(clean)) {
+    tracking = await Tracking.findOne({ courierOtp: clean, status: { $in: ['awaiting_pickup', 'ready_for_pickup', 'pending'] } });
+    if (tracking) {
+      console.log(`✅ [FLEX-MATCH] Match found by Courier Pickup OTP: ${clean}`);
+      return tracking;
+    }
+  }
+
   return null;
 }
 
