@@ -74,7 +74,7 @@ exports.getDailyDigest = async (req, res) => {
 exports.stageOutboundPackage = async (req, res) => {
   try {
     const userId = req.userId || req.user?.userId;
-    const { trackingId: rawId, shopName, customerName, customerPhone, courierName } = req.body;
+    const { trackingId: rawId, shopName, customerName, customerPhone, courierName, riderName, riderPhone } = req.body;
     const trackingId = (rawId || '').trim();
 
     if (!trackingId || !customerName) {
@@ -101,6 +101,8 @@ exports.stageOutboundPackage = async (req, res) => {
       customerName,
       customerPhone: customerPhone || '',
       courierName: courierName || 'General Courier',
+      riderName: riderName || '',
+      riderPhone: riderPhone || '',
       courierOtp,
       courierOtpExpiresAt,
       mode: 'pick_up',
@@ -112,6 +114,20 @@ exports.stageOutboundPackage = async (req, res) => {
       io.to(userId).emit('trackingUpdate', newTracking);
       io.to('esp32_device').emit('registerTracking', { trackingId, mode: 'pick_up' });
       console.log(`[SOCKET] Outbound tracking staged: ${trackingId} for user ${userId}`);
+    }
+
+    // Audit SMS dispatch
+    if (riderPhone) {
+      console.log(`📱 [SMS DISPATCH] Automated SMS notification logged for Rider: ${riderPhone} (${riderName || courierName || 'Courier'}) for Tracking: ${trackingId}`);
+      try {
+        const Notification = require('../models/Notification');
+        await Notification.create({
+          userId,
+          title: 'Rider Pickup Pass Dispatched',
+          message: `Pickup pass prepared for Rider ${riderPhone} (${riderName || courierName || 'Courier'}) for Tracking #${trackingId}.`,
+          type: 'system_alert'
+        });
+      } catch (_) {}
     }
 
     res.status(201).json({

@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, Process;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
@@ -29,6 +30,8 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
   final _shopNameController = TextEditingController(text: 'My Business Store');
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
+  final _riderPhoneController = TextEditingController();
+  final _riderNameController = TextEditingController();
   String _selectedCourierOutbound = 'J&T Express';
 
   // Batch Outbound Staging Controllers
@@ -70,6 +73,8 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     _shopNameController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
+    _riderPhoneController.dispose();
+    _riderNameController.dispose();
     _batchTrackingTextController.dispose();
     _batchShopNameController.dispose();
     _personalTrackingIdController.dispose();
@@ -261,68 +266,200 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     setState(() => _isLoading = true);
 
     try {
+      final trackingId = _outboundTrackingController.text.trim();
+      final customerName = _customerNameController.text.trim();
+      final customerPhone = _customerPhoneController.text.trim();
+      final courierName = _selectedCourierOutbound;
+      final riderPhone = _riderPhoneController.text.trim();
+      final riderName = _riderNameController.text.trim();
+
       final res = await _trackingService.stageOutboundPackage(
-        trackingId: _outboundTrackingController.text.trim(),
+        trackingId: trackingId,
         shopName: _shopNameController.text.trim(),
-        customerName: _customerNameController.text.trim(),
-        customerPhone: _customerPhoneController.text.trim(),
-        courierName: _selectedCourierOutbound,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        courierName: courierName,
+        riderName: riderName.isNotEmpty ? riderName : null,
+        riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
-      final courierOtp = res['courierOtp'] ?? 'N/A';
+      final courierOtp = res['courierOtp']?.toString() ?? '';
+
+      final pickupPassText = 
+          "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
+          "Tracking ID / Waybill: $trackingId\n"
+          "Courier: $courierName\n"
+          "Customer: $customerName\n"
+          "${courierOtp.isNotEmpty ? 'Ref OTP: $courierOtp\n' : ''}"
+          "\nPickup Instructions:\n"
+          "1. Arrive at the Smart Parcel Drop Box.\n"
+          "2. Press the physical 'PICKUP' button.\n"
+          "3. Scan this Tracking ID / Waybill or present the QR code to the scanner.\n"
+          "4. The pickup door will unlock automatically!";
+
+      Future<void> launchSms(String phone, String body) async {
+        final encoded = Uri.encodeComponent(body);
+        if (!kIsWeb && Platform.isWindows) {
+          try {
+            await Process.run('cmd', ['/c', 'start', 'sms:$phone?body=$encoded']);
+          } catch (_) {}
+        }
+        await Clipboard.setData(ClipboardData(text: body));
+      }
 
       if (mounted) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         await showDialog(
           context: context,
           builder: (context) => AlertDialog(
             title: Row(
               children: const [
-                Icon(Icons.check_circle_outline, color: UserTheme.statusSuccess),
+                Icon(Icons.check_circle_rounded, color: UserTheme.statusSuccess, size: 24),
                 SizedBox(width: 8),
                 Text('Order Staged!'),
               ],
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Customer package staged successfully in your dropbox.'),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: UserTheme.primaryOrange.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    'Package staged in Dropbox for $courierName pickup.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                    ),
                   ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'COURIER PICKUP OTP',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: UserTheme.primaryOrange),
-                      ),
-                      const SizedBox(height: 4),
-                      SelectableText(
-                        courierOtp,
-                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
-                      ),
-                    ],
+                  const SizedBox(height: 14),
+
+                  // High-contrast Scannable QR Code for physical scanner
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        QrImageView(
+                          data: trackingId,
+                          version: QrVersions.auto,
+                          size: 150,
+                          backgroundColor: Colors.white,
+                        ),
+                        const SizedBox(height: 6),
+                        SelectableText(
+                          trackingId,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Colors.black87,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 10),
+                  Text(
+                    'Hold this QR code or parcel waybill barcode to the Drop Box scanner.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                    ),
+                  ),
+
+                  if (courierOtp.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: UserTheme.primaryOrange.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Ref OTP: $courierOtp',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: UserTheme.primaryOrange,
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  if (riderPhone.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.green.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle_outline, color: Colors.green, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Rider: $riderPhone',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.green),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
             actions: [
-              TextButton(
+              if (riderPhone.isNotEmpty)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  icon: const Icon(Icons.sms_rounded, size: 16),
+                  label: const Text('SEND SMS TO RIDER'),
+                  onPressed: () async {
+                    await launchSms(riderPhone, pickupPassText);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('SMS opened for $riderPhone! (Copied to clipboard)'),
+                          backgroundColor: UserTheme.statusSuccess,
+                        ),
+                      );
+                    }
+                  },
+                ),
+              TextButton.icon(
+                icon: const Icon(Icons.share_rounded, size: 16),
+                label: const Text('SHARE PASS'),
                 onPressed: () async {
-                  final text = "Hi ${_customerNameController.text.trim()}! Your order #${_outboundTrackingController.text.trim()} has been securely staged in our Smart Parcel Dropbox for pickup via $_selectedCourierOutbound. Thank you!";
-                  await Clipboard.setData(ClipboardData(text: text));
+                  await Clipboard.setData(ClipboardData(text: pickupPassText));
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Customer proof text copied to clipboard!'), backgroundColor: UserTheme.statusSuccess),
+                      const SnackBar(
+                        content: Text('Courier Pickup Pass copied to clipboard! Share via WhatsApp / Messenger.'),
+                        backgroundColor: UserTheme.statusSuccess,
+                      ),
                     );
-                    Navigator.of(context).pop();
                   }
                 },
-                child: const Text('COPY PROOF MESSAGE'),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(),
@@ -529,7 +666,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'Stage an individual customer package. Generates a Courier OTP & customer proof message.',
+                              'Stage an individual customer package. Generates a digital Courier Pickup QR Pass & automated SMS dispatch.',
                               style: TextStyle(
                                 color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
                                 fontSize: 13,
@@ -621,11 +758,21 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                         );
                       }).toList(),
                     ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _riderPhoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Courier / Rider Phone (For SMS Dispatch)',
+                        hintText: 'e.g. 09123456789 (Optional)',
+                        prefixIcon: Icon(Icons.sms_outlined, color: UserTheme.primaryOrange),
+                      ),
+                    ),
                     const SizedBox(height: 28),
                     UserUi.premiumButton(
-                      label: 'STAGE OUTGOING ORDER & GET OTP',
+                      label: 'STAGE ORDER & GET PICKUP PASS',
                       onTap: _isLoading ? () {} : _stageOutboundCustomerOrder,
-                      icon: Icons.check_circle_outline,
+                      icon: Icons.qr_code_rounded,
                     ),
                   ],
                 ),

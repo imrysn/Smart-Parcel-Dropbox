@@ -279,6 +279,8 @@ class TrackingService {
     required String customerName,
     String? customerPhone,
     String? courierName,
+    String? riderName,
+    String? riderPhone,
   }) async {
     try {
       final headers = await _authService.getAuthHeaders();
@@ -291,6 +293,8 @@ class TrackingService {
           'customerName': customerName,
           'customerPhone': customerPhone,
           'courierName': courierName,
+          'riderName': riderName,
+          'riderPhone': riderPhone,
         }),
       );
 
