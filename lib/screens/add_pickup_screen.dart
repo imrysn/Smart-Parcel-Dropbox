@@ -315,23 +315,20 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
           context: context,
           builder: (dialogContext) {
             String? feedbackMsg;
-            bool isCodeCopied = false;
             bool isPassCopied = false;
 
             return StatefulBuilder(
               builder: (context, setModalState) {
-                void triggerFeedback(String msg, {bool passCopied = false, bool codeCopied = false}) {
+                void triggerFeedback(String msg, {bool passCopied = false}) {
                   setModalState(() {
                     feedbackMsg = msg;
                     if (passCopied) isPassCopied = true;
-                    if (codeCopied) isCodeCopied = true;
                   });
                   Future.delayed(const Duration(milliseconds: 2500), () {
                     if (dialogContext.mounted) {
                       setModalState(() {
                         if (feedbackMsg == msg) feedbackMsg = null;
                         isPassCopied = false;
-                        isCodeCopied = false;
                       });
                     }
                   });
@@ -447,48 +444,17 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                                     backgroundColor: Colors.white,
                                     padding: const EdgeInsets.all(6),
                                   ),
-                                  const SizedBox(height: 10),
+                                  const SizedBox(height: 8),
 
-                                  // Tracking Code Pill with one-tap copy
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF8FAFC),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.qr_code_2_rounded, size: 16, color: Color(0xFF64748B)),
-                                        const SizedBox(width: 6),
-                                        SelectableText(
-                                          trackingId,
-                                          style: const TextStyle(
-                                            fontFamily: 'monospace',
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 16,
-                                            color: Color(0xFF0F172A),
-                                            letterSpacing: 1.5,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        InkWell(
-                                          onTap: () {
-                                            Clipboard.setData(ClipboardData(text: trackingId));
-                                            triggerFeedback('Waybill ID copied to clipboard!', codeCopied: true);
-                                          },
-                                          borderRadius: BorderRadius.circular(4),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(2.0),
-                                            child: Icon(
-                                              isCodeCopied ? Icons.check_circle_rounded : Icons.copy_rounded,
-                                              size: 14,
-                                              color: isCodeCopied ? Colors.green : const Color(0xFF64748B),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                                  // Clean, non-bold Tracking ID
+                                  SelectableText(
+                                    trackingId,
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontWeight: FontWeight.normal,
+                                      fontSize: 16,
+                                      color: Color(0xFF334155),
+                                      letterSpacing: 1.5,
                                     ),
                                   ),
                                 ],
