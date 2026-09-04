@@ -273,7 +273,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
       final riderPhone = _riderPhoneController.text.trim();
       final riderName = _riderNameController.text.trim();
 
-      final res = await _trackingService.stageOutboundPackage(
+      await _trackingService.stageOutboundPackage(
         trackingId: trackingId,
         shopName: _shopNameController.text.trim(),
         customerName: customerName,
@@ -283,18 +283,15 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
-      final courierOtp = res['courierOtp']?.toString() ?? '';
-
       final pickupPassText = 
           "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
           "Tracking ID / Waybill: $trackingId\n"
           "Courier: $courierName\n"
-          "Customer: $customerName\n"
-          "${courierOtp.isNotEmpty ? 'Ref OTP: $courierOtp\n' : ''}"
-          "\nPickup Instructions:\n"
+          "Customer: $customerName\n\n"
+          "Pickup Instructions:\n"
           "1. Arrive at the Smart Parcel Drop Box.\n"
           "2. Press the physical 'PICKUP' button.\n"
-          "3. Scan this Tracking ID / Waybill or present the QR code to the scanner.\n"
+          "3. Scan this Tracking ID / Waybill QR code at the optical scanner.\n"
           "4. The pickup door will unlock automatically!";
 
       Future<void> launchSms(String phone, String body) async {
@@ -472,33 +469,6 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                               ),
                             ),
 
-                            // OTP Reference Badge if generated
-                            if (courierOtp.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: UserTheme.primaryOrange.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.lock_outline_rounded, size: 12, color: UserTheme.primaryOrange),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Ref OTP: $courierOtp',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: UserTheme.primaryOrange,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ),
