@@ -354,32 +354,8 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: UserTheme.statusSuccess.withOpacity(0.12),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: const [
-                                          Icon(Icons.check_circle_rounded, size: 12, color: UserTheme.statusSuccess),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'ORDER STAGED',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w800,
-                                              color: UserTheme.statusSuccess,
-                                              letterSpacing: 0.8,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
                                     Text(
-                                      '$courierName Pickup Pass',
+                                      '$courierName Pickup QR',
                                       style: const TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w800,
@@ -387,7 +363,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Hold QR to optical reader to unlock',
+                                      'Send this QR to rider to access the dropbox',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
