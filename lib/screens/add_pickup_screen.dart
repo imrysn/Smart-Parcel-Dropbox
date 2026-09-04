@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import '../config/api_config.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
@@ -283,20 +284,19 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
-      final qrPassUrl = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$trackingId";
+      final passUrl = ApiConfig.passUrl(trackingId);
 
       final pickupPassText = 
           "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
           "Tracking ID: $trackingId\n"
           "Courier: $courierName\n"
           "Customer: $customerName\n\n"
-          "👉 Open your QR Pass and present to Dropbox:\n"
-          "$qrPassUrl\n\n"
-          "Pickup Instructions:\n"
-          "1. Tap the link above to display your QR code.\n"
-          "2. Press the physical 'PICKUP' button on the Dropbox.\n"
-          "3. Hold your phone screen to the optical scanner.\n"
-          "4. The pickup door will unlock automatically!";
+          "HOW TO UNLOCK DROPBOX:\n"
+          "1. Press the physical 'PICKUP' button on the Dropbox.\n"
+          "2. Scan the Waybill barcode directly from your $courierName Rider App or parcel slip.\n\n"
+          "👉 Or tap to open your Digital QR Pass:\n"
+          "$passUrl\n\n"
+          "The pickup door will unlock automatically!";
 
       Future<void> launchSms(String phone, String body) async {
         final encoded = Uri.encodeComponent(body);

@@ -225,7 +225,7 @@ app.get('/pass/:trackingId', async (req, res) => {
       <strong>How to Unlock:</strong><br>
       1. Arrive at the Smart Parcel Drop Box.<br>
       2. Press the physical <strong>PICKUP</strong> button.<br>
-      3. Hold this QR code to the optical scanner.<br>
+      3. Hold this QR code (or your <strong>${courier}</strong> app barcode) to the optical scanner.<br>
       4. Door unlocks automatically!
     </div>
   </div>
