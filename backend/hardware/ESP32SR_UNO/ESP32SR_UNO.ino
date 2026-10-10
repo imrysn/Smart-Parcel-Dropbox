@@ -7,14 +7,12 @@
  * Network: Connects to WiFi and communicates with backend via Socket.IO
  * 
  * Required Libraries (Arduino Library Manager):
- *   - ESP32Servo          (by Kevin Harrington)
  *   - Adafruit GFX        (by Adafruit)
  *   - Adafruit ILI9341    (by Adafruit)
  *   - arduinoWebSockets   (by Markus Sattler) — provides SocketIOclient
  *   - ArduinoJson         (by Benoit Blanchon, v6.x)
  */
 
-#include <ESP32Servo.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include <SPI.h>
@@ -87,15 +85,11 @@ void setupSocketIO();
 void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length);
 void emitVerifyScan(const String& trackingId, const String& mode);
 void emitVerifyRider(const String& riderId);
-void emitRegisterOwnerPickup(const String& trackingId);
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode);
 void emitDoorState();
-void emitRequestOwnerSession();
 void handleRegisterTracking(const String& payload);
 void handleScanResult(const String& payload);
 void handleRiderVerifyResult(const String& payload);
-void handleOwnerSessionToken(const String& payload);
-void handleOwnerApprovalResult(const String& payload);
 void handleControlDoor(const String& payload);
 float getDistance(const int pins[]);
 void emitRequestDeviceRegistration();
@@ -110,12 +104,8 @@ void checkFactoryReset();
 void printSerialMenu();
 void showHomeScreen();
 void drawStatusBar();
-void drawOwnerVerifyingScreen(const String& token);
 void drawQRCode(int x, int y, int moduleSize, const String& text);
 void drawScannerBg();
-void drawPickupSelectScreen();
-void drawOwnerModeScreen();
-void drawAddMorePrompt();
 void drawRiderScanIdScreen();
 void drawRiderScanParcelScreen();
 void drawRiderPickupMorePrompt();
@@ -129,14 +119,11 @@ void drawWiFiSignal(int x, int y, uint16_t color);
 void reinitTFT();
 
 // --- Non-blocking Hardware Hooks ---
-void processServo(); 
 void processSensors();
 void triggerCyberChirp(int pattern);
 void triggerBuzzer(int beeps);
 void updateDynamicIndicators();
 void updateProcessingHUD(const char* status);
-void shakeServo(int targetAngle);
-void moveServoSmoothly(int to);
 void showHomeScreen();
 void displayMessage(const char* title, const char* msg);
 void drawTimeoutScreen(const char* title, const char* subtitle);
@@ -161,18 +148,6 @@ void setup() {
   pinMode(LOCK_TOP,      OUTPUT); digitalWrite(LOCK_TOP,      HIGH); // HIGH = Locked
   pinMode(LOCK_PICKUP,   OUTPUT); digitalWrite(LOCK_PICKUP,   HIGH);
   pinMode(LOCK_RECEIVED, OUTPUT); digitalWrite(LOCK_RECEIVED, HIGH);
-
-  // --- EARLY SERVO INIT ---
-  // Prevents floating and uncontrolled spinning on power up
-  ESP32PWM::allocateTimer(0);
-  ESP32PWM::allocateTimer(1);
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
-  platformServo.setPeriodHertz(50); // Standard 50Hz servo
-  platformServo.attach(SERVO_PIN, 500, 2500); // Expanded 180° servo pulse range
-  platformServo.write(90);          // Drive to center to stabilize
-  delay(500);                       // Give it time to reach center
-  platformServo.detach();           // Detach: stops PWM output → servo holds position passively
 
   // Inputs
   pinMode(BTN_RECEIVE,   INPUT_PULLUP);
@@ -271,7 +246,6 @@ void loop() {
   // 1. Maintain background tasks
   socketIO.loop();
   // esp_task_wdt_reset(); // Disabled to prevent "task not found" spam after detaching main loop
-  processServo();
   processSensors();
   
   checkSerialCommands();
@@ -305,14 +279,14 @@ void loop() {
               }
             }
     }
-  } else if (!cooldownActive && currentState != OWNER_SCANNING && currentState != RIDER_VERIFYING && 
+  } else if (!cooldownActive && currentState != RIDER_VERIFYING && 
              currentState != RIDER_SCANNING_PARCELS && currentState != WAITING_FOR_SCAN) {
     // Regular Drainage: Clear buffer when NOT in a scan-expectant state
     while (Serial2.available() > 0) Serial2.read();
     serial2Buffer[0] = '\0'; 
   }
   // Skip status-bar repaints while QR verification screens, WiFi setup, or lockscreen are up
-  if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR && 
+  if (currentState != SHOWING_REGISTRATION_QR && 
       currentState != WAITING_FOR_WIFI_CONFIG && currentState != LOCKSCREEN) {
     updateDynamicIndicators();
   }
@@ -547,15 +521,16 @@ void loop() {
         }
       }
       
-      // Right button is still a simple click for PICK UP
+      // Right button is a simple click for RIDER PICK UP (Owner control is on mobile app)
       if (digitalRead(BTN_PICKUP) == LOW) {
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
           Serial.println("[DEBUG] BTN_PICKUP (Pin 2) is LOW (Pressed)");
-          Serial.println("[FLOW] User selected: PICK UP → showing sub-menu.");
+          Serial.println("[FLOW] User selected: RIDER PICK UP → entering RIDER_VERIFYING.");
           isReceivingMode = false;
+          isRiderMode     = true;
           triggerCyberChirp(3);
-          changeState(SELECTING_PICKUP_TYPE);
+          changeState(RIDER_VERIFYING);
         }
       }
 
@@ -565,305 +540,7 @@ void loop() {
       }
       break;
 
-    // ── SELECTING PICKUP TYPE (ATM: Owner | Rider) ────────
-    case SELECTING_PICKUP_TYPE:
-      if (!stateInitialized) {
-        drawPickupSelectScreen();
-        Serial.println("[FLOW] Sub-menu: Waiting for Owner or Rider selection.");
-        Serial.println("==========================================");
-        Serial.println("  [BTN1] Owner        [BTN2] Rider");
-        Serial.println("------------------------------------------");
-        stateInitialized = true;
-      } else if (digitalRead(BTN_RECEIVE) == LOW) {
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Sub-menu: OWNER selected → Requesting QR session.");
-          isRiderMode = false;
-          triggerCyberChirp(3);
-          changeState(OWNER_VERIFYING);
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Rider
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.println("[FLOW] Sub-menu: RIDER selected.");
-          isRiderMode = true;
-          triggerCyberChirp(3);
-          changeState(RIDER_VERIFYING);
-        }
-      }
-      break;
-
-    // ── OWNER VERIFYING (show QR on LCD; wait for mobile app scan) ────
-    case OWNER_VERIFYING:
-      if (!stateInitialized) {
-        ownerApprovalReceived = false;
-        ownerApprovalValid    = false;
-        ownerSessionToken[0]  = '\0';
-        ownerQrDrawn          = false;
-        ownerVerifyTimedOut   = false;
-        stateStartTime        = millis();
-        stateInitialized      = true;
-        Serial.println("[FLOW] Owner QR: Requesting session token from server...");
-        displayMessage("VERIFYING", "Connecting...");
-        if (socketIO.isConnected()) {
-          emitRequestOwnerSession();
-        } else {
-          Serial.println("[WARN] Owner QR: server offline, cannot generate QR.");
-          displayMessage("OFFLINE", "No server");
-          triggerCyberChirp(2);
-          pendingNextState  = IDLE;
-          actionDelayStart  = millis();
-          actionDelayActive = true;
-        }
-      }
-
-      // ── Retry/Exit prompt (shown after timeout) ──────────────
-      if (ownerVerifyTimedOut && !actionDelayActive) {
-        if (digitalRead(BTN_RECEIVE) == LOW) {      // BTN1 = Retry
-          delay(50);
-          if (digitalRead(BTN_RECEIVE) == LOW) {
-            Serial.println("[FLOW] Owner QR: Retry pressed — requesting new session.");
-            ownerVerifyTimedOut   = false;
-            ownerApprovalReceived = false;
-            ownerApprovalValid    = false;
-            ownerSessionToken[0]  = '\0';
-            ownerQrDrawn          = false;
-            stateStartTime        = millis();
-            displayMessage("VERIFYING", "Connecting...");
-            if (socketIO.isConnected()) emitRequestOwnerSession();
-            triggerCyberChirp(3);
-          }
-        } else if (digitalRead(BTN_PICKUP) == LOW) { // BTN2 = Exit
-          delay(50);
-          if (digitalRead(BTN_PICKUP) == LOW) {
-            Serial.println("[FLOW] Owner QR: Exit pressed — returning to IDLE.");
-            triggerCyberChirp(2);
-            ownerVerifyTimedOut = false;
-            changeState(IDLE);
-          }
-        }
-        break; // Don't run timer checks while showing Retry/Exit prompt
-      }
-
-      // ── Session token received → draw QR once ───────────────
-      if (strlen(ownerSessionToken) > 0 && !actionDelayActive) {
-        if (!ownerQrDrawn) {
-          drawOwnerVerifyingScreen(String(ownerSessionToken));
-          ownerQrDrawn = true;
-          stateStartTime = millis(); // restart 60s countdown from when QR is shown
-          Serial.println("[FLOW] Owner QR: QR code displayed. Owner has 60s to scan.");
-        }
-
-        // Feature #5: Update countdown every second (overwrite only the timer area)
-        static int lastCountdownSec = -1;
-        int elapsed = (millis() - stateStartTime) / 1000;
-        int remaining = max(0, 60 - elapsed);
-        
-        // --- Added: Real-time EXIT check (BTN2) while QR is displayed ---
-        if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-          delay(50);
-          if (digitalRead(BTN_PICKUP) == LOW) {
-            Serial.println("[FLOW] Owner QR: Exit pressed — returning to IDLE.");
-            triggerCyberChirp(2);
-            ownerQrDrawn        = false;
-            ownerVerifyTimedOut = false;
-            changeState(IDLE);
-            return; // Exit state handler immediately
-          }
-        }
-        if (remaining != lastCountdownSec) {
-          lastCountdownSec = remaining;
-          // Overwrite just the bottom line — white bg, black text (QR screen colors)
-          tft.fillRect(0, 218, 320, 22, COLOR_TEXT);
-          tft.setTextSize(1); tft.setTextColor(COLOR_BG);
-          tft.setCursor(100, 222);
-          tft.print("Expires in "); tft.print(remaining); tft.print(" seconds");
-        }
-      }
-
-      // ── Approval result from server ──────────────────────────
-      if (ownerApprovalReceived && !actionDelayActive) {
-        ownerApprovalReceived = false;
-        if (ownerApprovalValid) {
-          Serial.println("[FLOW] Owner QR: APPROVED by app scan.");
-          displayMessage("VERIFIED", "Access Granted");
-          triggerBuzzer(2);
-          pendingNextState = OWNER_SELECTING_MODE;
-        } else {
-          Serial.println("[FLOW] Owner QR: DENIED by app.");
-          displayMessage("DENIED", "Access Rejected");
-          triggerCyberChirp(2);
-          pendingNextState = IDLE;
-        }
-        actionDelayStart  = millis();
-        actionDelayActive = true;
-        ownerSessionToken[0] = '\0';
-        ownerQrDrawn      = false;
-      }
-
-      // ── (A) 8s server non-response timeout ───────────────────
-      if (!actionDelayActive && !ownerVerifyTimedOut &&
-          strlen(ownerSessionToken) == 0 && !ownerQrDrawn &&
-          stateInitialized && millis() - stateStartTime > 8000) {
-        Serial.println("[FLOW] Owner QR: Server did not respond. Show Retry/Exit.");
-        triggerCyberChirp(2);
-        drawTimeoutScreen("TIMED OUT", "Server did not respond");
-        ownerVerifyTimedOut = true;
-        ownerSessionToken[0] = '\0';
-        ownerQrDrawn        = false;
-      }
-
-      // ── (B) 60s scan timeout (owner didn't scan in time) ─────
-      if (!ownerApprovalReceived && !actionDelayActive && !ownerVerifyTimedOut &&
-          ownerQrDrawn && millis() - stateStartTime > 60000) {
-        Serial.println("[FLOW] Owner QR: 60s scan timeout. Show Retry/Exit.");
-        triggerCyberChirp(2);
-        drawTimeoutScreen("TIMED OUT", "");
-        ownerVerifyTimedOut = true;
-        ownerSessionToken[0] = '\0';
-        ownerQrDrawn         = false;
-      }
-
-      // ── Delayed state transition (after approved/denied) ─────
-      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
-        actionDelayActive = false;
-        changeState(pendingNextState);
-        pendingNextState = IDLE;
-      }
-      break;
-
-    // ── OWNER SELECTING MODE (ATM: Single | Multiple) ─────
-    case OWNER_SELECTING_MODE:
-      if (!stateInitialized) {
-        drawOwnerModeScreen();
-        Serial.println("[FLOW] Owner sub-menu: Single or Multiple?");
-        Serial.println("==========================================");
-        Serial.println("  [BTN1] Single       [BTN2] Multiple");
-        Serial.println("------------------------------------------");
-        stateInitialized = true;
-      }
-      if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Single
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Owner Mode: SINGLE pick up.");
-          isMultiMode  = false;
-          scannedCount = 0;
-          triggerCyberChirp(3);
-          changeState(OWNER_SCANNING);
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Multiple
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.println("[FLOW] Owner Mode: MULTIPLE pick up.");
-          isMultiMode  = true;
-          scannedCount = 0;
-          triggerCyberChirp(3);
-          changeState(OWNER_SCANNING);
-        }
-      }
-      break;
-
-    // ── OWNER SCANNING (register tracking ID) ─────────────
-    case OWNER_SCANNING:
-      if (!stateInitialized) {
-        tft.fillScreen(COLOR_BG);
-        drawStatusBar();
-        drawScannerBg();
-        tft.setCursor(20, 185); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
-        if (isMultiMode) {
-          String lbl = "Multi-Scan #" + String(scannedCount + 1);
-          tft.print(lbl);
-        } else {
-          tft.print("Scan Waybill QR");
-        }
-        Serial.println("[FLOW] Owner: Waiting for tracking ID scan...");
-        while (Serial2.available()) Serial2.read(); // Flush stale buffer
-        stateInitialized = true;
-      }
-      
-      // Feature: 60s Timeout while scanning
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = OWNER_SCANNING;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(IDLE);
-           break;
-        }
-      }
-      
-      // Non-blocking Serial2 read: accumulate bytes until '\n'
-      while (Serial2.available() && !actionDelayActive) {
-        char c = (char)Serial2.read();
-        if (c == '\n' || c == '\r') {
-          // Manual trim and process
-          int len = strlen(serial2Buffer);
-          if (len > 2) {
-             // Process the read tracking ID
-             strncpy(currentTrackingId, serial2Buffer, sizeof(currentTrackingId)-1);
-             currentTrackingId[sizeof(currentTrackingId)-1] = '\0';
-             serial2Buffer[0] = '\0';
-             scannedCount++;
-             Serial.print("[FLOW] Owner scanned ID #"); Serial.print(scannedCount);
-             Serial.print(": "); Serial.println(currentTrackingId);
-             char msgBuf[32];
-             snprintf(msgBuf, sizeof(msgBuf), "#%d %.15s", scannedCount, currentTrackingId);
-             displayMessage("REGISTERED", msgBuf);
-             triggerBuzzer(2);
-             emitRegisterOwnerPickup(String(currentTrackingId));
-             pendingNextState  = UNLOCKING_ENTRY;
-             actionDelayStart  = millis();
-             actionDelayActive = true;
-          }
-          serial2Buffer[0] = '\0';
-        } else if (c >= 32 && c <= 126) {
-          int len = strlen(serial2Buffer);
-          if (len < sizeof(serial2Buffer) - 1) {
-            serial2Buffer[len] = c;
-            serial2Buffer[len+1] = '\0';
-          }
-        }
-      }
-      if (actionDelayActive && millis() - actionDelayStart >= 1500) {
-        actionDelayActive = false;
-        changeState(pendingNextState);
-        pendingNextState = IDLE;
-      }
-      break;
-
-    // ── OWNER ADD MORE PROMPT (ATM: Add More | Done) ──────
-    case OWNER_ADD_MORE_PROMPT:
-      if (!stateInitialized) {
-        drawAddMorePrompt();
-        Serial.print("[FLOW] Owner: Add more parcel? (registered so far: ");
-        Serial.print(scannedCount); Serial.println(")");
-        Serial.println("==========================================");
-        Serial.println("  [BTN1] Add More     [BTN2] Done");
-        Serial.println("------------------------------------------");
-        stateInitialized = true;
-      }
-      if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Add More
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Owner: Adding more parcels.");
-          triggerBuzzer(1);
-          changeState(OWNER_SCANNING);
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Done
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.print("[FLOW] Owner: Done. Total registered: "); Serial.println(scannedCount);
-          triggerBuzzer(1);
-          changeState(RESETTING);
-        }
-      }
-      break;
+    // (Owner flow removed from hardware — owner controls dropbox via mobile app)
 
     // ── RIDER VERIFYING (scan rider QR → server check) ────
     case RIDER_VERIFYING:
@@ -906,6 +583,7 @@ void loop() {
               Serial.print("[FLOW] Rider ID scanned: "); Serial.println(riderId);
               displayMessage("VERIFYING...", "Please wait");
               if (socketIO.isConnected()) {
+                stateStartTime = millis(); // Reset 8s response timer
                 emitVerifyRider(riderId);
               } else {
                 Serial.println("[WARN] Rider verify: offline — cannot verify.");
@@ -925,6 +603,18 @@ void loop() {
           }
         }
       }
+
+      // BUG-02 Fix: 8-second server response timeout check
+      if (!riderVerifyReceived && !actionDelayActive && stateInitialized &&
+          millis() - stateStartTime > 8000 && socketIO.isConnected()) {
+        Serial.println("[FLOW] Rider verify: Server did not respond within 8s.");
+        displayMessage("TIMEOUT", "RETRY SCAN");
+        triggerBuzzer(3);
+        pendingNextState  = RIDER_VERIFYING;
+        actionDelayStart  = millis();
+        actionDelayActive = true;
+      }
+
       if (riderVerifyReceived && !actionDelayActive) {
         riderVerifyReceived = false;
         if (riderVerifyValid) {
@@ -1125,6 +815,10 @@ void loop() {
               if (socketIO.isConnected()) {
                 emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
               }
+              // BUG-04 Fix: Clear manual offline ID once consumed
+              if (isReceivingMode) registeredDropOff[0] = '\0';
+              else registeredPickup[0] = '\0';
+
               consecutiveScanFails = 0; 
               pendingNextState  = UNLOCKING_ENTRY;
               actionDelayStart  = millis();
@@ -1315,7 +1009,7 @@ void loop() {
         Serial.println(" bin.");
         
         updateProcessingHUD(isReceivingMode ? "DROPPING..." : "PICKUP TILT...");
-        shakeServo(tiltAngle); // sets target
+        // Servo component removed — GPIO 14 available
         stateStartTime = millis();
         stateInitialized = true;
       }
@@ -1348,11 +1042,7 @@ void loop() {
         }
         if (actionDelayActive && millis() - actionDelayStart >= 3000) {
           actionDelayActive = false;
-          if (!isReceivingMode && !isRiderMode && isMultiMode) {
-            changeState(OWNER_ADD_MORE_PROMPT);
-          } else {
-            changeState(RESETTING);
-          }
+          changeState(RESETTING);
         }
       }
       break;
@@ -1529,7 +1219,7 @@ void loop() {
          lockTopOpen = false; lockPickupOpen = false; lockReceivedOpen = false;
          emitDoorState(); 
          
-         moveServoSmoothly(90); 
+         // Servo removed 
          currentTrackingId[0] = '\0';
          scanResultReceived  = false;
          isRiderMode         = false;
@@ -1712,11 +1402,6 @@ void checkSerialCommands() {
           registrationToken[sizeof(registrationToken)-1] = '\0';
           regTokenReceived  = true;
           Serial.print("[DEV] Simulated registrationToken: "); Serial.println(token);
-        } else if (currentState == OWNER_VERIFYING) {
-          // Simulate owner approve via token entry
-          ownerApprovalValid    = true;
-          ownerApprovalReceived = true;
-          Serial.print("[DEV] Simulated ownerVerifyResult APPROVED for token: "); Serial.println(token);
         } else {
           Serial.println("[DEV] N:<token> not applicable in current state.");
         }
@@ -1736,20 +1421,8 @@ void checkSerialCommands() {
       Serial.println("[MANUAL] Triggering WiFi Captive Portal...");
       triggerBuzzer(2);
       changeState(WAITING_FOR_WIFI_CONFIG);
-    } else if (cmd == '1') {
-      Serial.println("[TEST] Tilting to DROP OFF bin (0°) + Shake...");
-      moveServoSmoothly(0);
-      delay(500);
-      shakeServo(0);
-      moveServoSmoothly(0);
-      Serial.println("[TEST] Done.");
-    } else if (cmd == '2') {
-      Serial.println("[TEST] Tilting to PICKUP bin (180°) + Shake...");
-      moveServoSmoothly(180);
-      delay(500);
-      shakeServo(180);
-      moveServoSmoothly(180);
-      Serial.println("[TEST] Done.");
+    } else if (cmd == '1' || cmd == '2') {
+      Serial.println("[TEST] Servo hardware removed. GPIO 14 remains available.");
     }
   }
 }
@@ -1758,31 +1431,6 @@ void checkSerialCommands() {
 
 void forceNextStep() {
   switch (currentState) {
-    case SELECTING_PICKUP_TYPE:
-      Serial.println("[FLOW] Bypass: Defaulting to OWNER mode → entering OWNER_VERIFYING.");
-      isRiderMode = false;
-      changeState(OWNER_VERIFYING);
-      break;
-    case OWNER_VERIFYING:
-      // Simulate approved mobile app scan without needing the physical QR scanner
-      Serial.println("[FLOW] Bypass: Owner verification APPROVED via serial shortcut.");
-      ownerApprovalValid    = true;
-      ownerApprovalReceived = true;
-      // The state loop will pick up ownerApprovalReceived and proceed to OWNER_SELECTING_MODE
-      break;
-    case OWNER_SELECTING_MODE:
-      Serial.println("[FLOW] Bypass: Defaulting to SINGLE mode.");
-      isMultiMode = false; scannedCount = 0;
-      changeState(OWNER_SCANNING);
-      break;
-    case OWNER_SCANNING:
-      Serial.println("[FLOW] Bypass: Skipping owner scan.");
-      changeState(UNLOCKING_ENTRY);
-      break;
-    case OWNER_ADD_MORE_PROMPT:
-      Serial.println("[FLOW] Bypass: Ending multi-scan.");
-      changeState(RESETTING);
-      break;
     case RIDER_VERIFYING:
       Serial.println("[FLOW] Bypass: Skipping rider verification.");
       changeState(RIDER_DOOR_OPEN);
@@ -1853,7 +1501,6 @@ void changeState(SystemState newState) {
   tft.fillScreen(COLOR_BG);
   
   if (newState == IDLE || newState == LOCKSCREEN) {
-    moveServoSmoothly(90);
     showHomeScreen();
   }
 }

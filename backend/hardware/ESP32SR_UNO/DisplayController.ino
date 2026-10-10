@@ -196,34 +196,7 @@ void drawRegistrationQRScreen(const String& token, const String& pin) {
   tft.setFont();
 }
 
-// ── OWNER VERIFYING QR SCREEN ──────────────────────────────
-void drawOwnerVerifyingScreen(const String& token) {
-  tft.fillScreen(COLOR_TEXT); // White background
-  String pin = token.startsWith("OWN-") ? token.substring(4) : token;
-  
-  // Hint at top
-  _smallText("Scan QR or enter Code in Owner App", 160, 30, COLOR_BG);
-  
-  // Custom QR draw with dark modules 
-  QRCode qrcode;
-  uint8_t qrcodeBytes[qrcode_getBufferSize(3)];
-  qrcode_initText(&qrcode, qrcodeBytes, 3, ECC_MEDIUM, token.c_str());
-  int x = 110, y = 60, moduleSize = 4;
-  for (int row = 0; row < qrcode.size; row++)
-    for (int col = 0; col < qrcode.size; col++) {
-      uint16_t color = qrcode_getModule(&qrcode, col, row) ? COLOR_BG : COLOR_TEXT;
-      tft.fillRect(x + col * moduleSize, y + row * moduleSize, moduleSize, moduleSize, color);
-    }
-
-  // Large 6-digit PIN only
-  _boldText(pin.c_str(), 160, 205, COLOR_BG);
-
-  // Added [BTN2] EXIT label for real-time cancel
-  _buttonIndicator(240, 232, COLOR_RED);
-  _smallText("EXIT", 240, 218, COLOR_BG);
-
-  tft.setFont();
-}
+// (drawOwnerVerifyingScreen removed)
 
 // ── DISPLAY MESSAGE (Terminal Alert Overlay) ────────────────
 void displayMessage(const char* title, const char* msg) {
@@ -388,23 +361,7 @@ static void _twoOvalScreen(
   tft.setFont();
 }
 
-void drawPickupSelectScreen() {
-  _twoOvalScreen("Select Mode", COLOR_BLUE, 1, "OWNER", COLOR_RED, 0, "RIDER");
-}
-
-void drawOwnerModeScreen() {
-  _twoOvalScreen("Owner Pick Up", COLOR_BLUE, 0, "SINGLE", COLOR_RED, 0, "MULTI");
-}
-
-void drawAddMorePrompt() {
-  tft.fillScreen(COLOR_BG);
-  drawStatusBar();
-  String countStr = "Parcel #" + String(scannedCount) + " registered";
-  _smallText(countStr.c_str(), 160, 48, COLOR_GREEN);
-  _verticalOvalButton(80,  138, 100, 140, "ADD MORE", COLOR_BLUE, 0);
-  _verticalOvalButton(240, 138, 100, 140, "DONE",     COLOR_GREEN, 2);
-  tft.setFont();
-}
+// (Unused owner screens removed; owner flow moved to mobile app)
 
 void drawRiderScanIdScreen() {
   drawScannerBg();

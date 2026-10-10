@@ -1,33 +1,12 @@
 // ============================================================
 //  HardwareController.ino
-//  Contains logic for Servos, Buzzers, Doors, Sensors, and Resets
+//  Contains logic for Buzzers, Doors, Sensors, and Resets
+//  (Servo component removed — GPIO 14 preserved as available pin)
 // ============================================================
 
-void moveServoSmoothly(int to) {
-  targetServoPos = constrain(to, 0, 180);
-  if (!platformServo.attached()) {
-    platformServo.attach(SERVO_PIN, 500, 2500);
-  }
-}
-
-void processServo() {
-  if (currentServoPos == targetServoPos) return;
-  
-  if (millis() - lastServoMoveTime >= 15) {
-    int step = (currentServoPos < targetServoPos) ? 1 : -1;
-    currentServoPos += step;
-    platformServo.write(currentServoPos);
-    lastServoMoveTime = millis();
-  }
-}
-
-void shakeServo(int targetAngle) {
-  // We'll keep this as a special sequence but use the non-blocking target logic
-  moveServoSmoothly(targetAngle + 15);
-  // Real non-blocking shake would need a mini state machine, 
-  // let's simplify and just move to targeted angle for now to maintain stability
-  targetServoPos = targetAngle; 
-}
+void moveServoSmoothly(int to) { (void)to; }
+void processServo() {}
+void shakeServo(int targetAngle) { (void)targetAngle; }
 
 void triggerCyberChirp(int pattern) {
   switch (pattern) {

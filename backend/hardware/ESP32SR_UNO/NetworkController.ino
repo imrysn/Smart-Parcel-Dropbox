@@ -106,6 +106,7 @@ void setupSocketIO() {
   Serial.print(SERVER_HOST); Serial.print(":"); Serial.println(SERVER_PORT);
 
   socketIO.onEvent(socketIOEvent);
+  socketIO.setCACert(RENDER_ROOT_CA);
   socketIO.beginSSL(SERVER_HOST, SERVER_PORT, SERVER_PATH);
   socketIO.setReconnectInterval(5000);
 
@@ -119,14 +120,6 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
       socketIO.send(sIOtype_EVENT, "[\"join\",\"esp32_device\"]");
       
       if (offlineQueueCount > 0) {
-        Serial.print("[OFFLINE] Processing queue of "); 
-        Serial.print(offlineQueueCount); 
-        Serial.println(" items...");
-        
-        for (int i = 0; i < offlineQueueCount; i++) {
-           emitRegisterOwnerPickup(offlineQueue[i]);
-           delay(100);
-        }
         offlineQueueCount = 0;
       }
       break;
@@ -160,13 +153,6 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
       } else if (eventName == "controlDoor") {
         String data; serializeJson(doc[1], data);
         handleControlDoor(data);
-      } else if (eventName == "ownerSessionToken") {
-        strncpy(ownerSessionToken, doc[1]["token"] | "", sizeof(ownerSessionToken)-1);
-        Serial.print("[WS] ownerSessionToken received: "); Serial.println(ownerSessionToken);
-      } else if (eventName == "ownerVerifyResult") {
-        ownerApprovalValid    = doc[1]["approved"].as<bool>();
-        ownerApprovalReceived = true;
-        Serial.print("[WS] ownerVerifyResult: "); Serial.println(ownerApprovalValid ? "APPROVED" : "DENIED");
       } else if (eventName == "getStatus") {
         emitDoorState();
       } else if (eventName == "registrationToken") {
@@ -222,42 +208,7 @@ void emitVerifyRider(const String& riderId) {
   if (DEBUG_WS) { Serial.print("[WS] Emitted verifyRider: "); Serial.println(output); }
 }
 
-void emitRequestOwnerSession() {
-  StaticJsonDocument<128> doc;
-  JsonArray arr = doc.to<JsonArray>();
-  arr.add("requestOwnerSession");
-  arr.createNestedObject();
-
-  char output[128];
-  serializeJson(doc, output);
-  socketIO.send(sIOtype_EVENT, output);
-  Serial.println("[WS] Emitted requestOwnerSession");
-}
-
-void emitRegisterOwnerPickup(const String& trackingId) {
-  if (!socketIO.isConnected()) {
-    if (offlineQueueCount < MAX_OFFLINE_QUEUE) {
-      strncpy(offlineQueue[offlineQueueCount], trackingId.c_str(), 63);
-      offlineQueue[offlineQueueCount][63] = '\0';
-      offlineQueueCount++;
-      Serial.print("[OFFLINE] Queued owner pickup: "); Serial.println(trackingId);
-    } else {
-      Serial.println("[OFFLINE] ERROR: Queue full. Cannot queue more pickups.");
-    }
-    return;
-  }
-
-  StaticJsonDocument<256> doc;
-  JsonArray arr = doc.to<JsonArray>();
-  arr.add("registerOwnerPickup");
-  JsonObject data = arr.createNestedObject();
-  data["trackingId"] = trackingId;
-
-  char output[256];
-  serializeJson(doc, output);
-  socketIO.send(sIOtype_EVENT, output);
-  if (DEBUG_WS) { Serial.print("[WS] Emitted registerOwnerPickup: "); Serial.println(output); }
-}
+// (Unused owner emitters removed; owner control managed by mobile app)
 
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode) {
   StaticJsonDocument<256> doc;

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <ESP32Servo.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include <SocketIOclient.h>
@@ -32,7 +31,7 @@
 #define REED_PICKUP      35
 #define REED_RECEIVED    45
 
-#define SERVO_PIN        14
+#define SERVO_PIN        14  // Available / Reserved GPIO 14
 
 // ============================================================
 //  DISPLAY COLORS (Sci-Fi Robotic HUD Theme)
@@ -62,11 +61,6 @@ enum SystemState {
   DEVICE_UNREGISTERED,
   SHOWING_REGISTRATION_QR,
   IDLE,
-  SELECTING_PICKUP_TYPE,
-  OWNER_VERIFYING,
-  OWNER_SELECTING_MODE,
-  OWNER_SCANNING,
-  OWNER_ADD_MORE_PROMPT,
   RIDER_VERIFYING,
   RIDER_DOOR_OPEN,
   RIDER_SCANNING_PARCELS,
@@ -124,12 +118,6 @@ extern bool   riderVerifyReceived;
 extern bool   riderVerifyValid;
 extern char serial2Buffer[128];
 
-extern char ownerSessionToken[32];
-extern bool   ownerApprovalReceived;
-extern bool   ownerApprovalValid;
-extern bool   ownerQrDrawn;
-extern bool   ownerVerifyTimedOut;
-
 extern Preferences nvsPrefs;
 extern char nvsWifiSSID[33];
 extern char nvsWifiPassword[64];
@@ -181,9 +169,6 @@ extern unsigned long pickupRegisterTime;
 extern const unsigned long TIMEOUT_MS;
 
 // Non-blocking hardware state
-extern int currentServoPos;
-extern int targetServoPos;
-extern unsigned long lastServoMoveTime;
 extern float lastUsPlatformDist;
 extern float lastUsPickupDist;
 extern float lastUsDropoffDist;
@@ -191,19 +176,15 @@ extern unsigned long lastUsPlatformTime;
 extern unsigned long lastUsPickupTime;
 extern unsigned long lastUsDropoffTime;
 
-extern Servo            platformServo;
 extern Adafruit_ILI9341 tft;
 extern SocketIOclient   socketIO;
 
 // --- Global Function Prototypes (Hardware & UI) ---
-void processServo();
 void processSensors();
 void triggerCyberChirp(int pattern);
 void triggerBuzzer(int beeps);
 void updateDynamicIndicators();
 void updateProcessingHUD(const char* status);
-void shakeServo(int targetAngle);
-void moveServoSmoothly(int to);
 void showHomeScreen();
 void displayMessage(const char* title, const char* msg);
 void drawTimeoutScreen(const char* title, const char* subtitle);
@@ -212,9 +193,7 @@ void drawLockscreenText(const char* line1, const char* line2);
 void drawDeviceUnregisteredScreen();
 void changeState(SystemState newState);
 void emitDoorState();
-void emitRequestOwnerSession();
 void emitVerifyRider(const String& riderId);
-void emitRegisterOwnerPickup(const String& trackingId);
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode);
 void handleRequestWiFiScan();
 void handleApplyHardwareConfig(const String& payload);
