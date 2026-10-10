@@ -106,7 +106,6 @@ void setupSocketIO() {
   Serial.print(SERVER_HOST); Serial.print(":"); Serial.println(SERVER_PORT);
 
   socketIO.onEvent(socketIOEvent);
-  socketIO.setCACert(RENDER_ROOT_CA);
   socketIO.beginSSL(SERVER_HOST, SERVER_PORT, SERVER_PATH);
   socketIO.setReconnectInterval(5000);
 
