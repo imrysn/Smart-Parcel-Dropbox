@@ -37,7 +37,8 @@ class _SplashScreenState extends State<SplashScreen> {
     if (isLoggedIn) {
       try {
         final userId = await _authService.currentUserId;
-        
+        final cachedRole = await _authService.currentUserRole;
+
         if (userId == null) {
           await _authService.signOut();
           if (!mounted) return;
@@ -45,16 +46,19 @@ class _SplashScreenState extends State<SplashScreen> {
           return;
         }
 
-        final data = await _databaseService.getUserData(userId);
-        
-        if (data == null) {
-          await _authService.signOut();
-          if (!mounted) return;
-          _navigateToLogin();
-          return;
-        }
+        String? role = cachedRole;
 
-        final role = data['role'];
+        // Try to fetch fresh user data from server (with timeout so sleeping Render servers don't stall)
+        try {
+          final data = await _databaseService.getUserData(userId).timeout(
+            const Duration(seconds: 4),
+          );
+          if (data != null && data['role'] != null) {
+            role = data['role'];
+          }
+        } catch (netErr) {
+          debugPrint('Profile refresh during splash deferred (using cached role): $netErr');
+        }
 
         if (!mounted) return;
 
@@ -70,8 +74,20 @@ class _SplashScreenState extends State<SplashScreen> {
       } catch (e) {
         debugPrint('Auth check error: $e');
         if (!mounted) return;
-        await _authService.signOut();
-        _navigateToLogin();
+        final cachedRole = await _authService.currentUserRole;
+        if (!mounted) return;
+        if (cachedRole == 'admin') {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+          );
+        } else if (cachedRole != null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        } else {
+          await _authService.signOut();
+          _navigateToLogin();
+        }
       }
     } else {
       _navigateToLogin();

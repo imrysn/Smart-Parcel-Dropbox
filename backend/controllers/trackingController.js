@@ -34,7 +34,8 @@ exports.registerTracking = async (req, res) => {
         const io = req.app.get('io');
         if (io) {
             io.to(userId).emit('trackingUpdate', tracking);
-            console.log(`[SOCKET] trackingUpdate emitted for user: ${userId}`);
+            io.to('esp32_device').emit('registerTracking', { trackingId, mode: mode || 'drop_off' });
+            console.log(`[SOCKET] trackingUpdate emitted for user: ${userId} & esp32_device`);
         }
 
         // Create a notification for the registration

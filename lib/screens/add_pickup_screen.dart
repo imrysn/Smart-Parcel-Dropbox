@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, Process;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
@@ -29,6 +30,8 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
   final _shopNameController = TextEditingController(text: 'My Business Store');
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
+  final _riderPhoneController = TextEditingController();
+  final _riderNameController = TextEditingController();
   String _selectedCourierOutbound = 'J&T Express';
 
   // Batch Outbound Staging Controllers
@@ -70,6 +73,8 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     _shopNameController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
+    _riderPhoneController.dispose();
+    _riderNameController.dispose();
     _batchTrackingTextController.dispose();
     _batchShopNameController.dispose();
     _personalTrackingIdController.dispose();
@@ -261,75 +266,332 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     setState(() => _isLoading = true);
 
     try {
-      final res = await _trackingService.stageOutboundPackage(
-        trackingId: _outboundTrackingController.text.trim(),
+      final trackingId = _outboundTrackingController.text.trim();
+      final customerName = _customerNameController.text.trim();
+      final customerPhone = _customerPhoneController.text.trim();
+      final courierName = _selectedCourierOutbound;
+      final riderPhone = _riderPhoneController.text.trim();
+      final riderName = _riderNameController.text.trim();
+
+      await _trackingService.stageOutboundPackage(
+        trackingId: trackingId,
         shopName: _shopNameController.text.trim(),
-        customerName: _customerNameController.text.trim(),
-        customerPhone: _customerPhoneController.text.trim(),
-        courierName: _selectedCourierOutbound,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        courierName: courierName,
+        riderName: riderName.isNotEmpty ? riderName : null,
+        riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
-      final courierOtp = res['courierOtp'] ?? 'N/A';
+      final qrPassUrl = "https://quickchart.io/qr?text=$trackingId&size=350";
+
+      final pickupPassText = 
+          "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
+          "Tracking ID: $trackingId\n"
+          "Courier: $courierName\n"
+          "Customer: $customerName\n\n"
+          "HOW TO UNLOCK DROPBOX:\n"
+          "1. Press the physical 'PICKUP' button on the Dropbox.\n"
+          "2. Scan the Waybill barcode directly from your $courierName Rider App or parcel slip.\n\n"
+          "👉 Or tap to open your Digital QR Pass:\n"
+          "$qrPassUrl\n\n"
+          "The pickup door will unlock automatically!";
+
+      Future<void> launchSms(String phone, String body) async {
+        final encoded = Uri.encodeComponent(body);
+        if (!kIsWeb && Platform.isWindows) {
+          try {
+            await Process.run('cmd', ['/c', 'start', 'sms:$phone?body=$encoded']);
+          } catch (_) {}
+        }
+        await Clipboard.setData(ClipboardData(text: body));
+      }
+
+      // Automatically trigger SMS dispatch immediately if rider phone is provided
+      if (riderPhone.isNotEmpty) {
+        await launchSms(riderPhone, pickupPassText);
+      }
 
       if (mounted) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         await showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.check_circle_outline, color: UserTheme.statusSuccess),
-                SizedBox(width: 8),
-                Text('Order Staged!'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Customer package staged successfully in your dropbox.'),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: UserTheme.primaryOrange.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'COURIER PICKUP OTP',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: UserTheme.primaryOrange),
+          builder: (dialogContext) {
+            String? feedbackMsg;
+            bool isPassCopied = false;
+
+            return StatefulBuilder(
+              builder: (context, setModalState) {
+                void triggerFeedback(String msg, {bool passCopied = false}) {
+                  setModalState(() {
+                    feedbackMsg = msg;
+                    if (passCopied) isPassCopied = true;
+                  });
+                  Future.delayed(const Duration(milliseconds: 2500), () {
+                    if (dialogContext.mounted) {
+                      setModalState(() {
+                        if (feedbackMsg == msg) feedbackMsg = null;
+                        isPassCopied = false;
+                      });
+                    }
+                  });
+                }
+
+                return Dialog(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  backgroundColor: isDark ? UserTheme.nightCard : Colors.white,
+                  insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  child: Container(
+                    width: 360,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Top Header Row with Status & Close button
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '$courierName Pickup QR',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Send this QR to rider to access the dropbox',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              InkWell(
+                                onTap: () => Navigator.of(dialogContext).pop(),
+                                borderRadius: BorderRadius.circular(20),
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? UserTheme.nightSurface : Colors.grey.shade100,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    size: 18,
+                                    color: isDark ? Colors.white70 : Colors.black54,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // HERO CENTERPIECE: Elevated High-Contrast QR Code Pass
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.grey.shade200, width: 1.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.06),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // Main BIG QR Code
+                                  QrImageView(
+                                    data: trackingId,
+                                    version: QrVersions.auto,
+                                    size: 220,
+                                    backgroundColor: Colors.white,
+                                    padding: const EdgeInsets.all(6),
+                                  ),
+                                  const SizedBox(height: 8),
+
+                                  // Clean, non-bold Tracking ID
+                                  SelectableText(
+                                    trackingId,
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontWeight: FontWeight.normal,
+                                      fontSize: 16,
+                                      color: Color(0xFF334155),
+                                      letterSpacing: 1.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // SMS Automated Dispatch Status
+                          if (riderPhone.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.09),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green.withOpacity(0.25)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.mark_email_read_rounded, color: Colors.green, size: 15),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      'SMS auto-sent to Rider ($riderPhone)',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.green,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          // In-Modal Immediate Feedback Toast (In front of dialog)
+                          if (feedbackMsg != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: UserTheme.statusSuccess,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.12),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 15),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      feedbackMsg!,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          const SizedBox(height: 16),
+
+                          // Action Controls: Balanced & Modern
+                          Row(
+                            children: [
+                              if (riderPhone.isNotEmpty) ...[
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.green.shade700,
+                                      side: BorderSide(color: Colors.green.shade600),
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                                    label: const Text(
+                                      'Re-send SMS',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                    ),
+                                    onPressed: () async {
+                                      await launchSms(riderPhone, pickupPassText);
+                                      triggerFeedback('SMS re-opened for $riderPhone!');
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                              ],
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isPassCopied ? Colors.green.shade700 : UserTheme.primaryOrange,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  icon: Icon(
+                                    isPassCopied ? Icons.check_rounded : Icons.share_rounded,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    isPassCopied ? 'Pass Copied!' : 'Share Pass',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                  onPressed: () async {
+                                    await Clipboard.setData(ClipboardData(text: pickupPassText));
+                                    triggerFeedback('Pickup Pass copied to clipboard!', passCopied: true);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // Subtle Done button
+                          Center(
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () => Navigator.of(dialogContext).pop(),
+                              child: Text(
+                                'DONE',
+                                style: TextStyle(
+                                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      SelectableText(
-                        courierOtp,
-                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () async {
-                  final text = "Hi ${_customerNameController.text.trim()}! Your order #${_outboundTrackingController.text.trim()} has been securely staged in our Smart Parcel Dropbox for pickup via $_selectedCourierOutbound. Thank you!";
-                  await Clipboard.setData(ClipboardData(text: text));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Customer proof text copied to clipboard!'), backgroundColor: UserTheme.statusSuccess),
-                    );
-                    Navigator.of(context).pop();
-                  }
-                },
-                child: const Text('COPY PROOF MESSAGE'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('DONE'),
-              ),
-            ],
-          ),
+                );
+              },
+            );
+          },
         );
 
         if (mounted) Navigator.of(context).pop();
@@ -529,7 +791,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'Stage an individual customer package. Generates a Courier OTP & customer proof message.',
+                              'Stage an individual customer package. Generates a digital Courier Pickup QR Pass & automated SMS dispatch.',
                               style: TextStyle(
                                 color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
                                 fontSize: 13,
@@ -621,11 +883,21 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                         );
                       }).toList(),
                     ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _riderPhoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Courier / Rider Phone (For SMS Dispatch)',
+                        hintText: 'e.g. 09123456789 (Optional)',
+                        prefixIcon: Icon(Icons.sms_outlined, color: UserTheme.primaryOrange),
+                      ),
+                    ),
                     const SizedBox(height: 28),
                     UserUi.premiumButton(
-                      label: 'STAGE OUTGOING ORDER & GET OTP',
+                      label: 'STAGE ORDER & GET PICKUP PASS',
                       onTap: _isLoading ? () {} : _stageOutboundCustomerOrder,
-                      icon: Icons.check_circle_outline,
+                      icon: Icons.qr_code_rounded,
                     ),
                   ],
                 ),

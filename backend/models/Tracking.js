@@ -41,6 +41,8 @@ const trackingSchema = new mongoose.Schema({
   customerName: { type: String, trim: true },
   customerPhone: { type: String, trim: true },
   courierName: { type: String, trim: true },
+  riderName: { type: String, trim: true },
+  riderPhone: { type: String, trim: true },
   courierOtp: { type: String, trim: true },
   courierOtpExpiresAt: { type: Date }
 }, { timestamps: true });

@@ -48,6 +48,13 @@ class NotificationModel {
     );
   }
 
+  static DateTime _safeParseTimestamp(dynamic val) {
+    if (val == null) return DateTime.now();
+    if (val is DateTime) return val;
+    if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+    return DateTime.tryParse(val.toString()) ?? DateTime.now();
+  }
+
   /// Create NotificationModel from Map (JSON)
   factory NotificationModel.fromMap(Map<String, dynamic> data) {
     return NotificationModel(
@@ -57,7 +64,7 @@ class NotificationModel {
       title: data['title'] ?? '',
       message: data['message'] ?? '',
       isRead: data['isRead'] ?? false,
-      timestamp: data['timestamp'] != null ? DateTime.parse(data['timestamp'].toString()) : DateTime.now(),
+      timestamp: _safeParseTimestamp(data['timestamp']),
       trackingId: data['trackingId'],
       data: data['data'] != null ? Map<String, dynamic>.from(data['data']) : null,
     );

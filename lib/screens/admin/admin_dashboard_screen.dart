@@ -28,21 +28,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String? _userId;
   int _selectedIndex = 0;
 
-  // Cache streams in state to prevent re-fetching on tab switch
+  // Cache streams and futures in state
   late Stream<List<UserModel>> _usersStream;
   late Stream<List<TrackingModel>> _trackingStream;
-  late Stream<List<ScanLogModel>> _scanLogsStream;
-  late Stream<List<Map<String, dynamic>>> _deliveryLogsStream;
+  late Future<List<ScanLogModel>> _scanLogsFuture;
+  late Future<List<Map<String, dynamic>>> _deliveryLogsFuture;
+
+  void _refreshLogs() {
+    setState(() {
+      _scanLogsFuture = _databaseService.fetchScanLogs();
+      _deliveryLogsFuture = _databaseService.fetchAllDeliveryLogs();
+    });
+  }
 
   @override
   void initState() {
     super.initState();
-    // Convert to broadcast streams so StreamBuilders can safely resubscribe
-    // when the widget rebuilds (e.g. after navigation or setState).
     _usersStream = _databaseService.getAllUsers();
     _trackingStream = _databaseService.getAllTrackingIds();
-    _scanLogsStream = _databaseService.getScanLogs().asBroadcastStream();
-    _deliveryLogsStream = _databaseService.getAllDeliveryLogs().asBroadcastStream();
+    _scanLogsFuture = _databaseService.fetchScanLogs();
+    _deliveryLogsFuture = _databaseService.fetchAllDeliveryLogs();
 
     // Drive the auth-dependent parts (socket + user data) via FutureBuilder.
     _currentUserDataFuture = _authService.currentUserId.then((userId) async {
@@ -711,81 +716,97 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildLogsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Scan Logs Section
-          _buildSectionHeader('Scan Logs', Icons.qr_code_scanner),
-          const SizedBox(height: 12),
-          StreamBuilder<List<ScanLogModel>>(
-            stream: _scanLogsStream,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: CircularProgressIndicator(
-                        color: AdminTheme.primaryBlue),
-                  ),
+    return RefreshIndicator(
+      onRefresh: () async => _refreshLogs(),
+      color: AdminTheme.primaryBlue,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Scan Logs Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildSectionHeader('Scan Logs', Icons.qr_code_scanner),
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  color: AdminTheme.primaryBlue,
+                  tooltip: 'Refresh Logs',
+                  onPressed: _refreshLogs,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FutureBuilder<List<ScanLogModel>>(
+              future: _scanLogsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: CircularProgressIndicator(
+                          color: AdminTheme.primaryBlue),
+                    ),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return _buildErrorCard('Error loading scan logs');
+                }
+
+                final logs = snapshot.data ?? [];
+
+                if (logs.isEmpty) {
+                  return _buildEmptyCard('No scan logs found');
+                }
+
+                return Column(
+                  children:
+                      logs.take(10).map((log) => _buildScanLogCard(log)).toList(),
                 );
-              }
+              },
+            ),
 
-              if (snapshot.hasError) {
-                return _buildErrorCard('Error loading scan logs');
-              }
+            const SizedBox(height: 24),
 
-              final logs = snapshot.data ?? [];
+            // Delivery Logs Section
+            _buildSectionHeader('Delivery Logs', Icons.local_shipping_outlined),
+            const SizedBox(height: 12),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _deliveryLogsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: CircularProgressIndicator(
+                          color: AdminTheme.primaryBlue),
+                    ),
+                  );
+                }
 
-              if (logs.isEmpty) {
-                return _buildEmptyCard('No scan logs found');
-              }
+                if (snapshot.hasError) {
+                  return _buildErrorCard('Error loading delivery logs');
+                }
 
-              return Column(
-                children:
-                    logs.take(10).map((log) => _buildScanLogCard(log)).toList(),
-              );
-            },
-          ),
+                final logs = snapshot.data ?? [];
 
-          const SizedBox(height: 24),
+                if (logs.isEmpty) {
+                  return _buildEmptyCard('No delivery logs found');
+                }
 
-          // Delivery Logs Section
-          _buildSectionHeader('Delivery Logs', Icons.local_shipping_outlined),
-          const SizedBox(height: 12),
-          StreamBuilder<List<Map<String, dynamic>>>(
-            stream: _deliveryLogsStream,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: CircularProgressIndicator(
-                        color: AdminTheme.primaryBlue),
-                  ),
+                return Column(
+                  children: logs
+                      .take(10)
+                      .map((log) => _buildDeliveryLogCard(log))
+                      .toList(),
                 );
-              }
-
-              if (snapshot.hasError) {
-                return _buildErrorCard('Error loading delivery logs');
-              }
-
-              final logs = snapshot.data ?? [];
-
-              if (logs.isEmpty) {
-                return _buildEmptyCard('No delivery logs found');
-              }
-
-              return Column(
-                children: logs
-                    .take(10)
-                    .map((log) => _buildDeliveryLogCard(log))
-                    .toList(),
-              );
-            },
-          ),
-        ],
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

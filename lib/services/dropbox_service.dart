@@ -83,7 +83,7 @@ class DropboxService {
       debugPrint('📤 REST: Falling back to DELETE /api/dropbox/$userId');
       final headers = await _authService.getAuthHeaders();
       final response = await http.delete(
-        Uri.parse('${ApiConfig.baseUrl}/api/dropbox/$userId'),
+        Uri.parse('${ApiConfig.dropbox}/$userId'),
         headers: headers,
       );
       if (response.statusCode == 200) {
