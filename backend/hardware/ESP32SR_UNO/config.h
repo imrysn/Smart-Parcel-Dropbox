@@ -15,4 +15,4 @@
 // REMOTE → use beginSSL(), PORT=443, HOST="your-app.onrender.com"
 #define SERVER_HOST   "smart-parcel-dropbox-depth.onrender.com"
 #define SERVER_PORT   443
-#define SERVER_PATH   "/socket.io/?EIO=3"
+#define SERVER_PATH   "/socket.io/?EIO=3&clientType=hardware"

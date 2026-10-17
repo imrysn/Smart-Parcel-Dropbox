@@ -46,7 +46,12 @@ float getDistance(const int pins[]) {
 }
 
 void processSensors() {
-  // Update one sensor per call to avoid blocking the loop too much
+  // Rate-limit polling to once every 120ms to prevent CPU starvation and loop jitter
+  static unsigned long lastSensorPoll = 0;
+  if (millis() - lastSensorPoll < 120) return;
+  lastSensorPoll = millis();
+
+  // Update one sensor per interval to avoid blocking the loop
   static int sensorIndex = 0;
   if (sensorIndex == 0) {
     lastUsPlatformDist = getDistance(US_PLATFORM);

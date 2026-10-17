@@ -333,6 +333,13 @@ io.on('connection', (socket) => {
     io.to('esp32_device').emit('getStatus');
   });
 
+  // ── Door State Relay (ESP32 → backend → all clients / mobile app) ────────
+  // When ESP32 updates its door or lock status, broadcast to all clients
+  socket.on('doorStateUpdate', (data) => {
+    console.log(`🚪 doorStateUpdate received from ${socket.id}:`, data);
+    io.emit('doorStateUpdate', data);
+  });
+
   // ── Phase 2: Scan Verification ──────────────────────────────────────────
 
   socket.on('verifyScan', async ({ trackingId, mode }) => {

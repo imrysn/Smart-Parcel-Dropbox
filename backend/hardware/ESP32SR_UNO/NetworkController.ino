@@ -255,7 +255,7 @@ void handleRequestWiFiScan() {
 }
 
 void emitWifiScanResult(int n) {
-  StaticJsonDocument<2048> doc;
+  DynamicJsonDocument doc(2048);
   JsonArray arr = doc.to<JsonArray>();
   arr.add("wifiScanResult");
   JsonObject data = arr.createNestedObject();
@@ -269,9 +269,9 @@ void emitWifiScanResult(int n) {
     net["secure"] = (WiFi.encryptionType(i) != WIFI_OFF);
   }
 
-  char output[2048];
+  String output;
   serializeJson(doc, output);
-  socketIO.send(sIOtype_EVENT, output);
+  socketIO.send(sIOtype_EVENT, output.c_str());
   if (DEBUG_WS) { Serial.print("[WS] Emitted wifiScanResult: "); Serial.println(output); }
 }
 

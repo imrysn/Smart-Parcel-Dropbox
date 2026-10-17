@@ -101,6 +101,8 @@ void setupCaptivePortal();
 void loopCaptivePortal();
 void stopCaptivePortal();
 void checkFactoryReset();
+void checkSerialCommands();
+void forceNextStep();
 void printSerialMenu();
 void showHomeScreen();
 void drawStatusBar();
@@ -114,7 +116,6 @@ void drawIconLock(int x, int y, uint16_t color, bool open);
 void drawIconBox(int x, int y, uint16_t color);
 void drawIconCheck(int x, int y, uint16_t color);
 void drawIconX(int x, int y, uint16_t color);
-void drawWiFiSignal(int x, int y, uint16_t color);
 void drawWiFiSignal(int x, int y, uint16_t color);
 void reinitTFT();
 
@@ -181,7 +182,7 @@ void setup() {
   delay(150);
 
   SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
-  tft.begin();
+  tft.begin(24000000UL); // 24MHz SPI clock for stability against wire noise
   tft.setRotation(3);
   tft.fillScreen(COLOR_BG);
 
@@ -291,9 +292,10 @@ void loop() {
     updateDynamicIndicators();
   }
 
-  // Active WiFi Monitoring and Auto-Reconnect
+  // Active WiFi Monitoring and Auto-Reconnect (skip during captive portal or setup)
   unsigned long currentMillisMillis = millis();
-  if (WiFi.status() != WL_CONNECTED && (currentMillisMillis - previousMillisWiFi >= intervalWiFi)) {
+  if (currentState != WAITING_FOR_WIFI_CONFIG && currentState != DEVICE_UNREGISTERED &&
+      WiFi.status() != WL_CONNECTED && (currentMillisMillis - previousMillisWiFi >= intervalWiFi)) {
     Serial.println("[WiFi] Connection lost. Attempting to reconnect...");
     WiFi.disconnect();
     WiFi.reconnect();
@@ -391,7 +393,7 @@ void loop() {
     case WAITING_FOR_WIFI_CONFIG:
       if (!stateInitialized) {
         setupCaptivePortal();
-        drawWiFiConfigQRScreen("SmartParcelBox_Setup");
+        drawWiFiConfigQRScreen(CAPTIVE_AP_SSID);
         stateInitialized = true;
       }
       loopCaptivePortal();
@@ -664,6 +666,17 @@ void loop() {
         Serial.println("[FLOW] Rider: Bin door CLOSED → Locked.");
         triggerBuzzer(1);
         changeState(RIDER_SCANNING_PARCELS);
+      }
+
+      // Safety timeout: 30 seconds to prevent solenoid overheating if abandoned
+      if (millis() - stateStartTime > 30000) {
+        digitalWrite(LOCK_PICKUP, HIGH);  // Ensure locked
+        lockPickupOpen = false;
+        emitDoorState();
+        Serial.println("[FLOW] WARNING: Rider door timed out (30s). Re-locking for thermal safety.");
+        displayMessage("TIMEOUT", "Door Re-locked");
+        triggerBuzzer(3);
+        changeState(RESETTING);
       }
       break;
 
@@ -1046,7 +1059,6 @@ void loop() {
         }
       }
       break;
-      break;
 
     // ── SCAN FAILED PROMPT ────────────────────────────────
     case SCAN_FAILED_PROMPT:
@@ -1326,7 +1338,16 @@ void checkSerialCommands() {
       digitalWrite(LOCK_TOP, LOW);
       digitalWrite(LOCK_PICKUP, LOW);
       digitalWrite(LOCK_RECEIVED, LOW);
-      Serial.println("[MANUAL] Override: All Solenoids UNLOCKED.");
+      lockTopOpen = true; lockPickupOpen = true; lockReceivedOpen = true;
+      emitDoorState();
+      Serial.println("[MANUAL] Override: All Solenoids UNLOCKED (auto-relocking in 10s)...");
+      delay(10000);
+      digitalWrite(LOCK_TOP, HIGH);
+      digitalWrite(LOCK_PICKUP, HIGH);
+      digitalWrite(LOCK_RECEIVED, HIGH);
+      lockTopOpen = false; lockPickupOpen = false; lockReceivedOpen = false;
+      emitDoorState();
+      Serial.println("[MANUAL] Override: All Solenoids RE-LOCKED.");
     } else if (cmd == 'D') {
       Serial.println("[DIAG] === Ultrasonic Sensor Diagnostic ===");
       float d1 = getDistance(US_PLATFORM);
@@ -1500,7 +1521,7 @@ void changeState(SystemState newState) {
   stateInitialized = false;
   tft.fillScreen(COLOR_BG);
   
-  if (newState == IDLE || newState == LOCKSCREEN) {
+  if (newState == IDLE) {
     showHomeScreen();
   }
 }

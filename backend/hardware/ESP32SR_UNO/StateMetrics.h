@@ -54,6 +54,9 @@
 #define HUD_CORNER    6
 #define BAR_HEIGHT    24
 
+// Network & Setup Constants
+#define CAPTIVE_AP_SSID   "SmartParcelBox_Setup"
+
 // ============================================================
 //  STATE MACHINE
 // ============================================================
@@ -201,12 +204,13 @@ void handleScanResult(const String& payload);
 void handleRiderVerifyResult(const String& payload);
 void handleRegisterTracking(const String& payload);
 void handleControlDoor(const String& payload);
+void emitWifiScanResult(int n);
 
 extern const int US_PLATFORM[2];
 extern const int US_PICKUP[2];
 extern const int US_DROPOFF[2];
 
-// Utility Forward declarations for globally used functions
-void changeState(SystemState newState);
-void displayMessage(const String& title, const String& subtitle);
-void drawTimeoutScreen(const char* title, const char* subtitle);
+// Utility inline helper for String-based displayMessage calls
+inline void displayMessage(const String& title, const String& subtitle) {
+  displayMessage(title.c_str(), subtitle.c_str());
+}
