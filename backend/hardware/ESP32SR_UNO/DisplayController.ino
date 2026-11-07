@@ -205,7 +205,8 @@ void displayMessage(const char* title, const char* msg) {
                 strstr(title, "UNLOCKED") || strstr(title, "Connected");
   bool isBad  = strstr(title, "ERROR") || strstr(title, "INVALID") ||
                 strstr(title, "REJECTED") || strstr(title, "DENIED") ||
-                strstr(title, "TIMEOUT") || strstr(title, "OFFLINE");
+                strstr(title, "TIMEOUT") || strstr(title, "OFFLINE") ||
+                strstr(title, "FAILED") || strstr(title, "NO PARCEL");
   uint16_t accentColor = isGood ? COLOR_GREEN : isBad ? COLOR_RED : COLOR_ACCENT;
 
   tft.fillScreen(COLOR_BG);
@@ -361,28 +362,7 @@ static void _twoOvalScreen(
   tft.setFont();
 }
 
-// (Unused owner screens removed; owner flow moved to mobile app)
-
-void drawRiderScanIdScreen() {
-  drawScannerBg();
-  _boldText("SCAN RIDER ID", 160, 75, COLOR_GREY);
-}
-
-void drawRiderScanParcelScreen() {
-  drawScannerBg();
-  String prompt = "Scan Parcel #" + String(scannedCount + 1);
-  _boldText(prompt.c_str(), 160, 75, COLOR_GREY);
-}
-
-void drawRiderPickupMorePrompt() {
-  tft.fillScreen(COLOR_BG);
-  drawStatusBar();
-  String countStr = "#" + String(scannedCount) + " marked done";
-  _smallText(countStr.c_str(), 160, 48, COLOR_GREEN);
-  _verticalOvalButton(80,  138, 100, 140, "MORE", COLOR_BLUE, 4);
-  _verticalOvalButton(240, 138, 100, 140, "DONE", COLOR_GREEN, 2);
-  tft.setFont();
-}
+// (Unused owner and legacy rider multi-scan screens removed)
 
 void drawScanFailedPrompt() {
   tft.fillScreen(COLOR_BG);
@@ -407,7 +387,7 @@ void reinitTFT() {
   delay(100);
   digitalWrite(TFT_RST, HIGH);
   delay(150);
-  tft.begin();
+  tft.begin(TFT_SPI_FREQ);
   tft.setRotation(3);
   showHomeScreen();
 }

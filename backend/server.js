@@ -366,6 +366,29 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Check if this is a registered Rider ID (for pickup mode or courier access)
+      const rider = await Rider.findOne({ riderId: trackingId });
+      if (rider) {
+        console.log(`🚴 RIDER AUTHORIZED AT PHYSICAL SCANNER: ${rider.name} (${trackingId})`);
+        await ScanLog.create({
+          scannedId: trackingId,
+          accessGranted: true,
+          mode: mode,
+          status: 'authorized',
+          reason: `rider_badge:${rider.name}`
+        });
+        socket.emit('scanResult', {
+          valid: true,
+          trackingId,
+          mode,
+          userId: null,
+          isRider: true,
+          riderName: rider.name,
+          reason: 'ok'
+        });
+        return;
+      }
+
       let tracking = await findTrackingFlexibly(trackingId);
 
       // Case 1: Tracking ID doesn't exist at all

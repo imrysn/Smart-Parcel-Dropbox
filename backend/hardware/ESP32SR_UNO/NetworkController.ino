@@ -225,9 +225,10 @@ void emitStatusUpdate(const String& trackingId, const String& status, const Stri
 }
 
 void emitDoorState() {
-  bool parcelOnPlatform = (lastUsPlatformDist > 1.0 && lastUsPlatformDist < 18.0);
-  bool parcelInDropOff  = (lastUsDropoffDist < 25.0);
-  bool parcelInPickup   = (lastUsPickupDist < 25.0);
+  bool parcelInDropOff  = (dropoffBaselineDist < 900.0 && lastUsDropoffDist < 900.0) 
+                          ? ((dropoffBaselineDist - lastUsDropoffDist) >= 4.0) 
+                          : (lastUsDropoffDist < 30.0);
+  bool parcelInPickup   = false; // Pickup US removed - tracked logically via server status
 
   StaticJsonDocument<256> doc;
   JsonArray arr = doc.to<JsonArray>();
@@ -236,7 +237,7 @@ void emitDoorState() {
   data["parcelDoorOpen"]    = lockTopOpen;       
   data["pickupDoorOpen"]    = lockPickupOpen;    
   data["receivedDoorOpen"]  = lockReceivedOpen;  
-  data["parcelDetected"]    = parcelOnPlatform;  
+  data["parcelDetected"]    = parcelInDropOff;  
   data["parcelInDropOff"]   = parcelInDropOff;   
   data["parcelInPickup"]    = parcelInPickup;    
   data["systemState"]       = (int)currentState; 

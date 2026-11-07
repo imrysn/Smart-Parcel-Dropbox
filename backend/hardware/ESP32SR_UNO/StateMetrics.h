@@ -14,7 +14,7 @@
 // ============================================================
 #define TFT_CS    10
 #define TFT_DC    21
-#define TFT_RST   20
+#define TFT_RST   7   // Moved from GPIO 20 (native USB_D+) to GPIO 7 to prevent white screen
 #define TFT_MOSI  11
 #define TFT_SCK   12
 #define TFT_MISO  13
@@ -31,7 +31,16 @@
 #define REED_PICKUP      35
 #define REED_RECEIVED    45
 
-#define SERVO_PIN        14  // Available / Reserved GPIO 14
+// ============================================================
+//  AVAILABLE / RESERVED FREE PINS (Hardware components removed)
+// ============================================================
+// GPIO 14: Available (Servo motor removed)
+// GPIO 15: Available (Platform Ultrasonic Trig removed)
+// GPIO  4: Available (Platform Ultrasonic Echo removed)
+// GPIO  7: Assigned to TFT_RST (Moved from GPIO 20)
+// GPIO 16: Available (Pickup Ultrasonic Echo removed)
+// GPIO 20: Dedicated to ESP32-S3 Native USB_D+
+#define SERVO_PIN        14  // Available GPIO 14
 
 // ============================================================
 //  DISPLAY COLORS (Sci-Fi Robotic HUD Theme)
@@ -53,6 +62,7 @@
 #define HUD_MARGIN    10
 #define HUD_CORNER    6
 #define BAR_HEIGHT    24
+#define TFT_SPI_FREQ  14000000UL  // 14MHz noise-damped SPI clock for ground noise immunity
 
 // Network & Setup Constants
 #define CAPTIVE_AP_SSID   "SmartParcelBox_Setup"
@@ -64,15 +74,10 @@ enum SystemState {
   DEVICE_UNREGISTERED,
   SHOWING_REGISTRATION_QR,
   IDLE,
-  RIDER_VERIFYING,
-  RIDER_DOOR_OPEN,
-  RIDER_SCANNING_PARCELS,
-  RIDER_PICKUP_PROMPT,
+  PICKUP_DOOR_OPEN,
   WAITING_FOR_SCAN,
   VERIFYING_SCAN,
   UNLOCKING_ENTRY,
-  WAITING_PLACEMENT_STABLE,
-  TILTING_PLATFORM,
   CONFIRMING_DROP,
   SCAN_FAILED_PROMPT,
   SCAN_TIMEOUT_PROMPT,
@@ -82,6 +87,8 @@ enum SystemState {
   RESETTING,
   LOCKSCREEN
 };
+
+#define RIDER_DOOR_OPEN PICKUP_DOOR_OPEN
 
 #define IDLE_TIMEOUT_MS 30000
 
@@ -114,6 +121,7 @@ extern unsigned long actionDelayStart;
 extern bool          actionDelayActive;
 extern SystemState   pendingNextState;
 extern bool          isScannerTestActive;
+extern bool          isUsDiagContinuousActive;
 extern unsigned long lastStateChangeTime;
 extern unsigned long scannerTestStartTime;
 
@@ -175,6 +183,7 @@ extern const unsigned long TIMEOUT_MS;
 extern float lastUsPlatformDist;
 extern float lastUsPickupDist;
 extern float lastUsDropoffDist;
+extern float dropoffBaselineDist;
 extern unsigned long lastUsPlatformTime;
 extern unsigned long lastUsPickupTime;
 extern unsigned long lastUsDropoffTime;
@@ -205,6 +214,8 @@ void handleRiderVerifyResult(const String& payload);
 void handleRegisterTracking(const String& payload);
 void handleControlDoor(const String& payload);
 void emitWifiScanResult(int n);
+int  readReedDebounced(int pin);
+void setPickupLock(bool unlock);
 
 extern const int US_PLATFORM[2];
 extern const int US_PICKUP[2];
