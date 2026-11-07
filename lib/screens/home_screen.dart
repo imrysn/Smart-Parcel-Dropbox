@@ -18,19 +18,11 @@ import 'admin/rider_management_screen.dart';
 import 'dropbox_control_screen.dart';
 
 import 'pickup_screen.dart';
-import 'task_manager_screen.dart';
 import 'owner_verify_screen.dart';
 import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
 import '../widgets/weekly_activity_chart.dart';
-import '../widgets/mini_sparkline.dart';
-import '../widgets/daily_digest_card.dart';
-import '../widgets/financial_digest_card.dart';
-import '../models/transaction_model.dart';
-import '../services/financial_service.dart';
 import 'add_pickup_screen.dart';
-import 'financial_screen.dart';
-import 'payment_qr_screen.dart';
 import '../services/tracking_service.dart';
 import '../widgets/user_ui.dart';
 import '../config/user_theme.dart';
@@ -74,8 +66,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Cache FutureBuilder future to prevent recreation on every rebuild
   Future<Map<String, dynamic>?>? _userDataFuture;
-  Map<String, dynamic>? _dailyDigestData;
-  FinancialSummaryModel? _financialSummary;
 
   @override
   void initState() {
@@ -92,24 +82,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_userId != null) {
         _userDataFuture = _databaseService.getUserData(_userId!);
         _checkDropbox();
-        _loadDailyDigest();
       }
       setState(() {});
-    }
-  }
-
-  Future<void> _loadDailyDigest() async {
-    try {
-      final digest = await getIt<TrackingService>().fetchDailyDigest();
-      final finData = await FinancialService().fetchFinancialSummary();
-      if (mounted) {
-        setState(() {
-          if (digest != null) _dailyDigestData = digest;
-          _financialSummary = finData['summary'];
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading daily digest: $e');
     }
   }
 
@@ -187,10 +161,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return 'Orders';
       case 2:
-        return 'Business Financials';
-      case 3:
         return 'Dropbox Management';
-      case 4:
+      case 3:
         return 'Profile';
       default:
         return 'Smart Parcel Dropbox';
@@ -259,26 +231,6 @@ class _HomeScreenState extends State<HomeScreen> {
           title: _getAppBarTitle(),
           centerTitle: false,
           actions: [
-            if (_selectedIndex == 2) ...[
-              IconButton(
-                icon: const Icon(Icons.qr_code_2_rounded, color: UserTheme.primaryOrange),
-                tooltip: 'GCash / Maya / Bank Payment Requests',
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => const PaymentQrScreen()),
-                  );
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.download_rounded, color: UserTheme.primaryOrange),
-                tooltip: 'Export CSV Ledger',
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Financial CSV ledger generated & ready for download!'), backgroundColor: UserTheme.statusSuccess),
-                  );
-                },
-              ),
-            ],
             if (_userId != null)
               NotificationBadge(
                 userId: _userId!,
@@ -315,13 +267,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 64,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(5, (index) {
+                    children: List.generate(4, (index) {
                       final isSelected = _selectedIndex == index;
                       IconData icon; IconData activeIcon; String label;
                       if (index == 0) { icon = Icons.grid_view_outlined; activeIcon = Icons.grid_view_rounded; label = 'Home'; }
                       else if (index == 1) { icon = Icons.inventory_2_outlined; activeIcon = Icons.inventory_2_rounded; label = 'Orders'; }
-                      else if (index == 2) { icon = Icons.account_balance_wallet_outlined; activeIcon = Icons.account_balance_wallet_rounded; label = 'Ledger'; }
-                      else if (index == 3) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
+                      else if (index == 2) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
                       else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
 
                       return Expanded(
@@ -329,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onTap: () {
                             setState(() {
                               _selectedIndex = index;
-                              if (index <= 2 && _userId != null) {
+                              if (index <= 1 && _userId != null) {
                                 _databaseService.refreshTracking(_userId!);
                                 if (index == 0) _checkDropbox();
                               }
@@ -661,7 +612,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 child: Icon(icon, color: color, size: 22),
               ),
-              MiniSparkline(data: weeklyData, color: color),
             ],
           ),
           const Spacer(),
@@ -950,10 +900,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildModernSummaryGrid(BuildContext context, bool isDark, int dropOffBinCount) {
-    final awaitingPickup = _dailyDigestData?['awaitingPickupCount'] ?? 0;
-    final supplierStockIn = _dailyDigestData?['supplierStockInCount'] ?? 0;
-    final netProfit = _financialSummary?.netProfit ?? 0.0;
-    final marginPercent = _financialSummary?.marginPercent ?? 0.0;
+    final cached = _databaseService.cachedTracking;
+    final inTransitCount = cached.where((t) => ['pending', 'in_transit'].contains(t.status) && t.mode != 'pickup').length;
+    final awaitingPickupCount = cached.where((t) => t.mode == 'pickup' && ['pending', 'ready_for_pickup'].contains(t.status)).length;
+    final retrievedCount = cached.where((t) => t.status == 'done').length;
 
     return Column(
       children: [
@@ -963,13 +913,57 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _buildCompactSummaryTile(
                 context: context,
                 isDark: isDark,
-                title: 'Outbound Pickups',
-                value: '$awaitingPickup',
-                subtitle: awaitingPickup > 0 ? 'Parcels ready' : 'Queue clear',
-                icon: Icons.outbox_rounded,
+                title: 'In Dropbox',
+                value: '$dropOffBinCount',
+                subtitle: dropOffBinCount > 0 ? 'Ready for collection' : 'Empty drop bin',
+                icon: Icons.all_inbox_rounded,
                 iconColor: UserTheme.primaryOrange,
-                badgeLabel: 'PICKUP',
+                badgeLabel: dropOffBinCount > 0 ? 'PARCELS' : 'EMPTY',
                 badgeColor: UserTheme.primaryOrange,
+                onTap: () {
+                  setState(() {
+                    _selectedIndex = 1;
+                    _ordersTabIndex = 1; // Delivered
+                  });
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildCompactSummaryTile(
+                context: context,
+                isDark: isDark,
+                title: 'Incoming',
+                value: '$inTransitCount',
+                subtitle: inTransitCount > 0 ? 'In transit to box' : 'No incoming',
+                icon: Icons.local_shipping_rounded,
+                iconColor: Colors.blueAccent,
+                badgeLabel: inTransitCount > 0 ? 'TRANSIT' : 'CLEAR',
+                badgeColor: Colors.blue,
+                onTap: () {
+                  setState(() {
+                    _selectedIndex = 1;
+                    _ordersTabIndex = 0; // Pending
+                  });
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildCompactSummaryTile(
+                context: context,
+                isDark: isDark,
+                title: 'Outbound Pickups',
+                value: '$awaitingPickupCount',
+                subtitle: awaitingPickupCount > 0 ? 'Parcels ready' : 'Queue clear',
+                icon: Icons.outbox_rounded,
+                iconColor: Colors.tealAccent.shade700,
+                badgeLabel: 'PICKUP',
+                badgeColor: Colors.teal,
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) => PickupScreen(userId: _userId!, databaseService: _databaseService)),
@@ -982,52 +976,19 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _buildCompactSummaryTile(
                 context: context,
                 isDark: isDark,
-                title: 'Supplier Stock In',
-                value: '$supplierStockIn',
-                subtitle: 'Inbound supplies',
-                icon: Icons.inventory_2_rounded,
-                iconColor: Colors.tealAccent.shade700,
-                badgeLabel: 'SUPPLY',
-                badgeColor: Colors.teal,
-                onTap: () => setState(() => _selectedIndex = 1),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildCompactSummaryTile(
-                context: context,
-                isDark: isDark,
-                title: 'Business Profit',
-                value: '₱${netProfit.toStringAsFixed(0)}',
-                subtitle: '${marginPercent.toStringAsFixed(1)}% Margin',
-                icon: Icons.account_balance_wallet_rounded,
-                iconColor: netProfit >= 0 ? UserTheme.statusSuccess : UserTheme.statusError,
-                badgeLabel: netProfit >= 0 ? 'PROFIT' : 'LOSS',
-                badgeColor: netProfit >= 0 ? UserTheme.statusSuccess : UserTheme.statusError,
+                title: 'Retrieved',
+                value: '$retrievedCount',
+                subtitle: 'Total collected',
+                icon: Icons.check_circle_outline_rounded,
+                iconColor: UserTheme.statusSuccess,
+                badgeLabel: 'HISTORY',
+                badgeColor: UserTheme.statusSuccess,
                 onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => const FinancialScreen()),
-                  ).then((_) => _loadDailyDigest());
+                  setState(() {
+                    _selectedIndex = 1;
+                    _ordersTabIndex = 3; // Retrieved
+                  });
                 },
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildCompactSummaryTile(
-                context: context,
-                isDark: isDark,
-                title: 'Dropbox Bin',
-                value: '$dropOffBinCount',
-                subtitle: dropOffBinCount > 0 ? 'Parcels inside' : 'Empty bin',
-                icon: Icons.all_inbox_rounded,
-                iconColor: Colors.indigoAccent,
-                badgeLabel: dropOffBinCount > 0 ? 'PARCELS' : 'SECURE',
-                badgeColor: dropOffBinCount > 0 ? UserTheme.primaryOrange : Colors.indigo,
-                onTap: () => setState(() => _selectedIndex = 3),
               ),
             ),
           ],
@@ -1634,28 +1595,9 @@ class _HomeScreenState extends State<HomeScreen> {
         // ── Outbound Tab View OR Filtered Inbound List ──
         if (_ordersTabIndex == 2)
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: [
-                  DailyDigestCard(
-                    digestData: _dailyDigestData,
-                    onRefresh: _loadDailyDigest,
-                    onAddOutbound: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const AddPickupScreen()),
-                      ).then((_) => _loadDailyDigest());
-                    },
-                  ),
-                  SizedBox(
-                    height: 600,
-                    child: PickupScreen(
-                      userId: _userId!,
-                      databaseService: _databaseService,
-                    ),
-                  ),
-                ],
-              ),
+            child: PickupScreen(
+              userId: _userId!,
+              databaseService: _databaseService,
             ),
           )
         else
@@ -1827,10 +1769,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildAllOrdersTab();
       case 2:
-        return const TaskManagerScreen();
-      case 3:
         return const DropboxControlScreen();
-      case 4:
+      case 3:
         return _buildProfileTab();
       default:
         return _buildActiveOrdersTab();
