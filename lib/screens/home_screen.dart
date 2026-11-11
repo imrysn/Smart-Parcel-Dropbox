@@ -146,46 +146,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildConnectivityIndicator() {
     final ok = _appConnected;
-    final dot = ok ? UserTheme.statusSuccess : UserTheme.statusError;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+    final statusColor = ok ? UserTheme.statusSuccess : (isDark ? UserTheme.nightTextSecondary : UserTheme.primaryOrange);
+
     return Container(
       margin: const EdgeInsets.only(left: 8),
-      child: UserUi.glassCard(
-        context,
-        blur: 8,
-        borderRadius: 20,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: dot,
-                boxShadow: [
-                  BoxShadow(
-                    color: dot.withOpacity(0.4),
-                    blurRadius: 4,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              ok ? 'LIVE' : 'OFFLINE',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.8,
-                color: ok ? dot : (isDark ? Colors.white : UserTheme.primaryOrange),
-              ),
-            ),
-          ],
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        ok ? 'Live' : 'Offline',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+          color: statusColor,
         ),
       ),
     );
@@ -469,84 +446,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ] else ...[
-                    ...recentOrders.map((order) {
-                      int stageIndex = 0;
-                      if (order.status == 'in_transit') stageIndex = 1;
-                      else if (order.status == 'delivered') stageIndex = 2;
-                      else if (order.status == 'done' || order.status == 'retrieved') stageIndex = 3;
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-                          borderRadius: BorderRadius.circular(UserTheme.radiusL),
-                          border: Border.all(
-                            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08),
-                          ),
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => TrackingDetailsScreen(tracking: order),
-                                ),
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(UserTheme.radiusL),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      CarrierBadge(shopName: order.shopName),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              order.trackingId,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w800,
-                                                fontFamily: 'monospace',
-                                                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              order.getStatusText(),
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      UserUi.statusPill(
-                                        label: order.status.toUpperCase(),
-                                        color: order.status == 'delivered'
-                                            ? UserTheme.primaryOrange
-                                            : (order.status == 'done' || order.status == 'retrieved'
-                                                ? UserTheme.statusSuccess
-                                                : Colors.indigo),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 14),
-                                  DeliveryTimeline(stageIndex: stageIndex),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
+                    ...recentOrders.map((order) => _buildOrderCard(order, showDelete: false)),
                   ],
                 ],
               );
@@ -558,70 +458,70 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildOrderCard(TrackingModel order) {
+  ({int stageIndex, bool isPickup}) _stageForOrder(TrackingModel order) {
+    final isPickup = order.mode == 'pickup' || order.mode == 'pick_up';
+    if (isPickup) {
+      int stage = 0;
+      if (order.status == 'ready_for_pickup') {
+        stage = 1;
+      } else if (order.status == 'done' || order.status == 'retrieved') {
+        stage = 2;
+      }
+      return (stageIndex: stage, isPickup: true);
+    }
+
+    int stage = 0;
+    if (order.status == 'in_transit') {
+      stage = 1;
+    } else if (order.status == 'delivered') {
+      stage = 2;
+    } else if (order.status == 'done' || order.status == 'retrieved') {
+      stage = 3;
+    }
+    return (stageIndex: stage, isPickup: false);
+  }
+
+  Widget _buildOrderCard(TrackingModel order, {bool showDelete = true}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final statusColor = _getStatusColor(order.status);
-    int stageIndex = 0;
-    if (order.status == 'in_transit') stageIndex = 1;
-    else if (order.status == 'delivered') stageIndex = 2;
-    else if (order.status == 'done' || order.status == 'retrieved') stageIndex = 3;
+    final stage = _stageForOrder(order);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: UserUi.surfaceCard(
         context,
         padding: EdgeInsets.zero,
-        child: InkWell(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => TrackingDetailsScreen(tracking: order),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(UserTheme.radiusL),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          CarrierBadge(shopName: order.shopName),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              order.shopName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ),
-                        ],
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => TrackingDetailsScreen(tracking: order),
+                ),
+              );
+            },
+            borderRadius: BorderRadius.circular(UserTheme.radiusL),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: CarrierBadge(shopName: order.shopName)),
+                      const SizedBox(width: 8),
+                      UserUi.statusPill(
+                        label: order.getStatusText(),
+                        color: statusColor,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        UserUi.statusPill(
-                          label: order.getStatusText().toUpperCase(),
-                          color: statusColor,
-                        ),
+                      if (showDelete) ...[
                         const SizedBox(width: 8),
                         IconButton(
-                          icon: Icon(Icons.delete_outline_rounded, 
+                          icon: Icon(
+                            Icons.delete_outline_rounded,
                             color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                            size: 20,
+                            size: 18,
                           ),
                           onPressed: () => _confirmDelete(order),
                           padding: EdgeInsets.zero,
@@ -630,57 +530,44 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: 'Delete Tracking',
                         ),
                       ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: (isDark ? Colors.white : UserTheme.primaryOrange).withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.tag_rounded,
-                        size: 14,
-                        color: isDark ? UserTheme.nightTextMuted : UserTheme.primaryOrange,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      order.trackingId,
-                      style: TextStyle(
-                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                    const Spacer(),
-                    if (order.registeredAt != null)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.access_time_rounded, size: 12,
-                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
-                          const SizedBox(width: 4),
-                          Text(
-                            _timeAgo(order.registeredAt),
-                            style: TextStyle(
-                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                            ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          order.trackingId,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'monospace',
                           ),
-                        ],
+                        ),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                DeliveryTimeline(stageIndex: stageIndex),
-              ],
+                      if (order.registeredAt != null) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          _timeAgo(order.registeredAt),
+                          style: TextStyle(
+                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  DeliveryTimeline(
+                    stageIndex: stage.stageIndex,
+                    isPickup: stage.isPickup,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

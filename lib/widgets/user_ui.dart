@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import '../config/user_theme.dart';
+import '../presentation/components/status_pill.dart';
 
 /// Shared layout and surface styles for the user (mobile) app.
 /// Colors and Design Tokens come from [UserTheme].
@@ -61,13 +62,13 @@ class UserUi {
         color: color ?? (isDark ? UserTheme.nightCard : UserTheme.dayCard),
         borderRadius: BorderRadius.circular(UserTheme.radiusL),
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.06) : UserTheme.dayTextMuted.withOpacity(0.12),
+          color: isDark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.06),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -183,28 +184,12 @@ class UserUi {
     );
   }
 
-  /// Refined Status Pill.
+  /// Lightweight Status Indicator (dot + label).
   static Widget statusPill({
     required String label,
     required Color color,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(UserTheme.radiusXL),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
+    return StatusPill(label: label, color: color);
   }
 
   /// Premium Empty State with optional action button.
@@ -423,46 +408,12 @@ class UserUi {
     );
   }
 
-  /// Live Hardware / App Pulsing Status Indicator Badge
+  /// Hardware / App Connectivity Status Text
   static Widget pulsingStatusBadge({required bool isOnline, String? label}) {
     final color = isOnline ? UserTheme.statusSuccess : UserTheme.statusWarning;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(0.6),
-                  blurRadius: 6,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label ?? (isOnline ? 'BOX ONLINE' : 'OFFLINE'),
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
-            ),
-          ),
-        ],
-      ),
+    return StatusPill(
+      label: label ?? (isOnline ? 'Box Online' : 'Offline'),
+      color: color,
     );
   }
 

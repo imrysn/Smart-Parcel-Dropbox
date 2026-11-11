@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../config/user_theme.dart';
 
-/// Single-responsibility component for QR Access Badge Card.
+/// Displays the owner's dynamic QR token for quick hardware scanner access.
 class QrAccessBadgeCard extends StatelessWidget {
   final String qrToken;
   final VoidCallback onRefresh;
@@ -16,25 +16,34 @@ class QrAccessBadgeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = UserTheme.primaryOrange;
+    const primary = UserTheme.primaryOrange;
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isDark
-              ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
-              : [const Color(0xFFFFF7ED), const Color(0xFFFFEDD5)],
+              ? [
+                  Color.alphaBlend(
+                      primary.withValues(alpha: 0.12), UserTheme.nightCard),
+                  UserTheme.nightCard,
+                ]
+              : [
+                  const Color(0xFFFFF8F1),
+                  UserTheme.dayCard,
+                ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(UserTheme.radiusXL),
-        border: Border.all(color: primary.withOpacity(0.3), width: 1.5),
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        border: Border.all(
+          color: primary.withValues(alpha: isDark ? 0.3 : 0.24),
+        ),
         boxShadow: [
           BoxShadow(
-            color: primary.withOpacity(0.15),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: primary.withValues(alpha: isDark ? 0.08 : 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -42,31 +51,33 @@ class QrAccessBadgeCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Icon(Icons.qr_code_scanner_rounded, color: primary, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'QR Access Badge',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                    ),
+              const Icon(Icons.qr_code_scanner_rounded, color: primary, size: 19),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Quick Unlock QR',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: isDark
+                        ? UserTheme.nightTextPrimary
+                        : UserTheme.dayTextPrimary,
                   ),
-                ],
+                ),
               ),
               IconButton(
-                icon: const Icon(Icons.refresh_rounded, size: 20),
+                icon: const Icon(Icons.refresh_rounded, size: 19),
                 color: primary,
                 onPressed: onRefresh,
-                tooltip: 'Refresh Digital QR Token',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Refresh Access QR',
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Row(
             children: [
               Container(
@@ -74,6 +85,9 @@ class QrAccessBadgeCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.06),
+                  ),
                 ),
                 child: QrImageView(
                   data: qrToken,
@@ -89,19 +103,23 @@ class QrAccessBadgeCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Hold QR up to Scanner',
+                      'Scan at Dropbox Camera',
                       style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? UserTheme.nightTextPrimary
+                            : UserTheme.dayTextPrimary,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Scan this QR code using the MH-ET scanner on your physical Dropbox to unlock doors.',
+                      'Hold this QR near your Dropbox scanner to verify identity and open doors.',
                       style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                        fontSize: 12,
+                        color: isDark
+                            ? UserTheme.nightTextMuted
+                            : UserTheme.dayTextSecondary,
                         height: 1.4,
                       ),
                     ),

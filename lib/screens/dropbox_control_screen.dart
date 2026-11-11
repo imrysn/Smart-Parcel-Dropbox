@@ -25,8 +25,7 @@ class DropboxControlScreen extends StatefulWidget {
   State<DropboxControlScreen> createState() => _DropboxControlScreenState();
 }
 
-class _DropboxControlScreenState extends State<DropboxControlScreen>
-    with TickerProviderStateMixin {
+class _DropboxControlScreenState extends State<DropboxControlScreen> {
 
   late final WebSocketService _ws;
   StreamSubscription<Map<String, dynamic>>? _esp32Sub;
@@ -48,16 +47,11 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   int _registeredUserCount = 0; // how many users share this device
   late String _ownerQrToken;
 
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
-
   @override
   void initState() {
     super.initState();
     _ownerQrToken = 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}';
     _ws = getIt<WebSocketService>();
-    _pulseController = AnimationController(duration: const Duration(seconds: 2), vsync: this)..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
     _init();
   }
 
@@ -132,14 +126,14 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   @override
   void dispose() {
     _esp32Sub?.cancel(); _binSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
-    _pulseController.dispose(); super.dispose();
+    super.dispose();
   }
 
   void _showOfflineError() {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Row(
-        children: const [
+      content: const Row(
+        children: [
           Icon(Icons.wifi_off_rounded, color: Colors.white, size: 20),
           SizedBox(width: 12),
           Expanded(child: Text('Hardware Disconnected. Provide power or check WiFi.', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -200,32 +194,40 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   String _doorLabel(String doorType) {
     switch (doorType) {
       case kDoorTop: return 'Parcel Entry';
-      case kDoorPickup: return 'Pickup door';
-      case kDoorReceived: return 'Drop off door';
+      case kDoorPickup: return 'Pickup Door';
+      case kDoorReceived: return 'Drop-off Door';
       default: return doorType;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.canPop(context);
+
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: UserTheme.appBarGradient(context: context, title: '', centerTitle: true),
+        appBar: canPop
+            ? UserTheme.appBarGradient(
+                context: context,
+                title: 'Dropbox Control',
+                centerTitle: false,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              )
+            : null,
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 120),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _buildManagementSection(),
-                const SizedBox(height: 12),
+                const SizedBox(height: 18),
                 if (_hasDropbox) ...[
-                  _buildConnectionBanner(),
-                  const SizedBox(height: 20),
-                  UserUi.sectionTitle(context, 'Hardware QR Access Badge', subtitle: 'Hold code in front of MH-ET barcode scanner'),
-                  const SizedBox(height: 12),
                   QrAccessBadgeCard(
                     qrToken: _ownerQrToken,
                     onRefresh: () {
@@ -238,21 +240,21 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                     },
                   ),
                   const SizedBox(height: 24),
-                  UserUi.sectionTitle(context, 'Door Controls', subtitle: 'Control your hardware remotely'),
+                  UserUi.sectionTitle(context, 'Door Controls', subtitle: 'Lock or unlock compartments remotely'),
+                  const SizedBox(height: 10),
+                  _buildDoorCard(kDoorTop, 'Parcel Entry', 'Top slot for courier deliveries', Icons.local_shipping_rounded, 'REED_TOP', UserTheme.primaryOrange),
                   const SizedBox(height: 12),
-                  _buildDoorCard(kDoorTop, 'Parcel Entry', 'Top door for courier drop-off', Icons.local_shipping_rounded, 'REED_TOP', UserTheme.primaryOrange),
-                  const SizedBox(height: 14),
-                  _buildDoorCard(kDoorPickup, 'Pickup door', 'Owner retrieval (Front bottom)', Icons.inventory_2_rounded, 'REED_PICKUP', UserTheme.accentAmberDark),
-                  const SizedBox(height: 14),
-                  _buildDoorCard(kDoorReceived, 'Drop off door', 'Owner deposit (Rear)', Icons.move_to_inbox_rounded, 'REED_RECEIVED', UserTheme.sunsetEnd),
-                  const SizedBox(height: 32),
-                  UserUi.sectionTitle(context, 'Internal Bins', subtitle: 'Capacities and fill levels'),
+                  _buildDoorCard(kDoorPickup, 'Pickup Door', 'Front compartment for collecting deliveries', Icons.inventory_2_rounded, 'REED_PICKUP', UserTheme.accentAmberDark),
                   const SizedBox(height: 12),
+                  _buildDoorCard(kDoorReceived, 'Drop-off Door', 'Rear compartment for outgoing pickups', Icons.move_to_inbox_rounded, 'REED_RECEIVED', UserTheme.sunsetEnd),
+                  const SizedBox(height: 28),
+                  UserUi.sectionTitle(context, 'Storage Bins', subtitle: 'Live compartment capacity'),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
-                      Expanded(child: _buildBinCard('Pickup Bin', 'US_PICKUP', _pickupFill, _logicalPickupCount, UserTheme.primaryOrange, Icons.inventory_2_rounded)),
-                      const SizedBox(width: 14),
-                      Expanded(child: _buildBinCard('Dropoff Bin', 'US_DROPOFF', _dropoffFill, _logicalDropoffCount, UserTheme.accentAmberDark, Icons.shopping_bag_rounded)),
+                      Expanded(child: _buildBinCard('Pickup Bin', 'Awaiting courier', _pickupFill, _logicalPickupCount, UserTheme.primaryOrange, Icons.inventory_2_rounded)),
+                      const SizedBox(width: 12),
+                      Expanded(child: _buildBinCard('Delivery Bin', 'Incoming parcels', _dropoffFill, _logicalDropoffCount, UserTheme.accentAmberDark, Icons.shopping_bag_rounded)),
                     ],
                   ),
                 ] else if (_registrationChecked)
@@ -267,40 +269,46 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
 
   Widget _buildManagementSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final statusColor = _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError;
+
     return UserUi.surfaceCard(
       context,
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.settings_input_component_rounded, color: UserTheme.primaryOrange, size: 22),
-              const SizedBox(width: 12),
               Text(
-                'HARDWARE CONFIG',
+                'Smart Dropbox Unit',
                 style: TextStyle(
                   color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-              const Spacer(),
-              if (_hasDropbox) ...[
-                _buildStatusIndicator(),
-              ],
+              const SizedBox(height: 3),
+              Text(
+                !_hasDropbox
+                    ? 'No hardware linked to this account'
+                    : (_esp32Connected
+                        ? 'Hardware online & synced'
+                        : 'Hardware offline · Check power or Wi-Fi'),
+                style: TextStyle(
+                  color: _hasDropbox
+                      ? statusColor
+                      : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
           if (!_hasDropbox) ...[
-            Text(
-              'No smart hardware linked.',
-              style: TextStyle(color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary, fontSize: 14),
-            ),
-            const SizedBox(height: 16),
             UserUi.premiumButton(
-              label: 'REGISTER HARDWARE',
+              label: 'Register Hardware',
               onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HardwareRegistrationScreen())).then((_) => _init()),
               icon: Icons.qr_code_scanner_rounded,
             ),
@@ -311,7 +319,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   child: OutlinedButton.icon(
                     onPressed: _showWiFiConfigDialog,
                     icon: const Icon(Icons.wifi_tethering_rounded, size: 16),
-                    label: const Text('WIFI'),
+                    label: const Text('Wi-Fi Setup', style: TextStyle(fontWeight: FontWeight.w700)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -322,11 +330,11 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _showUnregisterConfirmation,
-                    icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                    label: const Text('REMOVE'),
+                    icon: const Icon(Icons.link_off_rounded, size: 16),
+                    label: const Text('Unlink', style: TextStyle(fontWeight: FontWeight.w700)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: UserTheme.statusError,
-                      side: const BorderSide(color: UserTheme.statusError),
+                      side: BorderSide(color: UserTheme.statusError.withValues(alpha: 0.45)),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -340,76 +348,22 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     );
   }
 
-  Widget _buildStatusIndicator() {
-    return UserUi.statusPill(
-      label: _esp32Connected ? 'ONLINE' : 'OFFLINE',
-      color: _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError,
-    );
-  }
-
   Widget _buildEmptyState() {
     return UserUi.emptyState(
       context,
       icon: Icons.developer_board_rounded,
-      title: 'No Hardware Sync',
-      subtitle: 'Sync your physical Smart Parcel Dropbox to enable remote controls and bin tracking.',
+      title: 'No Hardware Synced',
+      subtitle: 'Link your physical Smart Parcel Dropbox to enable remote doors and live bin tracking.',
     );
   }
 
   void _showWiFiConfigDialog() {
     if (!_esp32Connected) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hardware must be online for WiFi scan.'), behavior: SnackBarBehavior.floating));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hardware must be online for Wi-Fi setup.'), behavior: SnackBarBehavior.floating));
       return;
     }
     _ws.requestWiFiScan();
     showDialog(context: context, barrierDismissible: false, builder: (context) => _WiFiScannerDialog(ws: _ws));
-  }
-
-  Widget _buildConnectionBanner() {
-    final statusColor = _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError;
-    final textLabel = _esp32Connected ? 'HARDWARE CONNECTED' : 'HARDWARE DISCONNECTED';
-    
-    return UserUi.glassCard(
-      context,
-      blur: 0,
-      borderRadius: 12,
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      color: statusColor.withOpacity(0.08),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          RepaintBoundary(
-            child: AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (_, __) => Container(
-                width: 10, height: 10,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: statusColor,
-                  boxShadow: [
-                    BoxShadow(
-                      color: statusColor.withOpacity(0.6 * _pulseAnimation.value), 
-                      blurRadius: 10, 
-                      spreadRadius: 2
-                    )
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            textLabel,
-            style: TextStyle(
-              color: statusColor,
-              fontWeight: FontWeight.w900,
-              fontSize: 12,
-              letterSpacing: 1,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildDoorCard(String doorType, String title, String subtitle, IconData icon, String reedKey, Color accentColor) {
@@ -420,38 +374,58 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
 
     return UserUi.surfaceCard(
       context,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       child: Column(
         children: [
           Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: accentColor.withOpacity(0.12), borderRadius: BorderRadius.circular(14)),
-                child: Icon(icon, color: accentColor, size: 24),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: accentColor, size: 22),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: TextStyle(color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary, fontSize: 17, fontWeight: FontWeight.w800)),
-                    Text(subtitle, style: TextStyle(color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary, fontSize: 12)),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
                   ],
                 ),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  UserUi.statusPill(label: isOpen ? 'OPEN' : 'LOCKED', color: isOpen ? UserTheme.statusSuccess : UserTheme.statusError),
-                  if (reedOpen != null) ...[
+                  UserUi.statusPill(
+                    label: isOpen ? 'Open' : 'Locked',
+                    color: isOpen ? UserTheme.statusSuccess : UserTheme.statusError,
+                  ),
+                  if (reedOpen == true) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      reedOpen ? 'Door Ajar' : 'Door Closed',
+                    const Text(
+                      'Sensor: Ajar',
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 10.5,
                         fontWeight: FontWeight.w600,
-                        color: reedOpen ? UserTheme.statusWarning : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
+                        color: UserTheme.statusWarning,
                       ),
                     ),
                   ],
@@ -462,10 +436,11 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
           const SizedBox(height: 16),
           UserUi.premiumButton(
             label: isProcessing
-                ? 'PROCESSING...'
-                : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR'),
+                ? 'Working...'
+                : (isOpen ? 'Lock Door' : 'Unlock Door'),
             onTap: isProcessing ? () {} : () => _toggleDoor(doorType),
             icon: isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
+            fontSize: 14,
             color: !_esp32Connected
                 ? Colors.grey
                 : (isOpen ? UserTheme.statusError : accentColor),
@@ -478,70 +453,63 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   Widget _buildBinCard(String label, String sublabel, double? fill, int count, Color color, IconData icon) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final pct = fill != null ? (fill * 100).round() : null;
-    final fillLabel = '$count';
+    final unitLabel = count == 1 ? 'parcel' : 'parcels';
+    final statusLabel = fill == null
+        ? 'Offline'
+        : (fill > 0.85 ? 'Full · $pct%' : '$pct% full');
 
     return UserUi.surfaceCard(
       context,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const SizedBox(width: 10),
+              Icon(icon, color: color, size: 19),
+              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
-                    Text(sublabel, style: TextStyle(fontSize: 10, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted)),
-                  ],
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 2),
+          Text(
+            sublabel,
+            style: TextStyle(fontSize: 11, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
+          ),
+          const SizedBox(height: 14),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
               value: fill ?? 0,
-              minHeight: 8,
-              backgroundColor: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+              minHeight: 7,
+              backgroundColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.06),
               valueColor: AlwaysStoppedAnimation<Color>(fill == null ? Colors.grey : (fill > 0.8 ? UserTheme.statusError : color)),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(fillLabel, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 24)),
-                  const SizedBox(width: 4),
-                  Text('Units', style: TextStyle(color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted, fontSize: 10, fontWeight: FontWeight.bold)),
-                ],
+              Text(
+                '$count $unitLabel',
+                style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 13.5),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(fill == null ? 'Offline' : (fill > 0.85 ? 'FULL' : (count > 0 ? 'Stored' : 'Empty')), 
-                       style: TextStyle(color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted, fontSize: 11, fontWeight: FontWeight.bold)),
-                  if (pct != null) 
-                    Text(
-                      'Scan: $pct%', 
-                      style: TextStyle(fontSize: 9, color: isDark ? UserTheme.nightTextMuted.withValues(alpha: 0.5) : UserTheme.dayTextMuted.withValues(alpha: 0.5)),
-                    ),
-                ],
+              Text(
+                statusLabel,
+                style: TextStyle(
+                  color: fill != null && fill > 0.85
+                      ? UserTheme.statusError
+                      : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -601,14 +569,30 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
             ),
             const Divider(height: 32),
             if (_networks.isEmpty && _isLoading)
-              const Expanded(child: Center(child: Text('Scanning for proximity...')))
+              const Expanded(child: Center(child: Text('Scanning for nearby networks...')))
             else if (_networks.isEmpty && !_isLoading)
-              const Expanded(child: Center(child: Text('No hardware pins found.')))
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'No Wi-Fi networks found nearby.',
+                      style: TextStyle(color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: () => _promptPassword('', isManual: true),
+                      icon: const Icon(Icons.add_circle_outline_rounded, size: 18, color: UserTheme.primaryOrange),
+                      label: const Text('Enter Wi-Fi Manually', style: TextStyle(color: UserTheme.primaryOrange, fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
+              )
             else
               Expanded(
                 child: ListView.separated(
                   itemCount: _networks.length + 1,
-                  separatorBuilder: (_, __) => Divider(height: 1, color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05)),
+                  separatorBuilder: (_, __) => Divider(height: 1, color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.06)),
                   itemBuilder: (context, index) {
                     if (index == _networks.length) return ListTile(leading: const Icon(Icons.add_circle_outline_rounded), title: const Text('Manual Setup'), onTap: () => _promptPassword('', isManual: true));
                     final net = _networks[index];
@@ -623,7 +607,7 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
               ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL'))),
+              child: Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))),
             ),
           ],
         ),
@@ -673,12 +657,12 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
             actions: [
               TextButton(
                 onPressed: isJoining ? null : () => Navigator.pop(dialogContext, false),
-                child: const Text('CANCEL'),
+                child: const Text('Cancel'),
               ),
               ConstrainedBox(
                 constraints: const BoxConstraints(minWidth: 100, minHeight: 42),
                 child: UserUi.premiumButton(
-                  label: isJoining ? 'JOINING...' : 'JOIN',
+                  label: isJoining ? 'Connecting...' : 'Connect',
                   fontSize: 13,
                   fullWidth: false,
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),

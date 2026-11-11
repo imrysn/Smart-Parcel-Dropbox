@@ -3,8 +3,11 @@ import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
 import '../models/tracking_model.dart';
+import '../presentation/components/carrier_badge.dart';
+import '../presentation/components/delivery_timeline.dart';
 import 'tracking_details_screen.dart';
 import 'owner_verify_screen.dart';
+import 'add_pickup_screen.dart';
 
 /// Pickup Screen - Manages items waiting to be picked up by couriers
 class PickupScreen extends StatefulWidget {
@@ -26,24 +29,34 @@ class PickupScreen extends StatefulWidget {
 class _PickupScreenState extends State<PickupScreen> {
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.canPop(context);
+
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        floatingActionButton: Padding(
-          padding: const EdgeInsets.only(bottom: 80.0),
-          child: FloatingActionButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const OwnerVerifyScreen(),
+        appBar: canPop
+            ? UserTheme.appBarGradient(
+                context: context,
+                title: 'Pickups',
+                centerTitle: false,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
-              );
-            },
-            heroTag: 'pickup_verify_fab',
-            child: const Icon(Icons.qr_code_scanner),
-          ),
-        ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner_rounded, color: UserTheme.primaryOrange, size: 22),
+                    tooltip: 'Verify Owner QR',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const OwnerVerifyScreen()),
+                      );
+                    },
+                  ),
+                ],
+              )
+            : null,
         body: SafeArea(
           child: _buildPickupList(),
         ),
@@ -103,11 +116,21 @@ class _PickupScreenState extends State<PickupScreen> {
           });
 
           if (pickups.isEmpty) {
-            return UserUi.emptyState(
-              context,
-              icon: Icons.outbox_rounded,
-              title: 'Empty queue',
-              subtitle: 'Register a pickup at the dropbox to see it here.',
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(top: 60, bottom: 120),
+              child: UserUi.emptyState(
+                context,
+                icon: Icons.outbox_rounded,
+                title: 'No Pickups Scheduled',
+                subtitle: 'Parcels staged in your Dropbox for courier collection will appear here.',
+                actionLabel: widget.isAdmin ? null : 'Schedule Pickup',
+                onActionTap: widget.isAdmin
+                    ? null
+                    : () => Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => const AddPickupScreen()))
+                        .then((_) => widget.databaseService.refreshTracking(widget.userId)),
+              ),
             );
           }
 
@@ -121,6 +144,12 @@ class _PickupScreenState extends State<PickupScreen> {
     );
   }
 
+  int _pickupStage(String status) {
+    if (status == 'ready_for_pickup') return 1;
+    if (status == 'done' || status == 'retrieved') return 2;
+    return 0;
+  }
+
   Widget _buildPickupCard(TrackingModel pickup) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final statusColor = _getStatusColor(pickup.status);
@@ -130,82 +159,74 @@ class _PickupScreenState extends State<PickupScreen> {
       child: UserUi.surfaceCard(
         context,
         padding: EdgeInsets.zero,
-        child: InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => TrackingDetailsScreen(tracking: pickup)),
-          ),
-          borderRadius: BorderRadius.circular(UserTheme.radiusL),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        pickup.shopName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                          letterSpacing: -0.5,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => TrackingDetailsScreen(tracking: pickup)),
+            ),
+            borderRadius: BorderRadius.circular(UserTheme.radiusL),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: CarrierBadge(shopName: pickup.shopName)),
+                      const SizedBox(width: 8),
+                      UserUi.statusPill(label: pickup.getStatusText(), color: statusColor),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                          size: 18,
+                        ),
+                        onPressed: () => _confirmDelete(pickup),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Delete Pickup',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          pickup.trackingId,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'monospace',
+                          ),
                         ),
                       ),
-                    ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        UserUi.statusPill(label: pickup.getStatusText().toUpperCase(), color: statusColor),
+                      if (pickup.registeredAt != null) ...[
                         const SizedBox(width: 8),
-                        IconButton(
-                          icon: Icon(Icons.delete_outline_rounded, 
+                        Text(
+                          _formatDate(pickup.registeredAt),
+                          style: TextStyle(
                             color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                            size: 20,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
                           ),
-                          onPressed: () => _confirmDelete(pickup),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          visualDensity: VisualDensity.compact,
-                          tooltip: 'Delete Pickup',
                         ),
                       ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(Icons.tag_rounded, size: 14, color: UserTheme.primaryOrange),
-                    const SizedBox(width: 8),
-                    Text(
-                      pickup.trackingId,
-                      style: TextStyle(
-                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.access_time_rounded, size: 14, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Registered: ${_formatDate(pickup.registeredAt)}',
-                      style: TextStyle(
-                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  DeliveryTimeline(
+                    stageIndex: _pickupStage(pickup.status),
+                    isPickup: true,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

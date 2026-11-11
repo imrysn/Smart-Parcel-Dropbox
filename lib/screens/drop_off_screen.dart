@@ -143,27 +143,23 @@ class _DropOffCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    CarrierBadge(shopName: order.shopName),
+                    Expanded(child: CarrierBadge(shopName: order.shopName)),
+                    const SizedBox(width: 8),
                     UserUi.statusPill(
-                      label: order.getStatusText().toUpperCase(),
+                      label: order.getStatusText(),
                       color: statusColor,
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(
-                      Icons.qr_code_2_rounded,
-                      size: 14,
-                      color: UserTheme.primaryOrange,
-                    ),
-                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         order.trackingId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 13,
@@ -174,25 +170,16 @@ class _DropOffCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (order.registeredAt != null)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.access_time_rounded,
-                            size: 13,
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _formatDate(order.registeredAt),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                            ),
-                          ),
-                        ],
+                    if (order.registeredAt != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatDate(order.registeredAt),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                        ),
                       ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 14),

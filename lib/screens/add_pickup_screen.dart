@@ -145,7 +145,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('✨ Smart Autofill Applied: Courier set to ${detectedCourier ?? "Auto-detected"}!'),
+          content: Text('Smart Autofill Applied: Courier set to ${detectedCourier ?? "Auto-detected"}.'),
           backgroundColor: UserTheme.primaryOrange,
           duration: const Duration(seconds: 2),
         ),
@@ -787,35 +787,26 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         final isSelected = selectedCourier == courier;
         return InkWell(
           onTap: () => onSelected(courier),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
+            duration: const Duration(milliseconds: 160),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: isSelected
                   ? UserTheme.primaryOrange
                   : (isDark ? UserTheme.nightCard : UserTheme.dayCard),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: isSelected
                     ? UserTheme.primaryOrange
                     : (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08)),
               ),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: UserTheme.primaryOrange.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      )
-                    ]
-                  : null,
             ),
             child: Text(
               courier,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                fontSize: 12.5,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 color: isSelected
                     ? Colors.white
                     : (isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary),
@@ -835,29 +826,26 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
+        appBar: UserTheme.appBarGradient(
+          context: context,
+          title: 'Schedule Pickup',
+          centerTitle: false,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
             onPressed: () => Navigator.of(context).pop(),
           ),
-          title: Text(
-            'Fulfillment & Outbound Hub',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-            ),
-          ),
           bottom: TabBar(
             controller: _tabController,
             indicatorColor: UserTheme.primaryOrange,
+            indicatorWeight: 2.5,
             labelColor: UserTheme.primaryOrange,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             unselectedLabelColor: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
             tabs: const [
-              Tab(icon: Icon(Icons.post_add_rounded), text: 'Single Order'),
-              Tab(icon: Icon(Icons.inventory_rounded), text: 'Batch Deposit'),
-              Tab(icon: Icon(Icons.person_outline), text: 'Personal'),
+              Tab(text: 'Single Order'),
+              Tab(text: 'Batch'),
+              Tab(text: 'Personal'),
             ],
           ),
         ),
@@ -872,33 +860,15 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    UserUi.surfaceCard(
-                      context,
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: UserTheme.primaryOrange.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.info_outline_rounded, color: UserTheme.primaryOrange, size: 20),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Stage an individual customer package. Generates a digital Courier Pickup QR Pass & automated SMS dispatch.',
-                              style: TextStyle(
-                                color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
+                    Text(
+                      'Register an outgoing package to generate a pickup QR pass for your courier.',
+                      style: TextStyle(
+                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                        fontSize: 13.5,
+                        height: 1.4,
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
                     TextFormField(
                       controller: _outboundTrackingController,
                       decoration: _buildInputDecoration(
@@ -974,9 +944,10 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     ),
                     const SizedBox(height: 28),
                     UserUi.premiumButton(
-                      label: _isLoading ? 'STAGING ORDER...' : 'STAGE ORDER & GET PICKUP PASS',
+                      label: _isLoading ? 'Creating Pass...' : 'Create Pickup Pass',
                       onTap: _isLoading ? () {} : _stageOutboundCustomerOrder,
                       icon: Icons.qr_code_rounded,
+                      fontSize: 14.5,
                       isLoading: _isLoading,
                     ),
                   ],
@@ -990,36 +961,19 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  UserUi.surfaceCard(
-                    context,
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: UserTheme.primaryOrange.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.flash_on_rounded, color: UserTheme.primaryOrange, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Scan multiple waybill barcodes with camera or paste list. Unlock dropbox in 1 tap!',
-                            style: TextStyle(
-                              color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    'Scan multiple waybills or paste a list to stage several pickups at once.',
+                    style: TextStyle(
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                      fontSize: 13.5,
+                      height: 1.4,
                     ),
                   ),
                   const SizedBox(height: 16),
                   
                   UserUi.premiumButton(
-                    label: 'SCAN WAYBILLS WITH CAMERA',
+                    label: 'Scan Waybills',
+                    fontSize: 14.5,
                     onTap: () => _scanBarcode(
                       continuous: true,
                       onScanned: (code) {
@@ -1101,9 +1055,10 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                   ),
                   const SizedBox(height: 24),
                   UserUi.premiumButton(
-                    label: _isLoading ? 'DEPOSITING BATCH...' : 'REGISTER BATCH & DEPOSIT ALL NOW',
+                    label: _isLoading ? 'Registering Batch...' : 'Register Batch',
                     onTap: _isLoading ? () {} : _stageBatchOutboundCustomerOrders,
                     icon: Icons.lock_open_rounded,
+                    fontSize: 14.5,
                     isLoading: _isLoading,
                   ),
                 ],
@@ -1118,33 +1073,15 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    UserUi.surfaceCard(
-                      context,
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: UserTheme.primaryOrange.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.info_outline_rounded, color: UserTheme.primaryOrange, size: 20),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Register personal items or returns to be collected from your dropbox.',
-                              style: TextStyle(
-                                color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
+                    Text(
+                      'Register returns or personal packages to be collected from your Dropbox.',
+                      style: TextStyle(
+                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                        fontSize: 13.5,
+                        height: 1.4,
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
                     TextFormField(
                       controller: _personalTrackingIdController,
                       decoration: _buildInputDecoration(
@@ -1181,7 +1118,8 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     ),
                     const SizedBox(height: 28),
                     UserUi.premiumButton(
-                      label: _isLoading ? 'REGISTERING...' : 'REGISTER PERSONAL PICKUP',
+                      label: _isLoading ? 'Scheduling...' : 'Schedule Personal Pickup',
+                      fontSize: 14.5,
                       onTap: _isLoading ? () {} : _registerPersonalPickup,
                       isLoading: _isLoading,
                     ),

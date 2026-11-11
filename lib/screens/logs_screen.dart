@@ -3,14 +3,9 @@ import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
-import '../models/scan_log_model.dart'; // FIX: Added missing model import
-// The following imports are not used in this specific file but retained
-// for context if the file structure requires them.
-// import 'admin/admin_dashboard_screen.dart';
-// import 'login_screen.dart';
-// import 'home_screen.dart';
+import '../models/scan_log_model.dart';
 
-/// Logs Screen - Displays scan access logs
+/// Scan Logs Screen - Displays parcel and access scan history.
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key});
 
@@ -22,10 +17,7 @@ class _LogsScreenState extends State<LogsScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _databaseService = DatabaseService();
 
-  // User ID state
   String? _userId;
-
-  // Filter state
   String _filter = 'all'; // 'all', 'granted', 'denied'
 
   @override
@@ -41,14 +33,51 @@ class _LogsScreenState extends State<LogsScreen> {
     }
   }
 
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _filter == value;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return InkWell(
+      onTap: () => setState(() => _filter = value),
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isDark ? Colors.white : UserTheme.dayTextPrimary)
+              : (isDark ? UserTheme.nightCard : UserTheme.dayCard),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? (isDark ? Colors.white : UserTheme.dayTextPrimary)
+                : (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06)),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            color: isSelected
+                ? (isDark ? Colors.black : Colors.white)
+                : (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.canPop(context);
+
     if (_userId == null) {
       return Container(
         decoration: UserUi.pageBackground(context),
-        child: const Scaffold(
+        child: Scaffold(
           backgroundColor: Colors.transparent,
-          body: Center(child: CircularProgressIndicator()),
+          body: UserUi.shimmerList(context, count: 4, cardHeight: 92),
         ),
       );
     }
@@ -56,281 +85,74 @@ class _LogsScreenState extends State<LogsScreen> {
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: UserTheme.appBarGradient(
-        title: 'Scan logs',
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.filter_list_rounded),
-            onSelected: (value) {
-              setState(() => _filter = value);
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'all', child: Text('All logs')),
-              const PopupMenuItem(
-                value: 'granted',
-                child: Text('Granted only'),
-              ),
-              const PopupMenuItem(value: 'denied', child: Text('Denied only')),
-            ],
-          ),
-        ],
-      ),
-      body: StreamBuilder<List<ScanLogModel>>(
-        // Use _userId and DatabaseService
-        stream: _databaseService.getUserScanLogs(_userId!),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error loading logs',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[700]),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    snapshot.error.toString(),
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          List<ScanLogModel> allLogs = snapshot.data ?? [];
-
-          // Apply filter
-          List<ScanLogModel> filteredLogs = allLogs.where((log) {
-            if (_filter == 'granted') {
-              return log.accessGranted;
-            } else if (_filter == 'denied') {
-              return !log.accessGranted;
-            }
-            return true;
-          }).toList();
-
-          if (filteredLogs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.history_outlined,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    // Custom message based on filter
-                    _filter == 'all'
-                        ? 'No scan logs yet'
-                        : _filter == 'granted'
-                            ? 'No granted access logs'
-                            : 'No denied access logs',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Scan logs will appear here when the dropbox is used',
-                    style: TextStyle(color: Colors.grey[500]),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: filteredLogs.length, // Use filtered logs
-            itemBuilder: (context, index) {
-              ScanLogModel log = filteredLogs[index];
-              return _buildLogCard(log);
-            },
-          );
-        },
-      ),
-      ),
-    );
-  }
-
-  Widget _buildLogCard(ScanLogModel log) {
-    final isGranted = log.accessGranted;
-    final statusColor = isGranted ? Colors.green : Colors.red;
-    final statusIcon = isGranted ? Icons.check_circle : Icons.cancel;
-    final statusText = isGranted ? 'Access Granted' : 'Access Denied';
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      // Adopted styling details and combined with structure
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        backgroundColor: Colors.transparent,
+        appBar: UserTheme.appBarGradient(
+          context: context,
+          title: 'Scan Logs',
+          centerTitle: false,
+          leading: canPop
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                )
+              : null,
+        ),
+        body: Column(
           children: [
-            // Status row
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(statusIcon, size: 18, color: statusColor),
-                      const SizedBox(width: 6),
-                      Text(
-                        statusText, // Using local statusText
-                        style: TextStyle(
-                          color: statusColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  log.getFormattedDateTime(),
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // Scanned code
-            Row(
-              children: [
-                Icon(Icons.qr_code_scanner, size: 20, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Scanned Code',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        log.scannedCode,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            // Tracking ID if available
-            if (log.trackingId != null) ...[
-              const SizedBox(height: 12),
-              Row(
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+              child: Row(
                 children: [
-                  Icon(
-                    Icons.local_shipping_outlined,
-                    size: 20,
-                    color: Colors.grey[600],
-                  ),
+                  _buildFilterChip('All', 'all'),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Tracking ID',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          log.trackingId!,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildFilterChip('Granted', 'granted'),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('Denied', 'denied'),
                 ],
               ),
-            ],
+            ),
+            Expanded(
+              child: StreamBuilder<List<ScanLogModel>>(
+                stream: _databaseService.getUserScanLogs(_userId!),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                    return UserUi.shimmerList(context, count: 4, cardHeight: 92);
+                  }
 
-            // Reason if denied
-            if (!log.accessGranted && log.reason != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info_outline, size: 18, color: Colors.red[700]),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        log.reason!,
-                        style: TextStyle(fontSize: 13, color: Colors.red[700]),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+                  if (snapshot.hasError) {
+                    return UserUi.emptyState(
+                      context,
+                      icon: Icons.cloud_off_rounded,
+                      title: 'Could Not Load Scan Logs',
+                      subtitle: snapshot.error.toString(),
+                    );
+                  }
 
-            // Full date/time and Details button
-            const SizedBox(height: 8),
-            InkWell(
-              onTap: () {
-                _showLogDetails(context, log);
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.access_time, size: 16, color: Colors.grey[500]),
-                    const SizedBox(width: 4),
-                    Text(
-                      log.getFullFormattedDateTime(),
-                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                    ),
-                    const Spacer(),
-                    Icon(
-                      Icons.chevron_right,
-                      size: 16,
-                      color: Colors.grey[400],
-                    ),
-                  ],
-                ),
+                  final allLogs = snapshot.data ?? [];
+                  final filteredLogs = allLogs.where((log) {
+                    if (_filter == 'granted') return log.accessGranted;
+                    if (_filter == 'denied') return !log.accessGranted;
+                    return true;
+                  }).toList();
+
+                  if (filteredLogs.isEmpty) {
+                    return UserUi.emptyState(
+                      context,
+                      icon: Icons.history_rounded,
+                      title: _filter == 'all'
+                          ? 'No Scan Logs Yet'
+                          : (_filter == 'granted' ? 'No Granted Scans' : 'No Denied Scans'),
+                      subtitle: 'Barcode and QR scans at your Dropbox will appear here.',
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    itemCount: filteredLogs.length,
+                    itemBuilder: (context, index) => _buildLogCard(filteredLogs[index]),
+                  );
+                },
               ),
             ),
           ],
@@ -339,33 +161,136 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
-  // Dialog method
+  Widget _buildLogCard(ScanLogModel log) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isGranted = log.accessGranted;
+    final statusColor = isGranted ? UserTheme.statusSuccess : UserTheme.statusError;
+    final statusText = isGranted ? 'Access Granted' : 'Access Denied';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: UserUi.surfaceCard(
+        context,
+        padding: EdgeInsets.zero,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _showLogDetails(context, log),
+            borderRadius: BorderRadius.circular(UserTheme.radiusL),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      UserUi.statusPill(label: statusText, color: statusColor),
+                      const Spacer(),
+                      Text(
+                        log.getFormattedDateTime(),
+                        style: TextStyle(
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    log.scannedCode,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'monospace',
+                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                    ),
+                  ),
+                  if (log.trackingId != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Waybill: ${log.trackingId!}',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontFamily: 'monospace',
+                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                      ),
+                    ),
+                  ],
+                  if (!log.accessGranted && log.reason != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: UserTheme.statusError.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        log.reason!,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                          color: UserTheme.statusError,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Text(
+                        log.getFullFormattedDateTime(),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showLogDetails(BuildContext context, ScanLogModel log) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Log Details'),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
+        title: const Text('Scan Details', style: TextStyle(fontWeight: FontWeight.w800)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDetailRow(
-                'Status',
-                log.accessGranted ? 'Granted' : 'Denied',
-              ),
-              _buildDetailRow('Date & Time', log.getFullFormattedDateTime()),
-              _buildDetailRow('Scanned Code', log.scannedCode),
+              _buildDetailRow(context, 'Status', log.accessGranted ? 'Access Granted' : 'Access Denied'),
+              _buildDetailRow(context, 'Date & Time', log.getFullFormattedDateTime()),
+              _buildDetailRow(context, 'Scanned Code', log.scannedCode, isMonospace: true),
               if (log.trackingId != null)
-                _buildDetailRow('Tracking ID', log.trackingId!),
-              if (log.userId != null) _buildDetailRow('User ID', log.userId!),
-              if (log.reason != null) _buildDetailRow('Reason', log.reason!),
+                _buildDetailRow(context, 'Tracking ID', log.trackingId!, isMonospace: true),
+              if (log.userId != null)
+                _buildDetailRow(context, 'User ID', log.userId!, isMonospace: true),
+              if (log.reason != null)
+                _buildDetailRow(context, 'Reason', log.reason!),
             ],
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Close'),
           ),
         ],
@@ -373,8 +298,8 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
-  // Detail row utility
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(BuildContext context, String label, String value, {bool isMonospace = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -384,12 +309,20 @@ class _LogsScreenState extends State<LogsScreen> {
             label,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
+              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontSize: 14)),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontFamily: isMonospace ? 'monospace' : null,
+              fontWeight: FontWeight.w600,
+              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+            ),
+          ),
         ],
       ),
     );
