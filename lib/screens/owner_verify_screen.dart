@@ -1,11 +1,10 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../config/user_theme.dart';
 import '../services/websocket_service.dart';
 import '../widgets/user_ui.dart';
+import '../widgets/smart_scanner_view.dart';
 
 /// Owner Verification Screen
 ///
@@ -23,7 +22,10 @@ class OwnerVerifyScreen extends StatefulWidget {
 }
 
 class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
-  final MobileScannerController _scannerController = MobileScannerController();
+  final MobileScannerController _scannerController = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.qrCode],
+  );
   final WebSocketService _ws = WebSocketService();
 
   bool _scanned  = false;
@@ -41,12 +43,7 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
   int  _countdown   = 60;
   Timer? _countdownTimer;
 
-  /// True if this platform supports camera scanning
-  bool get _isMobile {
-    if (kIsWeb) return false;
-    try { return Platform.isAndroid || Platform.isIOS; }
-    catch (_) { return false; }
-  }
+  bool get _isMobile => SmartScannerView.isCameraSupportedPlatform;
 
   @override
   void initState() {
@@ -66,8 +63,10 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
       });
     });
 
-    // Feature #5: start countdown as soon as screen opens
-    if (_isMobile) _startCountdown();
+    if (!_isMobile) {
+      _manualEntry = true;
+    }
+    _startCountdown();
   }
 
   void _startCountdown() {
@@ -100,13 +99,8 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) {
-    if (_scanned || _waiting) return;
-    final barcode = capture.barcodes.firstOrNull;
-    if (barcode == null || barcode.rawValue == null) return;
-
-    final token = barcode.rawValue!;
-    if (!token.startsWith('OWN-')) return;
+  void _handleScannedToken(String token) {
+    if (_scanned || _waiting || !token.startsWith('OWN-')) return;
 
     _countdownTimer?.cancel();
     setState(() {
@@ -115,7 +109,6 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
       _timedOut  = false;
       _statusMsg = 'Verifying...';
     });
-    _scannerController.stop();
     _ws.emitVerifyOwnerQR(token);
 
     _ackTimer = Timer(const Duration(seconds: 65), () {
@@ -172,9 +165,8 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
       _waiting   = false;
       _timedOut  = false;
       _statusMsg = '';
-      _manualEntry = false;
+      _manualEntry = !_isMobile;
     });
-    _scannerController.start();
     _startCountdown();
   }
 
@@ -184,79 +176,64 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
     final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
     final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
     final mutedText = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
-    final cardColor = isDark ? UserTheme.nightCard : UserTheme.dayCard;
     final surfaceColor = isDark ? UserTheme.nightSurface : UserTheme.daySurface;
     final borderColor = isDark
         ? Colors.white.withValues(alpha: 0.08)
         : Colors.black.withValues(alpha: 0.08);
     final isCameraView = !_waiting && !_scanned && !_timedOut && !_manualEntry;
-    final scanSize = (MediaQuery.sizeOf(context).shortestSide * 0.6).clamp(170.0, 240.0);
+    final accentColor = _countdown <= 10 ? UserTheme.statusError : UserTheme.primaryOrange;
 
     return Scaffold(
       backgroundColor: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
-      appBar: UserTheme.appBarGradient(
-        title: 'Verify Owner Access',
-        context: context,
-      ),
+      resizeToAvoidBottomInset: !isCameraView,
+      extendBodyBehindAppBar: isCameraView,
+      appBar: isCameraView
+          ? AppBar(
+              backgroundColor: Colors.black.withValues(alpha: 0.35),
+              elevation: 0,
+              iconTheme: const IconThemeData(color: Colors.white),
+              title: const Text(
+                'Verify Owner Access',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
+              ),
+              centerTitle: true,
+            )
+          : UserTheme.appBarGradient(
+              title: 'Verify Owner Access',
+              context: context,
+            ),
       body: Stack(
         children: [
-          // Live camera view
+          // Live camera scanner with scrim cutout, brackets, countdown & torch controls
           if (isCameraView)
-            _isMobile
-                ? MobileScanner(
-                    controller: _scannerController,
-                    onDetect: _onDetect,
-                  )
-                : _buildMockScanner(),
-
-          // Scan frame + countdown overlay
-          if (isCameraView)
-            Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: scanSize,
-                      height: scanSize,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: _countdown <= 10 ? UserTheme.statusError : UserTheme.primaryOrange,
-                          width: 2.5,
-                        ),
-                        borderRadius: BorderRadius.circular(UserTheme.radiusL),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.18),
-                            blurRadius: 12,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(UserTheme.radiusS),
-                      ),
-                      child: const Text(
-                        'Point camera at the QR code\non the dropbox LCD screen',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: _countdown <= 10
-                            ? UserTheme.statusError.withValues(alpha: 0.9)
-                            : Colors.black.withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
+            SmartScannerView(
+              controller: _scannerController,
+              isSquare: true,
+              accentColor: accentColor,
+              verticalCenterFraction: 0.44,
+              validateCode: (val) => val.startsWith('OWN-'),
+              onCodeScanned: _handleScannedToken,
+              instructionText:
+                  'Point camera at the verification QR\non the dropbox LCD screen',
+              manualFallbackLabel: 'Enter PIN Manually',
+              onManualFallback: () {
+                setState(() => _manualEntry = true);
+              },
+              topWidgets: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _countdown <= 10
+                        ? UserTheme.statusError.withValues(alpha: 0.92)
+                        : Colors.black.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.timer_outlined, color: Colors.white, size: 15),
+                      const SizedBox(width: 6),
+                      Text(
                         'Expires in ${_countdown}s',
                         style: const TextStyle(
                           color: Colors.white,
@@ -264,32 +241,10 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                           fontSize: 13,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 36),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        _scannerController.stop();
-                        setState(() => _manualEntry = true);
-                      },
-                      icon: const Icon(Icons.dialpad_rounded, size: 18),
-                      label: const Text(
-                        'Enter PIN Manually',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: cardColor,
-                        foregroundColor: primaryText,
-                        elevation: 2,
-                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(28),
-                          side: BorderSide(color: borderColor),
-                        ),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ),
 
           // Manual PIN Entry View
@@ -366,7 +321,6 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                           TextButton.icon(
                             onPressed: () {
                               setState(() => _manualEntry = false);
-                              _scannerController.start();
                             },
                             icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                             label: const Text('Back to Scanner', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -458,26 +412,6 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildMockScanner() {
-    return Container(
-      color: UserTheme.nightBackground,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.videocam_off_outlined, color: Colors.white.withValues(alpha: 0.5), size: 44),
-            const SizedBox(height: 14),
-            Text(
-              'Camera preview unavailable on this device.\nUse manual PIN entry below to verify.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 13, height: 1.5),
-            ),
-          ],
-        ),
       ),
     );
   }

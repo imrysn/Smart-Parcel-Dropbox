@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/dropbox_service.dart';
@@ -8,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/service_locator.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
+import '../widgets/smart_scanner_view.dart';
 import 'hardware_config_screen.dart';
 import 'home_screen.dart';
 
@@ -31,7 +30,10 @@ class _HardwareRegistrationScreenState
   final _nameController = TextEditingController(text: 'My Smart Parcel Dropbox');
   final _codeController = TextEditingController();
 
-  final MobileScannerController _scannerController = MobileScannerController();
+  final MobileScannerController _scannerController = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.qrCode],
+  );
   StreamSubscription? _registeredSub;
   StreamSubscription? _failedSub;
   Timer? _pairingTimeoutTimer;
@@ -41,11 +43,7 @@ class _HardwareRegistrationScreenState
   bool _showManual = false;
   String? _errorMsg;
 
-  bool get _isMobile {
-    if (kIsWeb) return false;
-    try { return Platform.isAndroid || Platform.isIOS; }
-    catch (_) { return false; }
-  }
+  bool get _isMobile => SmartScannerView.isCameraSupportedPlatform;
 
   @override
   void initState() {
@@ -74,7 +72,6 @@ class _HardwareRegistrationScreenState
     if (!mounted || _hasCompleted) return;
     _hasCompleted = true;
     _pairingTimeoutTimer?.cancel();
-    _scannerController.stop();
 
     final bool alreadyConnected = data['alreadyConnected'] == true;
     final String deviceId =
@@ -131,9 +128,6 @@ class _HardwareRegistrationScreenState
             : 'Registration failed. Please try again.';
       }
     });
-    if (!_showManual && _isMobile) {
-      _scannerController.start();
-    }
   }
 
   Future<void> _submitToken(String token) async {
@@ -150,7 +144,6 @@ class _HardwareRegistrationScreenState
       _processing = true;
       _errorMsg   = null;
     });
-    _scannerController.stop();
 
     final userId = await _authService.currentUserId ?? '';
     if (userId.isEmpty) {
@@ -196,16 +189,15 @@ class _HardwareRegistrationScreenState
     final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
     final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
     final mutedText = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
-    final cardColor = isDark ? UserTheme.nightCard : UserTheme.dayCard;
     final surfaceColor = isDark ? UserTheme.nightSurface : UserTheme.daySurface;
     final borderColor = isDark
         ? Colors.white.withValues(alpha: 0.08)
         : Colors.black.withValues(alpha: 0.08);
     final isCameraView = !_processing && !_showManual;
-    final scanSize = (MediaQuery.sizeOf(context).shortestSide * 0.6).clamp(170.0, 240.0);
 
     return Scaffold(
       backgroundColor: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
+      resizeToAvoidBottomInset: !isCameraView,
       extendBodyBehindAppBar: isCameraView,
       appBar: isCameraView
           ? AppBar(
@@ -244,125 +236,57 @@ class _HardwareRegistrationScreenState
             ),
       body: Stack(
         children: [
-          // 1. Live camera background
+          // 1. Live camera scanner with scrim cutout, brackets, and torch controls
           if (isCameraView)
-            _isMobile
-                ? MobileScanner(
-                    controller: _scannerController,
-                    onDetect: (capture) {
-                      final barcode = capture.barcodes.firstOrNull;
-                      if (barcode?.rawValue != null) _submitToken(barcode!.rawValue!);
-                    },
-                  )
-                : _buildMockScanner(),
-
-          // 2. Scan frame + overlay elements
-          if (isCameraView)
-            SafeArea(
-              child: Stack(
-                children: [
-                  Center(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: scanSize,
-                            height: scanSize,
-                            decoration: BoxDecoration(
-                              border: Border.all(color: UserTheme.primaryOrange, width: 2.5),
-                              borderRadius: BorderRadius.circular(UserTheme.radiusL),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.18),
-                                  blurRadius: 12,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.65),
-                              borderRadius: BorderRadius.circular(UserTheme.radiusS),
-                            ),
-                            child: const Text(
-                              'Scan the QR code on the dropbox LCD\nor the primary owner\'s invite screen',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
-                            ),
-                          ),
-                          if (_errorMsg != null)
-                            Container(
-                              margin: const EdgeInsets.only(top: 16),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: UserTheme.statusError.withValues(alpha: 0.92),
-                                borderRadius: BorderRadius.circular(UserTheme.radiusS),
-                              ),
-                              child: Text(
-                                _errorMsg!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(color: Colors.white, fontSize: 13),
-                              ),
-                            ),
-                        ],
-                      ),
+            SmartScannerView(
+              controller: _scannerController,
+              isSquare: true,
+              verticalCenterFraction: 0.37,
+              instructionText:
+                  'Scan the QR code on the dropbox LCD\nor the primary owner\'s invite screen',
+              onCodeScanned: _submitToken,
+              manualFallbackLabel: 'Enter PIN Manually',
+              onManualFallback: () {
+                setState(() => _showManual = true);
+              },
+              topWidgets: [
+                if (_errorMsg != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: UserTheme.statusError.withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(UserTheme.radiusS),
+                    ),
+                    child: Text(
+                      _errorMsg!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 12.5),
                     ),
                   ),
-
-                  // Bottom Device Name & Manual Fallback Button
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        bottom: 24,
-                        left: UserUi.horizontalGutter(context),
-                        right: UserUi.horizontalGutter(context),
-                      ),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            UserUi.surfaceCard(
-                              context,
-                              padding: const EdgeInsets.all(14),
-                              child: _buildNameField(isDark),
-                            ),
-                            const SizedBox(height: 14),
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                _scannerController.stop();
-                                setState(() => _showManual = true);
-                              },
-                              icon: const Icon(Icons.dialpad_rounded, size: 18),
-                              label: const Text(
-                                'Enter PIN Manually',
-                                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: cardColor,
-                                foregroundColor: primaryText,
-                                elevation: 2,
-                                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(28),
-                                  side: BorderSide(color: borderColor),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+              ],
+              bottomWidget: SafeArea(
+                top: false,
+                child: AnimatedPadding(
+                  duration: const Duration(milliseconds: 160),
+                  padding: EdgeInsets.fromLTRB(
+                    UserUi.horizontalGutter(context),
+                    0,
+                    UserUi.horizontalGutter(context),
+                    18 + MediaQuery.viewInsetsOf(context).bottom,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 460),
+                    child: UserUi.surfaceCard(
+                      context,
+                      padding: const EdgeInsets.all(14),
+                      child: _buildNameField(isDark),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
 
-          // 3. Manual Entry View
+          // 2. Manual Entry View
           if (!_processing && _showManual)
             Container(
               decoration: UserUi.pageBackground(context),
@@ -449,7 +373,6 @@ class _HardwareRegistrationScreenState
                           TextButton.icon(
                             onPressed: () {
                               setState(() => _showManual = false);
-                              _scannerController.start();
                             },
                             icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                             label: const Text('Back to Scanner', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -541,26 +464,6 @@ class _HardwareRegistrationScreenState
           Icons.label_outline_rounded,
           size: 20,
           color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMockScanner() {
-    return Container(
-      color: UserTheme.nightBackground,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.videocam_off_outlined, color: Colors.white.withValues(alpha: 0.5), size: 44),
-            const SizedBox(height: 14),
-            Text(
-              'Camera preview unavailable on this device.\nUse manual PIN entry below to register.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 13, height: 1.5),
-            ),
-          ],
         ),
       ),
     );

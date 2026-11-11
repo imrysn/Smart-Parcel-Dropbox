@@ -3,10 +3,10 @@ import 'dart:io' show Platform, Process;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
+import '../widgets/smart_scanner_view.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../services/tracking_service.dart';
@@ -185,76 +185,104 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
       return;
     }
 
-    // Mobile Camera Scanner Sheet
+    // Mobile Camera Scanner Sheet powered by unified SmartScannerView
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.black,
-      builder: (context) {
-        bool scannedThisSession = false;
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return SizedBox(
-              height: MediaQuery.of(context).size.height * 0.7,
-              child: Stack(
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        final isDark = Theme.of(sheetCtx).brightness == Brightness.dark;
+        return Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Container(
+              height: MediaQuery.sizeOf(sheetCtx).height * 0.76,
+              decoration: BoxDecoration(
+                color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(UserTheme.radiusXL),
+                ),
+              ),
+              child: Column(
                 children: [
-                  MobileScanner(
-                    onDetect: (capture) {
-                      if (scannedThisSession && !continuous) return;
-                      final List<Barcode> barcodes = capture.barcodes;
-                      for (final barcode in barcodes) {
-                        final val = barcode.rawValue;
-                        if (val != null && val.isNotEmpty) {
-                          scannedThisSession = true;
-                          HapticFeedback.mediumImpact();
-                          onScanned(val);
-                          if (!continuous) {
-                            Navigator.of(context).pop();
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Scanned: $val'),
-                                duration: const Duration(milliseconds: 800),
-                                backgroundColor: UserTheme.statusSuccess,
-                              ),
-                            );
-                          }
-                          break;
-                        }
-                      }
-                    },
-                  ),
-                  Positioned(
-                    top: 16,
-                    right: 16,
-                    child: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white, size: 28),
-                      onPressed: () => Navigator.of(context).pop(),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.black12,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  Positioned(
-                    bottom: 24,
-                    left: 24,
-                    right: 24,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        continuous
-                            ? 'Point camera at package waybill barcodes.\nScanning continuously...'
-                            : 'Align package waybill barcode inside frame to scan.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.qr_code_scanner_rounded,
+                          color: UserTheme.primaryOrange,
+                          size: 21,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            continuous
+                                ? 'Continuous Waybill Scanner'
+                                : 'Scan Waybill Barcode',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: isDark
+                                  ? UserTheme.nightTextPrimary
+                                  : UserTheme.dayTextPrimary,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.of(sheetCtx).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                        child: SmartScannerView(
+                          isSquare: false,
+                          continuous: continuous,
+                          verticalCenterFraction: 0.44,
+                          instructionText: continuous
+                              ? 'Point camera at each package waybill.\nContinuous scan cooldown is active.'
+                              : 'Align package waybill barcode inside the frame.',
+                          onCodeScanned: (val) {
+                            onScanned(val);
+                            if (!continuous) {
+                              if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+                            } else if (sheetCtx.mounted) {
+                              ScaffoldMessenger.of(sheetCtx).clearSnackBars();
+                              ScaffoldMessenger.of(sheetCtx).showSnackBar(
+                                SnackBar(
+                                  content: Text('Scanned: $val'),
+                                  duration: const Duration(milliseconds: 900),
+                                  behavior: SnackBarBehavior.floating,
+                                  backgroundColor: UserTheme.statusSuccess,
+                                ),
+                              );
+                            }
+                          },
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
     );

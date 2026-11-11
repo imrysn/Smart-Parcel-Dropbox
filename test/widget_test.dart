@@ -10,7 +10,10 @@ import 'package:smart_parcel_dropbox/services/cache_service.dart';
 import 'package:smart_parcel_dropbox/services/auth_service.dart';
 import 'package:smart_parcel_dropbox/services/database_service.dart';
 import 'package:smart_parcel_dropbox/widgets/notification_badge.dart';
+import 'package:smart_parcel_dropbox/widgets/smart_scanner_view.dart';
+import 'package:smart_parcel_dropbox/widgets/camera_barcode_scanner_dialog.dart';
 import 'package:smart_parcel_dropbox/screens/notifications_screen.dart';
+import 'package:smart_parcel_dropbox/screens/owner_verify_screen.dart';
 import 'dart:async';
 
 // Manual mocks for simplicity in this smoke test.
@@ -149,5 +152,51 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.byType(NotificationsScreen), findsOneWidget);
+  });
+
+  testWidgets('OwnerVerifyScreen opens manual PIN entry directly on non-mobile hosts', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: OwnerVerifyScreen(),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Enter Code Manually'), findsOneWidget);
+    expect(find.text('Verify Access'), findsOneWidget);
+    expect(SmartScannerView.isCameraSupportedPlatform, isFalse);
+  });
+
+  testWidgets('CameraBarcodeScannerDialog returns ScannedBarcodeResult from manual fallback', (WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    ScannedBarcodeResult? scanned;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () async {
+                scanned = await CameraBarcodeScannerDialog.scan(context);
+              },
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Waybill Barcode Scanner'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'SPXPH987654321');
+    await tester.tap(find.text('Use Barcode'));
+    await tester.pumpAndSettle();
+
+    expect(scanned, isNotNull);
+    expect(scanned!.trackingId, 'SPXPH987654321');
+    expect(scanned!.detectedCourier, 'Shopee (SPX)');
   });
 }

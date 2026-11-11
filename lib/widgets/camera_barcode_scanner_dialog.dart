@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../config/user_theme.dart';
+import '../widgets/user_ui.dart';
+import 'smart_scanner_view.dart';
 
-/// Result object returned by CameraBarcodeScannerDialog
+/// Result object returned by [CameraBarcodeScannerDialog].
 class ScannedBarcodeResult {
   final String trackingId;
   final String detectedCourier;
@@ -14,7 +15,7 @@ class ScannedBarcodeResult {
   });
 }
 
-/// Live Camera Barcode Scanner Modal Sheet
+/// Live Camera Barcode Scanner Modal Sheet with desktop/manual fallback.
 class CameraBarcodeScannerDialog extends StatefulWidget {
   const CameraBarcodeScannerDialog({super.key});
 
@@ -28,206 +29,209 @@ class CameraBarcodeScannerDialog extends StatefulWidget {
   }
 
   @override
-  State<CameraBarcodeScannerDialog> createState() => _CameraBarcodeScannerDialogState();
+  State<CameraBarcodeScannerDialog> createState() =>
+      _CameraBarcodeScannerDialogState();
 }
 
-class _CameraBarcodeScannerDialogState extends State<CameraBarcodeScannerDialog> {
-  final MobileScannerController _controller = MobileScannerController();
-  bool _isTorchOn = false;
-  bool _isDisposed = false;
+class _CameraBarcodeScannerDialogState
+    extends State<CameraBarcodeScannerDialog> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+  );
+  final TextEditingController _manualController = TextEditingController();
+  bool _manualMode = !SmartScannerView.isCameraSupportedPlatform;
+  bool _hasReturned = false;
 
   @override
   void dispose() {
-    _isDisposed = true;
     _controller.dispose();
+    _manualController.dispose();
     super.dispose();
   }
 
   String _detectCourier(String rawValue) {
     final upper = rawValue.toUpperCase();
-    if (upper.startsWith('SPX') || upper.contains('SHOPEE')) return 'Shopee (SPX)';
-    if (upper.startsWith('TT') || upper.startsWith('TKK') || upper.contains('TIKTOK')) return 'TikTok Shop';
-    if (upper.startsWith('JT') || upper.startsWith('77') || upper.startsWith('99')) return 'J&T Express';
-    if (upper.startsWith('FLS') || upper.startsWith('TH')) return 'Flash Express';
-    if (upper.startsWith('NV') || upper.startsWith('NINJA')) return 'NinjaVan';
+    if (upper.startsWith('SPX') || upper.contains('SHOPEE')) {
+      return 'Shopee (SPX)';
+    }
+    if (upper.startsWith('TT') ||
+        upper.startsWith('TKK') ||
+        upper.contains('TIKTOK')) {
+      return 'TikTok Shop';
+    }
+    if (upper.startsWith('JT') ||
+        upper.startsWith('77') ||
+        upper.startsWith('99')) {
+      return 'J&T Express';
+    }
+    if (upper.startsWith('FLS') || upper.startsWith('TH')) {
+      return 'Flash Express';
+    }
+    if (upper.startsWith('NV') || upper.contains('NINJA')) return 'NinjaVan';
     if (upper.startsWith('LZD') || upper.startsWith('LX')) return 'Lazada';
     return 'Courier Express';
   }
 
-  void _onDetect(BarcodeCapture capture) {
-    if (_isDisposed) return;
-    final List<Barcode> barcodes = capture.barcodes;
-    for (final barcode in barcodes) {
-      final String? rawValue = barcode.rawValue;
-      if (rawValue != null && rawValue.trim().isNotEmpty) {
-        final cleanVal = rawValue.trim();
-        HapticFeedback.heavyImpact();
-        
-        final courier = _detectCourier(cleanVal);
-        _controller.stop();
-        
-        if (mounted) {
-          Navigator.of(context).pop(
-            ScannedBarcodeResult(
-              trackingId: cleanVal,
-              detectedCourier: courier,
-            ),
-          );
-        }
-        break;
-      }
+  void _completeWithCode(String rawValue) {
+    final cleanVal = rawValue.trim();
+    if (cleanVal.isEmpty || _hasReturned) return;
+    _hasReturned = true;
+    try {
+      _controller.stop();
+    } catch (_) {}
+    if (mounted) {
+      Navigator.of(context).pop(
+        ScannedBarcodeResult(
+          trackingId: cleanVal,
+          detectedCourier: _detectCourier(cleanVal),
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText =
+        isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final mutedText =
+        isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
-      decoration: BoxDecoration(
-        color: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        children: [
-          // Drag Handle
-          const SizedBox(height: 12),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white30 : Colors.black26,
-              borderRadius: BorderRadius.circular(2),
+    return Center(
+      heightFactor: 1,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Container(
+          height: _manualMode
+              ? null
+              : MediaQuery.sizeOf(context).height * 0.78,
+          padding: EdgeInsets.only(bottom: bottomInset),
+          decoration: BoxDecoration(
+            color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(UserTheme.radiusXL),
             ),
           ),
-          const SizedBox(height: 16),
-
-          // Header
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white24 : Colors.black12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(9),
                       decoration: BoxDecoration(
-                        color: UserTheme.primaryOrange.withOpacity(0.15),
-                        shape: BoxShape.circle,
+                        color: UserTheme.primaryOrange.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.qr_code_scanner_rounded, color: UserTheme.primaryOrange, size: 22),
+                      child: const Icon(
+                        Icons.qr_code_scanner_rounded,
+                        color: UserTheme.primaryOrange,
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Waybill Barcode Scanner',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Waybill Barcode Scanner',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: primaryText,
+                            ),
                           ),
-                        ),
-                        Text(
-                          'Point camera at Shopee / TikTok shipping label',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Camera Viewfinder
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: UserTheme.primaryOrange.withOpacity(0.4), width: 2),
-              ),
-              child: Stack(
-                children: [
-                  MobileScanner(
-                    controller: _controller,
-                    onDetect: _onDetect,
-                  ),
-
-                  // Viewfinder Frame Overlay
-                  Center(
-                    child: Container(
-                      width: 260,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: UserTheme.primaryOrange, width: 2.5),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: UserTheme.primaryOrange.withOpacity(0.2),
-                            blurRadius: 15,
-                            spreadRadius: 2,
+                          Text(
+                            _manualMode
+                                ? 'Type or paste the tracking barcode'
+                                : 'Align courier shipping label inside frame',
+                            style: TextStyle(fontSize: 12, color: mutedText),
                           ),
                         ],
                       ),
                     ),
-                  ),
-
-                  // Bottom Controls Bar (Flashlight toggle)
-                  Positioned(
-                    bottom: 16,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        FloatingActionButton.small(
-                          heroTag: 'torch_btn',
-                          backgroundColor: _isTorchOn ? UserTheme.primaryOrange : Colors.black54,
-                          onPressed: () async {
-                            await _controller.toggleTorch();
-                            setState(() => _isTorchOn = !_isTorchOn);
-                          },
-                          child: Icon(_isTorchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded, color: Colors.white),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: 'Close',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (_manualMode)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _manualController,
+                        autofocus: true,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          labelText: 'Tracking ID / Waybill',
+                          hintText: 'e.g. SPXPH123456789',
+                          prefixIcon: Icon(Icons.tag_rounded),
+                        ),
+                        onSubmitted: _completeWithCode,
+                      ),
+                      const SizedBox(height: 16),
+                      UserUi.premiumButton(
+                        label: 'Use Barcode',
+                        icon: Icons.check_rounded,
+                        onTap: () => _completeWithCode(_manualController.text),
+                      ),
+                      if (SmartScannerView.isCameraSupportedPlatform) ...[
+                        const SizedBox(height: 10),
+                        TextButton.icon(
+                          onPressed: () => setState(() => _manualMode = false),
+                          icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                          label: const Text('Use Camera Instead'),
                         ),
                       ],
+                    ],
+                  ),
+                )
+              else
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                      child: SmartScannerView(
+                        controller: _controller,
+                        isSquare: false,
+                        showCameraSwitch: true,
+                        verticalCenterFraction: 0.44,
+                        instructionText:
+                            'Supports 1D courier barcodes & QR shipping waybills',
+                        onCodeScanned: _completeWithCode,
+                        manualFallbackLabel: 'Type Code',
+                        onManualFallback: () {
+                          setState(() => _manualMode = true);
+                        },
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ),
+                ),
+            ],
           ),
-
-          const SizedBox(height: 20),
-
-          // Instructions
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              'Supports 1D Barcodes, QR Codes & Shipping Waybills',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-        ],
+        ),
       ),
     );
   }
