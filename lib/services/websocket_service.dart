@@ -279,6 +279,11 @@ class WebSocketService {
     debugPrint('🚪 Emitted controlDoor: $type → $action');
   }
 
+  /// Convenience alias for [emitControlDoor] default to 'open'
+  void controlDoor(String type, [String action = 'open']) {
+    emitControlDoor(type, action);
+  }
+
   /// Request the current door states and parcel sensor readings from hardware.
   ///
   /// Replaces ESP32_DoorControl.ino's HTTP GET /status endpoint.

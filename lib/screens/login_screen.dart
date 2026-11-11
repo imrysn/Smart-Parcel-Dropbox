@@ -8,7 +8,7 @@ import 'register_screen.dart';
 import 'home_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'password_reset_screen.dart';
-import '../widgets/fade_animation.dart';
+
 /// Login Screen - User authentication with Email/Password and Google Sign-In
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -312,13 +312,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          FadeAnimation(0.2, UserUi.sectionTitle(
+                          UserUi.sectionTitle(
                             context,
                             'Welcome Back',
                             subtitle: 'Sign in to continue managing your parcels',
-                          )),
+                          ),
                           const SizedBox(height: 24),
-                          FadeAnimation(0.4, TextFormField(
+                          TextFormField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
                             decoration: const InputDecoration(
@@ -326,9 +326,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               prefixIcon: Icon(Icons.mail_outline_rounded),
                             ),
                             validator: InputValidator.validateEmail,
-                          )),
+                          ),
                           const SizedBox(height: 16),
-                          FadeAnimation(0.6, TextFormField(
+                          TextFormField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
@@ -346,16 +346,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             validator: (value) =>
                                 value == null || value.isEmpty ? 'Please enter password' : null,
-                          )),
-                          FadeAnimation(0.7, Align(
+                          ),
+                          Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               onPressed: _isLoading ? null : _showForgotPasswordDialog,
                               child: const Text('Forgot Password?'),
                             ),
-                          )),
+                          ),
                           const SizedBox(height: 24),
-                          FadeAnimation(0.8, _isLoading
+                          _isLoading
                               ? const Center(
                                   child: CircularProgressIndicator(
                                       color: UserTheme.primaryOrange))
@@ -363,9 +363,45 @@ class _LoginScreenState extends State<LoginScreen> {
                                   label: 'SIGN IN',
                                   onTap: _login,
                                   icon: Icons.login_rounded,
-                                )),
-                          const SizedBox(height: 32),
-                          FadeAnimation(0.9, Row(
+                                ),
+                          const SizedBox(height: 24),
+                          Text(
+                            'QUICK DEMO LOGIN',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.2,
+                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              ActionChip(
+                                avatar: const Icon(Icons.person_rounded, size: 14, color: UserTheme.primaryOrange),
+                                label: const Text('Raysan (User)'),
+                                backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                                onPressed: () {
+                                  _emailController.text = 'imrays23@gmail.com';
+                                  _passwordController.text = 'password123';
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              ActionChip(
+                                avatar: const Icon(Icons.admin_panel_settings_rounded, size: 14, color: Color(0xFF10B981)),
+                                label: const Text('Brant (Admin)'),
+                                backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                                onPressed: () {
+                                  _emailController.text = 'brantcordova0@gmail.com';
+                                  _passwordController.text = 'password123';
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
@@ -386,7 +422,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: const Text('Create Account'),
                               ),
                             ],
-                          )),
+                          ),
                         ],
                       ),
                     ),

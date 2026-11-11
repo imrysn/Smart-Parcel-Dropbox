@@ -7,9 +7,7 @@ import '../services/dropbox_service.dart';
 import '../services/auth_service.dart';
 import '../services/service_locator.dart';
 import '../config/user_theme.dart';
-import '../widgets/user_ui.dart';
 import 'hardware_config_screen.dart';
-import '../widgets/scanner_overlay.dart';
 
 /// Hardware Registration Screen
 ///
@@ -168,9 +166,16 @@ class _HardwareRegistrationScreenState
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          AnimatedScannerOverlay(
-                            size: 240,
-                            color: primaryColor,
+                          Container(
+                            width: 240,
+                            height: 240,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: primaryColor, width: 3),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, spreadRadius: 2),
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 20),
                           Container(

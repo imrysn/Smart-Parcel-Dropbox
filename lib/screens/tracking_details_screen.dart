@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../models/tracking_model.dart';
 import '../services/database_service.dart';
-import '../widgets/fade_animation.dart';
 
 class TrackingDetailsScreen extends StatelessWidget {
   final TrackingModel tracking;
@@ -12,6 +13,76 @@ class TrackingDetailsScreen extends StatelessWidget {
     super.key,
     required this.tracking,
   });
+
+  void _showFullscreenBarcodeModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                tracking.shopName,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Waybill #${tracking.trackingId}',
+                style: const TextStyle(fontSize: 14, fontFamily: 'monospace', color: Colors.black87, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 24),
+              QrImageView(
+                data: tracking.trackingId,
+                version: QrVersions.auto,
+                size: 220.0,
+                eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
+                dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: tracking.trackingId));
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Waybill tracking ID copied to clipboard!'),
+                      backgroundColor: UserTheme.statusSuccess,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.copy_rounded, size: 18),
+                label: const Text('COPY TRACKING ID'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: UserTheme.primaryOrange,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,6 +130,19 @@ class TrackingDetailsScreen extends StatelessWidget {
                       const Divider(height: 32),
                       _buildDetailRow(context, Icons.history_rounded, 'First Entry', _formatDateTime(tracking.registeredAt!), UserTheme.primaryOrange),
                     ],
+                    const SizedBox(height: 20),
+                    OutlinedButton.icon(
+                      onPressed: () => _showFullscreenBarcodeModal(context),
+                      icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                      label: const Text('VIEW ENLARGED BARCODE & QR'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: UserTheme.primaryOrange,
+                        side: const BorderSide(color: UserTheme.primaryOrange, width: 1.5),
+                        minimumSize: const Size(double.infinity, 44),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -90,7 +174,7 @@ class TrackingDetailsScreen extends StatelessWidget {
                     return Column(
                       children: logs.asMap().entries.map((entry) {
                         final isLast = entry.key == logs.length - 1;
-                        return _buildTimelineItem(context, entry.value, isLast, entry.key);
+                        return _buildTimelineItem(context, entry.value, isLast);
                       }).toList(),
                     );
                   },
@@ -184,11 +268,12 @@ class TrackingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTimelineItem(BuildContext context, Map<String, dynamic> log, bool isLast, int index) {
+  Widget _buildTimelineItem(BuildContext context, Map<String, dynamic> log, bool isLast) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final time = DateTime.parse(log['timestamp'].toString());
+    final rawTs = log['timestamp']?.toString() ?? '';
+    final time = DateTime.tryParse(rawTs) ?? DateTime.now();
 
-    return FadeAnimation(0.2 + (index * 0.15), IntrinsicHeight(
+    return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -247,7 +332,7 @@ class TrackingDetailsScreen extends StatelessWidget {
           ),
         ],
       ),
-    ));
+    );
   }
 
   IconData _getStatusIcon(String status) {

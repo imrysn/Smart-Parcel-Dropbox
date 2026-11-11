@@ -24,6 +24,37 @@ class NotificationModel {
     this.data,
   });
 
+  NotificationModel copyWith({
+    String? id,
+    String? userId,
+    String? type,
+    String? title,
+    String? message,
+    bool? isRead,
+    DateTime? timestamp,
+    String? trackingId,
+    Map<String, dynamic>? data,
+  }) {
+    return NotificationModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      type: type ?? this.type,
+      title: title ?? this.title,
+      message: message ?? this.message,
+      isRead: isRead ?? this.isRead,
+      timestamp: timestamp ?? this.timestamp,
+      trackingId: trackingId ?? this.trackingId,
+      data: data ?? this.data,
+    );
+  }
+
+  static DateTime _safeParseTimestamp(dynamic val) {
+    if (val == null) return DateTime.now();
+    if (val is DateTime) return val;
+    if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+    return DateTime.tryParse(val.toString()) ?? DateTime.now();
+  }
+
   /// Create NotificationModel from Map (JSON)
   factory NotificationModel.fromMap(Map<String, dynamic> data) {
     return NotificationModel(
@@ -33,7 +64,7 @@ class NotificationModel {
       title: data['title'] ?? '',
       message: data['message'] ?? '',
       isRead: data['isRead'] ?? false,
-      timestamp: data['timestamp'] != null ? DateTime.parse(data['timestamp'].toString()) : DateTime.now(),
+      timestamp: _safeParseTimestamp(data['timestamp']),
       trackingId: data['trackingId'],
       data: data['data'] != null ? Map<String, dynamic>.from(data['data']) : null,
     );

@@ -252,6 +252,141 @@ class TrackingService {
     }
   }
 
+  /// Fetch Daily Digest statistics for business dashboard
+  Future<Map<String, dynamic>?> fetchDailyDigest() async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.business}/daily-digest'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['data'];
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching daily digest: $e');
+      return null;
+    }
+  }
+
+  /// Stage an outbound customer order
+  Future<Map<String, dynamic>> stageOutboundPackage({
+    required String trackingId,
+    required String shopName,
+    required String customerName,
+    String? customerPhone,
+    String? courierName,
+    String? riderName,
+    String? riderPhone,
+  }) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.business}/outbound-staging'),
+        headers: headers,
+        body: jsonEncode({
+          'trackingId': trackingId,
+          'shopName': shopName,
+          'customerName': customerName,
+          'customerPhone': customerPhone,
+          'courierName': courierName,
+          'riderName': riderName,
+          'riderPhone': riderPhone,
+        }),
+      );
+
+      Map<String, dynamic>? body;
+      try {
+        body = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {
+        // Non-JSON response (e.g. HTML 404/502 from server or proxy)
+      }
+
+      if (response.statusCode == 201 && body != null) {
+        final userId = await _authService.currentUserId;
+        if (userId != null) await refreshTracking(userId);
+        return body['data'];
+      } else {
+        final msg = body?['message'] ??
+            (response.statusCode == 404
+                ? 'Outbound staging route not found on server (404). Please ensure server is updated.'
+                : 'Server error (HTTP ${response.statusCode}). Please try again.');
+        throw msg;
+      }
+    } catch (e) {
+      throw 'Outbound staging error: $e';
+    }
+  }
+
+  /// Batch stage multiple outbound customer packages
+  Future<List<dynamic>> batchStageOutboundPackages({
+    required List<Map<String, String>> packages,
+    required String shopName,
+    bool openDoor = true,
+  }) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.business}/batch-outbound-staging'),
+        headers: headers,
+        body: jsonEncode({
+          'packages': packages,
+          'shopName': shopName,
+          'openDoor': openDoor,
+        }),
+      );
+
+      Map<String, dynamic>? body;
+      try {
+        body = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {
+        // Non-JSON response
+      }
+
+      if (response.statusCode == 201 && body != null) {
+        final userId = await _authService.currentUserId;
+        if (userId != null) await refreshTracking(userId);
+        return body['data'];
+      } else {
+        final msg = body?['message'] ??
+            (response.statusCode == 404
+                ? 'Batch staging route not found on server (404). Please ensure server is updated.'
+                : 'Server error (HTTP ${response.statusCode}). Please try again.');
+        throw msg;
+      }
+    } catch (e) {
+      throw 'Batch outbound staging error: $e';
+    }
+  }
+
+  /// Generate customer dispatch notification link/text
+  Future<Map<String, String>?> generateDispatchLink(String trackingId) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.business}/generate-dispatch-link'),
+        headers: headers,
+        body: jsonEncode({'trackingId': trackingId}),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        final data = body['data'];
+        return {
+          'text': data['text']?.toString() ?? '',
+          'shareText': (data['shareText'] ?? data['text'])?.toString() ?? '',
+        };
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error generating dispatch text: $e');
+      return null;
+    }
+  }
+
   /// Dispose resources
   void dispose() {
     _trackingController.close();

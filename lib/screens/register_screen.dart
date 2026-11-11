@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/auth_service.dart';
-import 'home_screen.dart';
+import 'hardware_registration_screen.dart';
 
 /// Register Screen - New user registration
 class RegisterScreen extends StatefulWidget {
@@ -52,8 +52,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (mounted) {
+        // Direct newly registered owner to Hardware Registration Pairing Wizard
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          MaterialPageRoute(builder: (context) => const HardwareRegistrationScreen()),
           (route) => false,
         );
       }

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/websocket_service.dart';
-import '../widgets/scanner_overlay.dart';
 
 /// Owner Verification Screen
 ///
@@ -204,9 +203,24 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  AnimatedScannerOverlay(
-                    size: 240,
-                    color: _countdown <= 10 ? Colors.redAccent : primaryColor,
+                  Container(
+                    width: 240,
+                    height: 240,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        // Orange primary normally, Red when <= 10s
+                        color: _countdown <= 10 ? Colors.redAccent : primaryColor,
+                        width: 3,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 20),
                   Container(

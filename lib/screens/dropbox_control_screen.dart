@@ -11,7 +11,8 @@ import '../services/auth_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/biometric_service.dart';
 import 'hardware_registration_screen.dart';
-import 'access_qr_screen.dart';
+import '../presentation/components/emergency_lockdown_card.dart';
+import '../presentation/components/qr_access_badge_card.dart';
 
 // ─── Door type constants matching ESP32 firmware ───────────────────────────
 const String kDoorTop      = 'top';      // LOCK_TOP / REED_TOP
@@ -50,6 +51,10 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   bool _hasDropbox = false;
   bool _registrationChecked = false;
   int _registeredUserCount = 0; // how many users share this device
+  bool _isLockdownActive = false;
+  String _currentOtp = '849204';
+  int _otpSecondsLeft = 840; // 14 mins
+  late String _ownerQrToken;
 
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
@@ -57,6 +62,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   @override
   void initState() {
     super.initState();
+    _ownerQrToken = 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}';
     _ws = getIt<WebSocketService>();
     _pulseController = AnimationController(duration: const Duration(seconds: 2), vsync: this)..repeat(reverse: true);
     _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
@@ -151,6 +157,19 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       return;
     }
 
+    final isOpen = _doorOpen[doorType]!;
+    if (_isLockdownActive && !isOpen) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Cannot unlock door while Emergency Lockdown is active. Disable lockdown first.'),
+          backgroundColor: UserTheme.statusError,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
     if (isDesktop) {
@@ -235,16 +254,21 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       _showOfflineError();
       return;
     }
-    HapticFeedback.heavyImpact();
     final isOpen = _doorOpen[doorType]!;
+    if (_isLockdownActive && !isOpen) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Cannot unlock door while Emergency Lockdown is active. Disable lockdown first.'),
+          backgroundColor: UserTheme.statusError,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() { _doorProcessing[doorType] = true; _doorOpen[doorType] = !isOpen; });
     _ws.emitControlDoor(doorType, isOpen ? 'close' : 'open');
-    Future.delayed(const Duration(seconds: 2), () { 
-      if (mounted) {
-        setState(() => _doorProcessing[doorType] = false); 
-        HapticFeedback.mediumImpact();
-      }
-    });
+    Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _doorProcessing[doorType] = false); });
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${isOpen ? 'Closing' : 'Opening'} ${_doorLabel(doorType)}...'),
@@ -292,7 +316,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
@@ -308,6 +331,44 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 const SizedBox(height: 12),
                 if (_hasDropbox) ...[
                   _buildConnectionBanner(),
+                  const SizedBox(height: 16),
+                  EmergencyLockdownCard(
+                    isLockdownActive: _isLockdownActive,
+                    onToggle: (val) {
+                      setState(() => _isLockdownActive = val);
+                      if (val) {
+                        // Immediately close and lock any doors that were open
+                        for (final doorType in [kDoorTop, kDoorPickup, kDoorReceived]) {
+                          if (_doorOpen[doorType] == true) {
+                            _ws.emitControlDoor(doorType, 'close');
+                            _doorOpen[doorType] = false;
+                          }
+                        }
+                      }
+                      ScaffoldMessenger.of(context).clearSnackBars();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(val ? '⚠️ Emergency Lockdown Active: All doors secured' : '✅ System Security Nominal'),
+                          backgroundColor: val ? UserTheme.statusError : UserTheme.statusSuccess,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  UserUi.sectionTitle(context, 'Hardware QR Access Badge', subtitle: 'Hold code in front of MH-ET barcode scanner'),
+                  const SizedBox(height: 12),
+                  QrAccessBadgeCard(
+                    qrToken: _ownerQrToken,
+                    onRefresh: () {
+                      setState(() {
+                        _ownerQrToken = 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}';
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Dynamic QR Access Token Refreshed'), behavior: SnackBarBehavior.floating),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 24),
                   UserUi.sectionTitle(context, 'Door Controls', subtitle: 'Control your hardware remotely'),
                   const SizedBox(height: 12),
@@ -359,32 +420,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
               ),
               const Spacer(),
               if (_hasDropbox) ...[
-                // Show how many accounts share this device
-                if (_registeredUserCount > 1)
-                  Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: UserTheme.primaryOrange.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: UserTheme.primaryOrange.withOpacity(0.4)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.group_rounded, size: 12, color: UserTheme.primaryOrange),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$_registeredUserCount users',
-                          style: const TextStyle(
-                            color: UserTheme.primaryOrange,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 _buildStatusIndicator(),
               ],
             ],
@@ -430,14 +465,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-            UserUi.premiumButton(
-              label: 'GENERATE ACCESS QR',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const AccessQrScreen()),
-              ),
-              icon: Icons.qr_code_rounded,
             ),
           ],
         ],
@@ -562,10 +589,18 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
           ),
           const SizedBox(height: 16),
           UserUi.premiumButton(
-            label: isProcessing ? 'PROCESSING...' : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR'),
+            label: isProcessing
+                ? 'PROCESSING...'
+                : (_isLockdownActive && !isOpen
+                    ? 'LOCKED (LOCKDOWN)'
+                    : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR')),
             onTap: isProcessing ? () {} : () => _requestDoorAuth(doorType),
             icon: isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
-            color: !_esp32Connected ? Colors.grey : (isOpen ? UserTheme.statusError : accentColor),
+            color: !_esp32Connected
+                ? Colors.grey
+                : (_isLockdownActive && !isOpen
+                    ? Colors.grey
+                    : (isOpen ? UserTheme.statusError : accentColor)),
           ),
         ],
       ),
@@ -717,37 +752,89 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
     final ssidController = TextEditingController(text: ssid);
     final passController = TextEditingController();
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    bool isJoining = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
-        title: Text(isManual ? 'Manual Config' : '$ssid Setup'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isManual) TextField(controller: ssidController, decoration: const InputDecoration(labelText: 'SSID')),
-            const SizedBox(height: 12),
-            TextField(controller: passController, obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline_rounded))),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
-          SizedBox(
-            width: 120, height: 44,
-            child: UserUi.premiumButton(
-              label: 'JOIN',
-              fontSize: 14,
-              onTap: () {
-                if (ssidController.text.isNotEmpty) {
-                  getIt<DropboxService>().pushHardwareConfig(ssid: ssidController.text, password: passController.text);
-                  Navigator.pop(context); Navigator.pop(context);
-                }
-              },
+      barrierDismissible: !isJoining,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final targetSsid = ssidController.text.trim();
+          final isValid = targetSsid.isNotEmpty;
+
+          return AlertDialog(
+            backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
+            title: Text(isManual ? 'Manual Config' : '$ssid Setup'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isManual)
+                  TextField(
+                    controller: ssidController,
+                    onChanged: (_) => setDialogState(() {}),
+                    decoration: const InputDecoration(labelText: 'SSID'),
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: Icon(Icons.lock_outline_rounded),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            actions: [
+              TextButton(
+                onPressed: isJoining ? null : () => Navigator.pop(dialogContext),
+                child: const Text('CANCEL'),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 100, minHeight: 42),
+                child: UserUi.premiumButton(
+                  label: isJoining ? 'JOINING...' : 'JOIN',
+                  fontSize: 13,
+                  fullWidth: false,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  isLoading: isJoining,
+                  color: !isValid || isJoining ? Colors.grey : null,
+                  onTap: () async {
+                    if (targetSsid.isEmpty) return;
+                    setDialogState(() => isJoining = true);
+
+                    try {
+                      getIt<DropboxService>().pushHardwareConfig(
+                        ssid: targetSsid,
+                        password: passController.text,
+                      );
+                      
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Pushing Wi-Fi credentials for "$targetSsid"...'),
+                            backgroundColor: UserTheme.primaryOrange,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                      
+                      await Future.delayed(const Duration(milliseconds: 600));
+                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                      if (this.context.mounted) Navigator.pop(this.context);
+                    } catch (e) {
+                      if (dialogContext.mounted) {
+                        setDialogState(() => isJoining = false);
+                      }
+                    }
+                  },
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

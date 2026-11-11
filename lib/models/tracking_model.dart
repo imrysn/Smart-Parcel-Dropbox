@@ -13,6 +13,13 @@ class TrackingModel {
   final DateTime? retrievedAt;
   final DateTime? doneAt;
 
+  // Business fulfillment fields
+  final String direction; // INBOUND_SUPPLIER, OUTBOUND_CUSTOMER
+  final String? customerName;
+  final String? customerPhone;
+  final String? courierName;
+  final String? courierOtp;
+
   TrackingModel({
     required this.trackingId,
     required this.userId,
@@ -24,7 +31,19 @@ class TrackingModel {
     this.deliveredAt,
     this.retrievedAt,
     this.doneAt,
+    this.direction = 'INBOUND_SUPPLIER',
+    this.customerName,
+    this.customerPhone,
+    this.courierName,
+    this.courierOtp,
   });
+
+  static DateTime? _safeParseDate(dynamic val) {
+    if (val == null) return null;
+    if (val is DateTime) return val;
+    if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+    return DateTime.tryParse(val.toString());
+  }
 
   /// Create TrackingModel from Map (JSON)
   factory TrackingModel.fromMap(Map<String, dynamic> data) {
@@ -34,14 +53,18 @@ class TrackingModel {
       shopName: data['shopName'] ?? '',
       status: data['status'] ?? 'pending',
       mode: data['mode'] ?? 'drop_off',
-      registeredAt: data['createdAt'] != null ? DateTime.parse(data['createdAt']) : (data['registeredAt'] != null ? DateTime.parse(data['registeredAt']) : null),
+      registeredAt: _safeParseDate(data['createdAt']) ?? _safeParseDate(data['registeredAt']),
       expectedDeliveryDate: data['expectedDeliveryDate'],
-      deliveredAt: data['deliveredAt'] != null ? DateTime.parse(data['deliveredAt']) : null,
-      retrievedAt: data['retrievedAt'] != null ? DateTime.parse(data['retrievedAt']) : null,
-      doneAt:      data['doneAt']      != null ? DateTime.parse(data['doneAt'])      : null,
+      deliveredAt: _safeParseDate(data['deliveredAt']),
+      retrievedAt: _safeParseDate(data['retrievedAt']),
+      doneAt:      _safeParseDate(data['doneAt']),
+      direction:   data['direction']   ?? 'INBOUND_SUPPLIER',
+      customerName: data['customerName'],
+      customerPhone: data['customerPhone'],
+      courierName: data['courierName'],
+      courierOtp: data['courierOtp'],
     );
   }
-
 
   /// Convert to Map for API
   Map<String, dynamic> toMap() {
@@ -56,8 +79,15 @@ class TrackingModel {
       'deliveredAt': deliveredAt?.toIso8601String(),
       'retrievedAt': retrievedAt?.toIso8601String(),
       'doneAt':      doneAt?.toIso8601String(),
+      'direction':   direction,
+      'customerName': customerName,
+      'customerPhone': customerPhone,
+      'courierName': courierName,
+      'courierOtp': courierOtp,
     };
   }
+
+  bool get isOutbound => direction == 'OUTBOUND_CUSTOMER';
 
   /// Get status display text
   String getStatusText() {

@@ -243,11 +243,16 @@ class DatabaseService {
   Stream<List<ScanLogModel>> getScanLogs() =>
       Stream.fromFuture(_scanLog.getScanLogs());
 
+  Future<List<ScanLogModel>> fetchScanLogs() => _scanLog.getScanLogs();
+
   Stream<List<ScanLogModel>> getUserScanLogs(String userId) =>
       Stream.fromFuture(_scanLog.getUserScanLogs(userId));
 
   Stream<List<Map<String, dynamic>>> getAllDeliveryLogs() =>
       Stream.fromFuture(_scanLog.getAllDeliveryLogs());
+
+  Future<List<Map<String, dynamic>>> fetchAllDeliveryLogs() =>
+      _scanLog.getAllDeliveryLogs();
 
   Stream<List<Map<String, dynamic>>> getDeliveryLogs(String trackingId) =>
       Stream.fromFuture(_scanLog.getDeliveryLogs(trackingId));
@@ -283,6 +288,12 @@ class DatabaseService {
 
   Future<void> refreshNotifications(String userId) =>
       _notification.refreshNotifications(userId);
+
+  Future<void> fetchNotifications(String userId, {bool isRefresh = false}) =>
+      _notification.fetchNotifications(userId, isRefresh: isRefresh);
+
+  bool get hasMoreNotifications => _notification.hasMore;
+  bool get isFetchingMoreNotifications => _notification.isFetchingMore;
 
   Future<void> createNotification({
     required String userId,

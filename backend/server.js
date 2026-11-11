@@ -156,9 +156,11 @@ app.use('/api/webhooks', webhookRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const revision = process.env.RENDER_GIT_COMMIT;
   res.json({
     status: 'online',
     timestamp: new Date(),
+    revision: /^[a-f0-9]{40}$/i.test(revision ?? '') ? revision : null,
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
   });
 });

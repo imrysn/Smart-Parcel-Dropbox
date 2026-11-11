@@ -43,10 +43,18 @@ class NotificationService {
   List<NotificationModel> _cachedNotifications = [];
   final _authService = getIt<AuthService>();
 
+  // ── Pagination & Loading States ──────────────────────────────────────────
+  int _currentPage = 1;
+  static const int _pageSize = 15;
+  bool _hasMore = true;
+  bool _isFetchingMore = false;
+
   // Public getters
   List<NotificationModel> get cachedNotifications => _cachedNotifications;
   Stream<List<NotificationModel>> get notificationStream =>
       _notificationController.stream;
+  bool get hasMore => _hasMore;
+  bool get isFetchingMore => _isFetchingMore;
 
   // ── Initialization ────────────────────────────────────────────────────────
 
@@ -227,25 +235,58 @@ class NotificationService {
     debugPrint('Unsubscribed from topic: $topic');
   }
 
-  // ── In-app notification API (HTTP + streams) ──────────────────────────────
+  // ── In-app notification API (HTTP + streams + Lazy Loading) ───────────────
 
-  /// Refresh notifications for a user
-  Future<void> refreshNotifications(String userId) async {
+  /// Fetch notifications for a user with page-based lazy loading.
+  Future<void> fetchNotifications(String userId, {bool isRefresh = false}) async {
+    if (isRefresh) {
+      _currentPage = 1;
+      _hasMore = true;
+    }
+
+    if (_isFetchingMore || (!_hasMore && !isRefresh)) return;
+    _isFetchingMore = true;
+
     try {
       final headers = await _authService.getAuthHeaders();
       final response = await http.get(
-        Uri.parse('${ApiConfig.notifications}/user/$userId'),
+        Uri.parse('${ApiConfig.notifications}/user/$userId?page=$_currentPage&limit=$_pageSize'),
         headers: headers,
       );
+
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
-        final list = data.map((e) => NotificationModel.fromMap(e)).toList();
-        _cachedNotifications = list;
-        _notificationController.add(list);
+        final fetchedList = data.map((e) => NotificationModel.fromMap(e)).toList();
+
+        if (isRefresh || _currentPage == 1) {
+          _cachedNotifications = fetchedList;
+        } else {
+          final existingIds = _cachedNotifications.map((n) => n.id).toSet();
+          for (final item in fetchedList) {
+            if (!existingIds.contains(item.id)) {
+              _cachedNotifications.add(item);
+            }
+          }
+        }
+
+        if (fetchedList.length < _pageSize) {
+          _hasMore = false;
+        } else {
+          _currentPage++;
+        }
+
+        _notificationController.add(List.from(_cachedNotifications));
       }
     } catch (e) {
-      debugPrint('Error refreshing notifications: $e');
+      debugPrint('Error fetching notifications: $e');
+    } finally {
+      _isFetchingMore = false;
     }
+  }
+
+  /// Refresh notifications for a user (resets pagination to page 1)
+  Future<void> refreshNotifications(String userId) async {
+    await fetchNotifications(userId, isRefresh: true);
   }
 
   /// Create a notification
@@ -271,28 +312,39 @@ class NotificationService {
           'data': data,
         }),
       );
+      // Refresh to fetch newly created notification
+      refreshNotifications(userId);
     } catch (e) {
       debugPrint('Error creating notification: $e');
     }
   }
 
-  /// Get notifications for a user
+  /// Get notifications stream for a user
   Stream<List<NotificationModel>> getUserNotifications(String userId) {
     if (_cachedNotifications.isNotEmpty) {
-      Timer.run(() => _notificationController.add(_cachedNotifications));
+      Timer.run(() => _notificationController.add(List.from(_cachedNotifications)));
+    } else {
+      fetchNotifications(userId, isRefresh: true);
     }
-    refreshNotifications(userId);
     return _notificationController.stream;
   }
 
-  /// Get unread count
+  /// Get unread count stream
   Stream<int> getUnreadNotificationsCount(String userId) {
     return getUserNotifications(userId)
         .map((list) => list.where((n) => !n.isRead).length);
   }
 
-  /// Mark notification as read
+  /// Optimistically mark notification as read
   Future<void> markNotificationAsRead(String notificationId) async {
+    final index = _cachedNotifications.indexWhere((n) => n.id == notificationId);
+    if (index != -1 && !_cachedNotifications[index].isRead) {
+      // 1. Optimistic Update: mutate local cached model immediately
+      _cachedNotifications[index] = _cachedNotifications[index].copyWith(isRead: true);
+      _notificationController.add(List.from(_cachedNotifications));
+    }
+
+    // 2. Perform backend sync asynchronously
     try {
       final headers = await _authService.getAuthHeaders();
       await http.patch(
@@ -300,21 +352,27 @@ class NotificationService {
         headers: headers,
       );
     } catch (e) {
-      debugPrint('Error marking read: $e');
+      debugPrint('Error marking read on server: $e');
     }
   }
 
-  /// Mark all notifications as read
+  /// Optimistically mark all notifications as read for a user
   Future<void> markAllNotificationsAsRead(String userId) async {
+    // 1. Optimistic Update: mark all local cached items as read immediately
+    _cachedNotifications = _cachedNotifications
+        .map((n) => n.copyWith(isRead: true))
+        .toList();
+    _notificationController.add(List.from(_cachedNotifications));
+
+    // 2. Perform backend sync asynchronously
     try {
       final headers = await _authService.getAuthHeaders();
       await http.patch(
         Uri.parse('${ApiConfig.notifications}/user/$userId/read'),
         headers: headers,
       );
-      refreshNotifications(userId);
     } catch (e) {
-      debugPrint('Error marking all read: $e');
+      debugPrint('Error marking all read on server: $e');
     }
   }
 

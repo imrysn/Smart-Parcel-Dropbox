@@ -12,7 +12,6 @@ class AuthService {
   static const String _userIdKey = 'user_id';
   static const String _userEmailKey = 'user_email';
   static const String _userRoleKey = 'user_role';
-  static const String _hmacKey = 'hmac_key';
 
   // Get current user ID
   Future<String?> get currentUserId async {
@@ -27,11 +26,6 @@ class AuthService {
   // Get current user role
   Future<String?> get currentUserRole async {
     return await _storage.read(key: _userRoleKey);
-  }
-
-  // Get HMAC Key for cryptographic token generation
-  Future<String?> get hmacKey async {
-    return await _storage.read(key: _hmacKey);
   }
 
   // Check if user is logged in
@@ -68,10 +62,6 @@ class AuthService {
         await _storage.write(key: _userIdKey, value: data['user']['id']);
         await _storage.write(key: _userEmailKey, value: data['user']['email']);
         await _storage.write(key: _userRoleKey, value: data['user']['role']);
-        
-        if (data['user']['hmacKey'] != null) {
-          await _storage.write(key: _hmacKey, value: data['user']['hmacKey']);
-        }
         
         return data['user'];
       } else {
@@ -113,10 +103,6 @@ class AuthService {
         await _storage.write(key: _userEmailKey, value: data['user']['email']);
         await _storage.write(key: _userRoleKey, value: data['user']['role']);
         
-        if (data['user']['hmacKey'] != null) {
-          await _storage.write(key: _hmacKey, value: data['user']['hmacKey']);
-        }
-        
         return data['user'];
       } else {
         final error = jsonDecode(response.body);
@@ -133,30 +119,6 @@ class AuthService {
     await _storage.delete(key: _userIdKey);
     await _storage.delete(key: _userEmailKey);
     await _storage.delete(key: _userRoleKey);
-    await _storage.delete(key: _hmacKey);
-  }
-
-  // Fetch latest user data from server and sync missing fields (like hmacKey)
-  Future<void> syncHmacKey() async {
-    try {
-      final userId = await currentUserId;
-      if (userId == null) return;
-
-      final headers = await getAuthHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.users}/$userId'),
-        headers: headers,
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['hmacKey'] != null) {
-          await _storage.write(key: _hmacKey, value: data['hmacKey']);
-        }
-      }
-    } catch (e) {
-      debugPrint('Sync Error: $e');
-    }
   }
 
   // Get authorization header

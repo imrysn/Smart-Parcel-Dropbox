@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../screens/notifications_screen.dart';
 
+typedef TabSelectionCallback = void Function(int tabIndex, {int? subTabIndex});
+
 /// Notification Badge Widget
 /// 
 /// Isolated widget that only rebuilds when notification count changes
@@ -9,11 +11,13 @@ import '../screens/notifications_screen.dart';
 class NotificationBadge extends StatelessWidget {
   final String userId;
   final DatabaseService databaseService;
+  final TabSelectionCallback? onSelectTab;
 
   const NotificationBadge({
     super.key,
     required this.userId,
     required this.databaseService,
+    this.onSelectTab,
   });
 
   @override
@@ -27,12 +31,17 @@ class NotificationBadge extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.notifications_outlined),
               tooltip: 'Notifications',
-              onPressed: () {
-                Navigator.of(context).push(
+              onPressed: () async {
+                final result = await Navigator.of(context).push<Map<String, dynamic>>(
                   MaterialPageRoute(
                     builder: (context) => const NotificationsScreen(),
                   ),
                 );
+                if (result != null && onSelectTab != null) {
+                  final int tabIndex = result['tabIndex'] ?? 0;
+                  final int? subTabIndex = result['subTabIndex'];
+                  onSelectTab!(tabIndex, subTabIndex: subTabIndex);
+                }
               },
             ),
             if (unreadCount > 0)

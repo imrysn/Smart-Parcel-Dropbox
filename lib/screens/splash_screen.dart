@@ -5,8 +5,6 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/service_locator.dart';
 import 'admin/admin_dashboard_screen.dart';
-import '../widgets/fade_animation.dart';
-import '../widgets/user_ui.dart';
 
 /// Splash Screen - Simple and fast
 class SplashScreen extends StatefulWidget {
@@ -39,7 +37,8 @@ class _SplashScreenState extends State<SplashScreen> {
     if (isLoggedIn) {
       try {
         final userId = await _authService.currentUserId;
-        
+        final cachedRole = await _authService.currentUserRole;
+
         if (userId == null) {
           await _authService.signOut();
           if (!mounted) return;
@@ -47,16 +46,19 @@ class _SplashScreenState extends State<SplashScreen> {
           return;
         }
 
-        final data = await _databaseService.getUserData(userId);
-        
-        if (data == null) {
-          await _authService.signOut();
-          if (!mounted) return;
-          _navigateToLogin();
-          return;
-        }
+        String? role = cachedRole;
 
-        final role = data['role'];
+        // Try to fetch fresh user data from server (with timeout so sleeping Render servers don't stall)
+        try {
+          final data = await _databaseService.getUserData(userId).timeout(
+            const Duration(seconds: 4),
+          );
+          if (data != null && data['role'] != null) {
+            role = data['role'];
+          }
+        } catch (netErr) {
+          debugPrint('Profile refresh during splash deferred (using cached role): $netErr');
+        }
 
         if (!mounted) return;
 
@@ -72,8 +74,20 @@ class _SplashScreenState extends State<SplashScreen> {
       } catch (e) {
         debugPrint('Auth check error: $e');
         if (!mounted) return;
-        await _authService.signOut();
-        _navigateToLogin();
+        final cachedRole = await _authService.currentUserRole;
+        if (!mounted) return;
+        if (cachedRole == 'admin') {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+          );
+        } else if (cachedRole != null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        } else {
+          await _authService.signOut();
+          _navigateToLogin();
+        }
       }
     } else {
       _navigateToLogin();
@@ -104,11 +118,12 @@ class _SplashScreenState extends State<SplashScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              FadeAnimation(0.2, Container(
+              // Simple dropbox icon
+              Container(
                 width: 140,
                 height: 140,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
+                  color: Colors.white.withOpacity(0.15),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -116,10 +131,11 @@ class _SplashScreenState extends State<SplashScreen> {
                   size: 70,
                   color: Colors.white,
                 ),
-              )),
+              ),
               const SizedBox(height: 40),
               
-              FadeAnimation(0.4, const Text(
+              // App title
+              const Text(
                 'Smart Parcel\nDrop Box',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -128,35 +144,38 @@ class _SplashScreenState extends State<SplashScreen> {
                   color: Colors.white,
                   height: 1.2,
                 ),
-              )),
+              ),
               const SizedBox(height: 12),
               
-              FadeAnimation(0.5, Text(
+              // Subtitle
+              Text(
                 'Secure Contactless Deliveries',
                 style: TextStyle(
                   fontSize: 15,
-                  color: Colors.white.withValues(alpha: 0.9),
+                  color: Colors.white.withOpacity(0.9),
                   letterSpacing: 0.5,
                 ),
-              )),
+              ),
               const SizedBox(height: 60),
               
-              FadeAnimation(0.6, const SizedBox(
+              // Simple loading indicator
+              const SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
-              )),
+              ),
               const SizedBox(height: 80),
               
-              FadeAnimation(0.8, Column(
+              // Footer
+              Column(
                 children: [
                   Text(
                     'Cavite State University',
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
+                      color: Colors.white.withOpacity(0.7),
                       fontSize: 12,
                     ),
                   ),
@@ -164,12 +183,12 @@ class _SplashScreenState extends State<SplashScreen> {
                   Text(
                     'Bacoor Campus',
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.6),
+                      color: Colors.white.withOpacity(0.6),
                       fontSize: 11,
                     ),
                   ),
                 ],
-              )),
+              ),
             ],
           ),
         ),

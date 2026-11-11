@@ -51,8 +51,15 @@ function makeRequest(path, method = 'GET', body = null, headers = {}) {
 }
 
 test('REST API Integration Suite', async (t) => {
+  const localRevision = baseUrl ? null : 'b'.repeat(40);
   if (!baseUrl) {
     t.mock.method(console, 'log', () => {});
+    const originalRevision = process.env.RENDER_GIT_COMMIT;
+    process.env.RENDER_GIT_COMMIT = localRevision;
+    t.after(() => {
+      if (originalRevision === undefined) delete process.env.RENDER_GIT_COMMIT;
+      else process.env.RENDER_GIT_COMMIT = originalRevision;
+    });
     const { server, io } = require('../server');
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -65,6 +72,7 @@ test('REST API Integration Suite', async (t) => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.status, 'online');
     assert.ok(res.body.timestamp);
+    if (localRevision) assert.equal(res.body.revision, localRevision);
   });
 
   await t.test('GET / returns API metadata', async () => {
