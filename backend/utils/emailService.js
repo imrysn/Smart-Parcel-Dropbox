@@ -9,14 +9,14 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Verify connection configuration
-transporter.verify(function (error, success) {
-    if (error) {
-        console.warn('[EMAIL_SERVICE] Email service warning (Reset codes may not send):', error.message);
-    } else {
-        console.log('[EMAIL_SERVICE] Email server is ready');
+exports.verifyEmailTransport = async () => {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
+    try {
+        await transporter.verify();
+    } catch (error) {
+        console.warn('[EMAIL_SERVICE] Password reset email unavailable:', error.message);
     }
-});
+};
 
 exports.sendResetCode = async (email, fullName, resetCode) => {
     console.log(`[EMAIL_SERVICE] Attempting to send reset code to: ${email}`);

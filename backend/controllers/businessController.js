@@ -1,5 +1,6 @@
 const Tracking = require('../models/Tracking');
 const Dropbox = require('../models/Dropbox');
+const { commandDoor, deviceRoom, pairedBoxForUser } = require('../utils/deviceSessions');
 
 /**
  * GET /api/business/daily-digest
@@ -26,9 +27,9 @@ exports.getDailyDigest = async (req, res) => {
     const outboundPending = outboundAll.filter(t => t.status === 'pending' || t.status === 'awaiting_pickup');
 
     // Inbound supplier parcels delivered today
-    const inboundToday = trackings.filter(t => 
-      t.direction !== 'OUTBOUND_CUSTOMER' && 
-      (t.status === 'delivered' || t.status === 'done') && 
+    const inboundToday = trackings.filter(t =>
+      t.direction !== 'OUTBOUND_CUSTOMER' &&
+      (t.status === 'delivered' || t.status === 'done') &&
       t.deliveredAt && new Date(t.deliveredAt) >= startOfDay
     );
 
@@ -81,13 +82,9 @@ exports.stageOutboundPackage = async (req, res) => {
       return res.status(400).json({ success: false, message: 'trackingId and customerName are required' });
     }
 
-    // Check if trackingId exists - overwrite for test reuse
     const escaped = trackingId.replace(/[-[\]{}()*+?.:\\^$|#\s]/g, '\\$&');
     const existing = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
-    if (existing) {
-      console.log(`[TESTING] Outbound tracking ID ${trackingId} already exists. Overwriting for reuse.`);
-      await Tracking.deleteOne({ _id: existing._id });
-    }
+    if (existing) return res.status(409).json({ success: false, message: 'Tracking ID is already registered' });
 
     // Generate 6-digit courier OTP PIN
     const courierOtp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -110,24 +107,11 @@ exports.stageOutboundPackage = async (req, res) => {
     });
 
     const io = req.app.get('io');
+    const box = io ? await pairedBoxForUser(userId) : null;
     if (io) {
       io.to(userId).emit('trackingUpdate', newTracking);
-      io.to('esp32_device').emit('registerTracking', { trackingId, mode: 'pick_up' });
+      if (box) io.to(deviceRoom(box.deviceId)).emit('registerTracking', { trackingId, mode: 'pick_up' });
       console.log(`[SOCKET] Outbound tracking staged: ${trackingId} for user ${userId}`);
-    }
-
-    // Audit SMS dispatch
-    if (riderPhone) {
-      console.log(`📱 [SMS DISPATCH] Automated SMS notification logged for Rider: ${riderPhone} (${riderName || courierName || 'Courier'}) for Tracking: ${trackingId}`);
-      try {
-        const Notification = require('../models/Notification');
-        await Notification.create({
-          userId,
-          title: 'Rider Pickup Pass Dispatched',
-          message: `Pickup pass prepared for Rider ${riderPhone} (${riderName || courierName || 'Courier'}) for Tracking #${trackingId}.`,
-          type: 'system_alert'
-        });
-      } catch (_) {}
     }
 
     res.status(201).json({
@@ -148,7 +132,7 @@ exports.stageOutboundPackage = async (req, res) => {
 exports.generateDispatchLink = async (req, res) => {
   try {
     const { trackingId } = req.body;
-    const tracking = await Tracking.findOne({ trackingId });
+    const tracking = await Tracking.findOne({ trackingId, userId: req.userId });
 
     if (!tracking) {
       return res.status(404).json({ success: false, message: 'Tracking not found' });
@@ -159,7 +143,7 @@ exports.generateDispatchLink = async (req, res) => {
     const courier = tracking.courierName || 'Courier';
 
     const text = `Hi ${customer}! Your order has been securely staged at our Smart Parcel Dropbox for pickup via ${courier}.\n\nTracking ID: ${tracking.trackingId}\nStatus: ${tracking.status.toUpperCase()}\n\nThank you for shopping with ${shop}! 📦✨`;
-    
+
     res.json({
       success: true,
       data: {
@@ -186,19 +170,20 @@ exports.batchStageOutboundPackages = async (req, res) => {
       return res.status(400).json({ success: false, message: 'packages array is required and must not be empty' });
     }
 
+    const ids = packages.map(pkg => typeof pkg?.trackingId === 'string' ? pkg.trackingId.trim() : '');
+    if (ids.some(id => !id) || new Set(ids.map(id => id.toUpperCase())).size !== ids.length) {
+      return res.status(400).json({ success: false, message: 'Use distinct, non-empty tracking IDs' });
+    }
+    const existing = await Tracking.exists({ trackingId: { $in: ids } });
+    if (existing) return res.status(409).json({ success: false, message: 'A tracking ID is already registered' });
     const createdList = [];
 
     for (const pkg of packages) {
-      if (!pkg.trackingId) continue;
-
-      // Upsert/Overwrite if existing
-      await Tracking.deleteOne({ trackingId: pkg.trackingId });
-
       const courierOtp = Math.floor(100000 + Math.random() * 900000).toString();
       const courierOtpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       const created = await Tracking.create({
-        trackingId: pkg.trackingId,
+        trackingId: pkg.trackingId.trim(),
         userId,
         shopName: shopName || 'My Business Store',
         direction: 'OUTBOUND_CUSTOMER',
@@ -215,21 +200,18 @@ exports.batchStageOutboundPackages = async (req, res) => {
     }
 
     // Increment dropbox pickup count for logical state
-    let dbQuery = { userIds: userId };
-    let dropbox = await Dropbox.findOne(dbQuery);
-    if (!dropbox) dbQuery = { userId };
-    await Dropbox.updateOne(dbQuery, { $inc: { pickupCount: createdList.length } });
+    const dropbox = await pairedBoxForUser(userId);
+    if (dropbox) await Dropbox.updateOne({ _id: dropbox._id }, { $inc: { pickupCount: createdList.length } });
 
     // Emit socket notifications and optional box unlock
     const io = req.app.get('io');
+    const doorCommand = openDoor === true
+      ? dropbox ? await commandDoor(io, dropbox.deviceId, 'pickup', 'open') : { ok: false, reason: 'unpaired' }
+      : null;
     if (io) {
       for (const pkg of createdList) {
         io.to(userId).emit('trackingUpdate', pkg);
-        io.to('esp32_device').emit('registerTracking', { trackingId: pkg.trackingId, mode: 'pick_up' });
-      }
-      if (openDoor) {
-        console.log(`🚪 Batch Outbound Staging → Unlocking Dropbox door for ${userId}`);
-        io.to('esp32_device').emit('controlDoor', { type: 'pickup', action: 'open' });
+        if (dropbox) io.to(deviceRoom(dropbox.deviceId)).emit('registerTracking', { trackingId: pkg.trackingId, mode: 'pick_up' });
       }
     }
 
@@ -237,7 +219,8 @@ exports.batchStageOutboundPackages = async (req, res) => {
       success: true,
       message: `Successfully staged ${createdList.length} packages in batch`,
       count: createdList.length,
-      data: createdList
+      data: createdList,
+      doorCommand,
     });
   } catch (err) {
     console.error('❌ batchStageOutboundPackages error:', err.message);

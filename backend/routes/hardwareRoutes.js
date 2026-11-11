@@ -1,14 +1,14 @@
 const express = require('express');
 const router = express.Router();
+const { authenticateDeviceHttp } = require('../utils/deviceSessions');
 const {
   initToken,
   verifyBarcode,
   syncActiveBarcodes
 } = require('../controllers/hardwareController');
 
-// Public endpoints called by ESP32 hardware
-router.get('/init-token', initToken);
-router.post('/verify-barcode', verifyBarcode);
-router.get('/sync-active-barcodes/:deviceId', syncActiveBarcodes);
+router.get('/init-token', authenticateDeviceHttp, initToken);
+router.post('/verify-barcode', authenticateDeviceHttp, verifyBarcode);
+router.get('/sync-active-barcodes/:deviceId', authenticateDeviceHttp, syncActiveBarcodes);
 
 module.exports = router;

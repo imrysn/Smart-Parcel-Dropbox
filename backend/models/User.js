@@ -31,6 +31,15 @@ const userSchema = new mongoose.Schema({
     resetCodeExpiry: {
         type: Date,
         default: null
+    },
+    hmacKey: { type: String, default: null, select: false },
+    resetCodeAttempts: {
+        type: Number,
+        default: 0
+    },
+    resetCodeLastSentAt: {
+        type: Date,
+        default: null
     }
 }, {
     timestamps: true

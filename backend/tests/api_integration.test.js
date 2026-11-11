@@ -2,14 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 
-const BASE_URL = process.env.TEST_API_URL || 'http://localhost:3000';
+const { once } = require('node:events');
+let baseUrl = process.env.TEST_API_URL;
 
 /**
  * Helper to execute HTTP request for testing
  */
 function makeRequest(path, method = 'GET', body = null, headers = {}) {
   return new Promise((resolve, reject) => {
-    const url = new URL(path, BASE_URL);
+    const url = new URL(path, baseUrl);
     const reqHeaders = { 'Content-Type': 'application/json', ...headers };
     let postData = null;
     if (body) {
@@ -17,7 +18,7 @@ function makeRequest(path, method = 'GET', body = null, headers = {}) {
       reqHeaders['Content-Length'] = Buffer.byteLength(postData);
     }
 
-    const req = http.request(
+    const req = (url.protocol === 'https:' ? require('node:https') : http).request(
       url,
       {
         method,
@@ -50,44 +51,43 @@ function makeRequest(path, method = 'GET', body = null, headers = {}) {
 }
 
 test('REST API Integration Suite', async (t) => {
-  await t.test('GET /health should return 200 and status online', async () => {
-    try {
-      const res = await makeRequest('/health');
-      assert.equal(res.statusCode, 200);
-      assert.equal(res.body.status, 'online');
-      assert.ok(res.body.timestamp);
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping live endpoint check.`);
-    }
+  const localRevision = baseUrl ? null : 'b'.repeat(40);
+  if (!baseUrl) {
+    t.mock.method(console, 'log', () => {});
+    const originalRevision = process.env.RENDER_GIT_COMMIT;
+    process.env.RENDER_GIT_COMMIT = localRevision;
+    t.after(() => {
+      if (originalRevision === undefined) delete process.env.RENDER_GIT_COMMIT;
+      else process.env.RENDER_GIT_COMMIT = originalRevision;
+    });
+    const { server, io } = require('../server');
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+    t.after(() => new Promise(resolve => io.close(resolve)));
+  }
+
+  await t.test('GET /health returns server status', async () => {
+    const res = await makeRequest('/health');
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.status, 'online');
+    assert.ok(res.body.timestamp);
+    if (localRevision) assert.equal(res.body.revision, localRevision);
   });
 
-  await t.test('GET / should return API metadata', async () => {
-    try {
-      const res = await makeRequest('/');
-      assert.equal(res.statusCode, 200);
-      assert.equal(res.body.name, 'Smart Parcel Drop Box API');
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping live endpoint check.`);
-    }
+  await t.test('GET / returns API metadata', async () => {
+    const res = await makeRequest('/');
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.name, 'Smart Parcel Drop Box API');
   });
 
-  await t.test('POST /api/users/login without body should fail validation', async () => {
-    try {
-      const res = await makeRequest('/api/users/login', 'POST', {});
-      assert.ok(res.statusCode >= 400);
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping validation test.`);
-    }
+  await t.test('login rejects an empty request', async () => {
+    const res = await makeRequest('/api/users/login', 'POST', {});
+    assert.equal(res.statusCode, 400);
   });
 
-  await t.test('GET /device-control should return initial door state structure', async () => {
-    try {
-      const res = await makeRequest('/device-control');
-      assert.equal(res.statusCode, 200);
-      assert.ok('parcelDoorOpen' in res.body);
-      assert.ok('userDoorOpen' in res.body);
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping device-control test.`);
-    }
+  await t.test('device control requires a session', async () => {
+    const res = await makeRequest('/device-control');
+    assert.equal(res.statusCode, 401);
   });
 });

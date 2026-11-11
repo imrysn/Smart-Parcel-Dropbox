@@ -26,7 +26,9 @@ const notificationSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     },
-    trackingId: String
+    trackingId: String,
+    pushDueAt: { type: Date, select: false, index: { sparse: true } },
+    pushSentInstallations: { type: [String], default: undefined, select: false },
 }, {
     timestamps: true
 });

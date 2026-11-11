@@ -1,5 +1,6 @@
 const ScanLog = require('../models/ScanLog');
 const DeliveryLog = require('../models/DeliveryLog');
+const Dropbox = require('../models/Dropbox');
 
 // @desc    Log a scan attempt
 // @route   POST /api/scan-logs
@@ -31,14 +32,20 @@ exports.logScanAttempt = async (req, res) => {
     }
 };
 
-// @desc    Get all scan logs
+// @desc    Get scan logs scoped to authenticated user / their paired device
 // @route   GET /api/scan-logs
 exports.getScanLogs = async (req, res) => {
     try {
-        // Only allow admins to see global logs
-        // (Assuming role is stored in User model and we could fetch it, 
-        // but for now let's at least mention it. Most projects use a role check here)
-        const logs = await ScanLog.find().sort({ timestamp: -1 });
+        const boxes = await Dropbox.find({
+            $or: [{ userIds: req.userId }, { primaryUserId: req.userId }, { userId: req.userId }]
+        }).select('deviceId');
+        const deviceIds = boxes.map((b) => b.deviceId).filter(Boolean);
+
+        const query = deviceIds.length > 0
+            ? { $or: [{ userId: req.userId }, { deviceId: { $in: deviceIds } }] }
+            : { userId: req.userId };
+
+        const logs = await ScanLog.find(query).sort({ timestamp: -1 });
         res.json(logs);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -62,13 +69,21 @@ exports.getUserScanLogs = async (req, res) => {
     }
 };
 
-// @desc    Get owner access history logs
+// @desc    Get owner access history logs (scoped to user & paired dropbox)
 // @route   GET /api/scan-logs/owner-access
 exports.getOwnerAccessLogs = async (req, res) => {
     try {
-        // Owner access logs should only be accessible by the owner (admin)
-        // For simplicity, we filter by mode and userId
-        const logs = await ScanLog.find({ mode: 'owner_verify', userId: req.userId })
+        const boxes = await Dropbox.find({
+            isRegistered: true,
+            $or: [{ userIds: req.userId }, { primaryUserId: req.userId }, { userId: req.userId }]
+        }).select('deviceId');
+        const deviceIds = boxes.map((b) => b.deviceId).filter(Boolean);
+
+        const ownerScope = deviceIds.length > 0
+            ? { $or: [{ userId: req.userId }, { deviceId: { $in: deviceIds } }] }
+            : { userId: req.userId };
+
+        const logs = await ScanLog.find({ mode: 'owner_verify', ...ownerScope })
             .sort({ createdAt: -1 })
             .limit(50);
         res.json(logs);

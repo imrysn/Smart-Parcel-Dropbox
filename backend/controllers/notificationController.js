@@ -4,7 +4,8 @@ const Notification = require('../models/Notification');
 // @route   POST /api/notifications
 exports.createNotification = async (req, res) => {
     try {
-        const notificationData = { ...req.body, userId: req.userId };
+        const { title, message, type, trackingId, isRead, timestamp } = req.body;
+        const notificationData = { title, message, type, trackingId, isRead, timestamp, userId: req.userId };
         const notification = await Notification.create(notificationData);
 
         // Use global io if available

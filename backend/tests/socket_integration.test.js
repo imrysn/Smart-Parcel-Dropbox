@@ -1,42 +1,24 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const http = require('http');
 
-const SERVER_URL = process.env.TEST_SOCKET_URL || 'http://localhost:3000';
+const { once } = require('node:events');
 
-test('Socket.IO Protocol & Handshake Suite', async (t) => {
-  await t.test('Server should respond to Socket.io EIO3 handshake query', (t, done) => {
-    const url = new URL('/socket.io/?EIO=3&transport=polling', SERVER_URL);
-    
-    http.get(url, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        assert.equal(res.statusCode, 200);
-        assert.ok(data.length > 0);
-        done();
-      });
-    }).on('error', (err) => {
-      t.diagnostic(`Server not running at ${SERVER_URL}. Skipping live socket handshake test.`);
-      done();
+test('Socket.IO protocol handshakes', async (t) => {
+  let serverUrl = process.env.TEST_SOCKET_URL;
+  if (!serverUrl) {
+    const { server, io } = require('../server');
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    serverUrl = `http://127.0.0.1:${server.address().port}`;
+    t.after(() => new Promise(resolve => io.close(resolve)));
+  }
+
+  for (const version of [3, 4]) {
+    await t.test(`accepts Engine.IO v${version} polling handshake`, async () => {
+      const url = new URL(`/socket.io/?EIO=${version}&transport=polling`, serverUrl);
+      const result = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      assert.equal(result.status, 200);
+      assert.match(await result.text(), /"sid":/);
     });
-  });
-
-  await t.test('Server should respond to Socket.io EIO4 handshake query', (t, done) => {
-    const url = new URL('/socket.io/?EIO=4&transport=polling', SERVER_URL);
-    
-    http.get(url, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        assert.equal(res.statusCode, 200);
-        assert.ok(data.length > 0);
-        done();
-      });
-    }).on('error', (err) => {
-      t.diagnostic(`Server not running at ${SERVER_URL}. Skipping live socket handshake test.`);
-      done();
-    });
-  });
+  }
 });
-

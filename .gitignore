@@ -171,6 +171,9 @@ android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 lib/firebase_options.dart
 web/firebase-config.js
+/backend/*-firebase-adminsdk-*.json
+/backend/spd-fcm.json
+/backend/hardware/ESP32SR_UNO/device_secrets.h
 
 # API Keys and Secrets
 .env
