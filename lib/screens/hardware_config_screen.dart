@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../config/user_theme.dart';
 import '../services/dropbox_service.dart';
 import '../services/service_locator.dart';
+import '../widgets/user_ui.dart';
+import 'home_screen.dart';
 
 /// Hardware Config Screen
 ///
@@ -12,7 +15,12 @@ import '../services/service_locator.dart';
 /// never needs to know or configure those values.
 class HardwareConfigScreen extends StatefulWidget {
   final String deviceId;
-  const HardwareConfigScreen({super.key, required this.deviceId});
+  final bool goToHomeAfter;
+  const HardwareConfigScreen({
+    super.key,
+    required this.deviceId,
+    this.goToHomeAfter = false,
+  });
 
   @override
   State<HardwareConfigScreen> createState() => _HardwareConfigScreenState();
@@ -35,6 +43,7 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
   void initState() {
     super.initState();
     _appliedSub = _dropboxService.hardwareConfigAppliedStream.listen(_onApplied);
+    _dropboxService.ensureSocketConnected();
   }
 
   @override
@@ -54,15 +63,21 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
       _successMsg = 'Done! Your Dropbox is now connecting to your WiFi. '
           'This may take a moment.';
     });
-    // Navigate back to Dropbox Management after a moment
+    // Navigate back to Home / Dropbox Management after a moment
     Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
+      if (!mounted) return;
+      if (widget.goToHomeAfter) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (route) => false,
+        );
+      } else {
         Navigator.of(context).popUntil((r) => r.isFirst);
       }
     });
   }
 
-  void _sendConfig() {
+  Future<void> _sendConfig() async {
     final ssid = _ssidController.text.trim();
     final pass = _passController.text;
     if (ssid.isEmpty) {
@@ -74,8 +89,21 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
       _errorMsg   = null;
       _successMsg = null;
     });
+    if (!_dropboxService.isSocketConnected) {
+      await _dropboxService.ensureSocketConnected();
+    }
+    if (!_dropboxService.isSocketConnected) {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _errorMsg = 'Not connected to server yet. Check your internet connection and try again.';
+        });
+      }
+      return;
+    }
     _dropboxService.pushHardwareConfig(ssid: ssid, password: pass);
     // 15-second timeout if device doesn't respond
+    _timeoutTimer?.cancel();
     _timeoutTimer = Timer(const Duration(seconds: 15), () {
       if (mounted && _sending) {
         setState(() {
@@ -88,40 +116,46 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Light background
-      appBar: AppBar(
-        title: const Text(
-          'Connect to WiFi',
-        ),
+      backgroundColor: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
+      appBar: UserTheme.appBarGradient(
+        title: 'Connect to WiFi',
+        context: context,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Success banner
-            if (_successMsg != null) _buildSuccess(),
-            if (_successMsg == null) ...[
-              _buildHeader(),
-              const SizedBox(height: 28),
-              _buildForm(primaryColor),
-              const SizedBox(height: 28),
-              _buildSubmitButton(primaryColor),
+      body: Container(
+        decoration: UserUi.pageBackground(context),
+        child: SingleChildScrollView(
+          padding: UserUi.listPadding(context, top: 20, bottom: 32, maxWidth: 520),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Success banner
+              if (_successMsg != null) _buildSuccess(),
+              if (_successMsg == null) ...[
+                _buildHeader(),
+                const SizedBox(height: 24),
+                _buildForm(),
+                const SizedBox(height: 24),
+                _buildSubmitButton(),
+              ],
+              if (_errorMsg != null) ...[
+                const SizedBox(height: 16),
+                _buildError(),
+              ],
             ],
-            if (_errorMsg != null) ...[
-              const SizedBox(height: 16),
-              _buildError(),
-            ],
-          ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -129,30 +163,30 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.green.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.green.withOpacity(0.4)),
+            color: UserTheme.statusSuccess.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(UserTheme.radiusM),
+            border: Border.all(color: UserTheme.statusSuccess.withValues(alpha: 0.25)),
           ),
-          child: const Row(
+          child: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.green, size: 28),
-              SizedBox(width: 12),
+              const Icon(Icons.check_circle_rounded, color: UserTheme.statusSuccess, size: 24),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Registration Successful! 🎉',
+                    const Text(
+                      'Registration Successful',
                       style: TextStyle(
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
+                        color: UserTheme.statusSuccess,
+                        fontWeight: FontWeight.w700,
                         fontSize: 15,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
-                      'Your device is registered. Now let\'s connect it to your WiFi.',
-                      style: TextStyle(color: Colors.black54, fontSize: 13),
+                      'Your device is registered. Connect it to your home WiFi below.',
+                      style: TextStyle(color: secondaryText, fontSize: 13),
                     ),
                   ],
                 ),
@@ -161,149 +195,131 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        const Text(
-          '⚙️  Connect to Your WiFi',
+        Text(
+          'Connect to Your WiFi',
           style: TextStyle(
-              color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 20),
+            color: primaryText,
+            fontWeight: FontWeight.w800,
+            fontSize: 20,
+            letterSpacing: -0.4,
+          ),
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'Your dropbox needs your home WiFi to communicate with the server. '
-          'Enter your network credentials below.',
-          style: TextStyle(color: Colors.black54, height: 1.5),
+        const SizedBox(height: 6),
+        Text(
+          'Your dropbox needs your home WiFi to communicate with the server. Enter your network credentials below.',
+          style: TextStyle(color: secondaryText, height: 1.5, fontSize: 13),
         ),
       ],
     );
   }
 
-  Widget _buildForm(Color primaryColor) {
-    return Column(
-      children: [
-        // SSID field
-        TextField(
-          controller: _ssidController,
-          style: const TextStyle(color: Colors.black87),
-          decoration: _inputDeco(
-            label: 'WiFi Network Name (SSID)',
-            hint: 'e.g. MyHomeWiFi',
-            icon: Icons.wifi,
-            primaryColor: primaryColor,
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Password field
-        TextField(
-          controller: _passController,
-          obscureText: _obscurePass,
-          style: const TextStyle(color: Colors.black87),
-          decoration: _inputDeco(
-            label: 'WiFi Password',
-            hint: 'Leave blank if open network',
-            icon: Icons.lock_outline,
-            primaryColor: primaryColor,
-          ).copyWith(
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePass ? Icons.visibility_off : Icons.visibility,
-                color: Colors.black38,
-              ),
-              onPressed: () =>
-                  setState(() => _obscurePass = !_obscurePass),
+  Widget _buildForm() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final mutedColor = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
+    final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+
+    return UserUi.surfaceCard(
+      context,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        children: [
+          TextField(
+            controller: _ssidController,
+            style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w600),
+            decoration: _inputDeco(
+              label: 'WiFi Network Name (SSID)',
+              hint: 'e.g. MyHomeWiFi',
+              icon: Icons.wifi_rounded,
+              isDark: isDark,
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.orange.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.orange.withOpacity(0.3)),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.info_outline, color: Colors.orange, size: 18),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Server connection details are pre-configured in the device firmware. '
-                  'You only need to provide your WiFi credentials.',
-                  style: TextStyle(color: Colors.orange, fontSize: 12, height: 1.4),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _passController,
+            obscureText: _obscurePass,
+            style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w600),
+            decoration: _inputDeco(
+              label: 'WiFi Password',
+              hint: 'Leave blank if open network',
+              icon: Icons.lock_outline_rounded,
+              isDark: isDark,
+            ).copyWith(
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePass ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                  color: mutedColor,
+                  size: 20,
                 ),
+                onPressed: () => setState(() => _obscurePass = !_obscurePass),
               ),
-            ],
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark ? UserTheme.nightSurface : UserTheme.daySurface,
+              borderRadius: BorderRadius.circular(UserTheme.radiusS),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline_rounded, color: UserTheme.primaryOrange, size: 17),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Server connection details are pre-configured in the device firmware. You only need to provide your WiFi credentials.',
+                    style: TextStyle(color: secondaryText, fontSize: 12, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildSubmitButton(Color primaryColor) {
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-      child: ElevatedButton.icon(
-        onPressed: _sending ? null : _sendConfig,
-        icon: _sending
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
-              )
-            : const Icon(Icons.send_rounded),
-        label: Text(
-          _sending ? 'Sending to device…' : 'Connect Dropbox',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primaryColor,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: primaryColor.withOpacity(0.6),
-          elevation: 2,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        ),
-      ),
+  Widget _buildSubmitButton() {
+    return UserUi.premiumButton(
+      label: _sending ? 'Sending to device...' : 'Connect Dropbox',
+      onTap: _sendConfig,
+      isLoading: _sending,
+      icon: Icons.send_rounded,
     );
   }
 
   Widget _buildSuccess() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.withOpacity(0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final mutedColor = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
+
+    return UserUi.surfaceCard(
+      context,
+      padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          const Icon(Icons.check_circle, color: Colors.green, size: 56),
+          const Icon(Icons.check_circle_rounded, color: UserTheme.statusSuccess, size: 52),
           const SizedBox(height: 16),
           const Text(
-            'Configuration Sent!',
+            'Configuration Sent',
             style: TextStyle(
-                color: Colors.green,
-                fontWeight: FontWeight.bold,
-                fontSize: 20),
+              color: UserTheme.statusSuccess,
+              fontWeight: FontWeight.w800,
+              fontSize: 20,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             _successMsg ?? '',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.black87, height: 1.5),
+            style: TextStyle(color: primaryText, height: 1.5, fontSize: 14),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Returning to Dropbox Management…',
-            style: TextStyle(color: Colors.black38, fontSize: 13),
+          Text(
+            'Returning to Dropbox Management...',
+            style: TextStyle(color: mutedColor, fontSize: 13),
           ),
         ],
       ),
@@ -314,21 +330,26 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.red.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.withOpacity(0.4)),
+        color: UserTheme.statusError.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(UserTheme.radiusM),
+        border: Border.all(color: UserTheme.statusError.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: Colors.red),
+          const Icon(Icons.warning_amber_rounded, color: UserTheme.statusError, size: 20),
           const SizedBox(width: 10),
           Expanded(
-              child: Text(_errorMsg!,
-                  style: const TextStyle(color: Colors.red))),
+            child: Text(
+              _errorMsg!,
+              style: const TextStyle(color: UserTheme.statusError, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
           TextButton(
             onPressed: _sendConfig,
-            child: const Text('Retry',
-                style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Retry',
+              style: TextStyle(color: UserTheme.statusError, fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -339,23 +360,36 @@ class _HardwareConfigScreenState extends State<HardwareConfigScreen> {
     required String label,
     required String hint,
     required IconData icon,
-    required Color primaryColor,
+    required bool isDark,
   }) {
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.1)
+        : Colors.black.withValues(alpha: 0.1);
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Colors.black54),
+      labelStyle: TextStyle(
+        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+        fontSize: 13,
+      ),
       hintText: hint,
-      hintStyle: const TextStyle(color: Colors.black26),
-      prefixIcon: Icon(icon, color: Colors.black38),
+      hintStyle: TextStyle(
+        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+        fontSize: 13,
+      ),
+      prefixIcon: Icon(
+        icon,
+        size: 20,
+        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+      ),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: isDark ? UserTheme.nightSurface : UserTheme.daySurface,
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(UserTheme.radiusM),
+        borderSide: BorderSide(color: borderColor),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: primaryColor),
+        borderRadius: BorderRadius.circular(UserTheme.radiusM),
+        borderSide: const BorderSide(color: UserTheme.primaryOrange, width: 1.5),
       ),
     );
   }

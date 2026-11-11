@@ -21,16 +21,15 @@ class TrackingService {
   TrackingService._internal();
 
   final _trackingController = StreamController<List<TrackingModel>>.broadcast();
-  final _allTrackingController = StreamController<List<TrackingModel>>.broadcast();
   final _authService = getIt<AuthService>();
   List<TrackingModel> _cachedTracking = [];
   bool _isFetching = false;
-  bool _isFetchingAll = false;
+  int _sessionGeneration = 0;
+  String? _queuedRefresh;
 
   // Public getters
   List<TrackingModel> get cachedTracking => _cachedTracking;
   Stream<List<TrackingModel>> get trackingStream => _trackingController.stream;
-  Stream<List<TrackingModel>> get allTrackingStream => _allTrackingController.stream;
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -68,31 +67,63 @@ class TrackingService {
 
   /// Refresh tracking data for a user
   Future<void> refreshTracking(String userId) async {
-    if (_isFetching) return;
+    if (_isFetching) {
+      _queuedRefresh = userId;
+      return;
+    }
     _isFetching = true;
+    final generation = _sessionGeneration;
 
     try {
+      if (await _authService.currentUserId != userId || generation != _sessionGeneration) return;
       final headers = await _authService.getAuthHeaders();
+      if (generation != _sessionGeneration) return;
       final response = await http.get(
         Uri.parse('${ApiConfig.tracking}/user/$userId'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 12));
+      if (generation != _sessionGeneration) return;
+      if (response.statusCode == 401) {
+        await _authService.handleSessionExpired();
+        return;
+      }
 
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         final list = data.map((json) => TrackingModel.fromMap(json)).toList();
         _cachedTracking = list;
         _trackingController.add(list);
+      } else {
+        // Emit cached data so stream listeners don't hang in waiting state
+        if (!_trackingController.isClosed) {
+          _trackingController.add(_cachedTracking);
+        }
       }
     } catch (e) {
       debugPrint('Error refreshing tracking: $e');
+      if (generation == _sessionGeneration && !_trackingController.isClosed) {
+        _trackingController.add(_cachedTracking);
+      }
     } finally {
-      _isFetching = false;
+      if (generation == _sessionGeneration) {
+        _isFetching = false;
+        final queuedUser = _queuedRefresh;
+        _queuedRefresh = null;
+        if (queuedUser != null) unawaited(refreshTracking(queuedUser));
+      }
     }
   }
 
   /// Get all tracking IDs for a specific user
   Stream<List<TrackingModel>> getUserTrackingIds(String userId) {
+    if (_cachedTracking.isNotEmpty) {
+      final generation = _sessionGeneration;
+      Future.microtask(() {
+        if (generation == _sessionGeneration && !_trackingController.isClosed) {
+          _trackingController.add(_cachedTracking);
+        }
+      });
+    }
     // If cache is empty, trigger a fetch
     if (_cachedTracking.isEmpty && !_isFetching) {
       refreshTracking(userId);
@@ -164,42 +195,13 @@ class TrackingService {
     }
   }
 
-  /// Get all tracking IDs (Admin)
-  Future<List<TrackingModel>> getAllTrackingIds() async {
-    if (_isFetchingAll) return _cachedTracking;
-    _isFetchingAll = true;
-
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.get(
-        Uri.parse(ApiConfig.tracking),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        final List data = jsonDecode(response.body);
-        final list = data.map((json) => TrackingModel.fromMap(json)).toList();
-        _cachedTracking = list;
-        _allTrackingController.add(list);
-        return list;
-      }
-      // Ensure listeners (e.g. admin tracking tab) do not stay stuck in waiting.
-      _allTrackingController.add([]);
-      return [];
-    } catch (e) {
-      debugPrint('Error fetching all tracking: $e');
-      // Emit an empty state on failures so StreamBuilder can render fallback UI.
-      _allTrackingController.add([]);
-      return [];
-    } finally {
-      _isFetchingAll = false;
-    }
-  }
-
   /// Trigger an automated simulation for a tracking ID
   Future<void> simulateTracking(String trackingId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.tracking}/$trackingId/simulate'),
+        headers: headers,
       );
       if (response.statusCode != 200) {
         throw 'Failed to start simulation';
@@ -212,8 +214,10 @@ class TrackingService {
   /// Manually reset tracking status (for development/testing)
   Future<void> resetTracking(String trackingId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.tracking}/$trackingId/reset'),
+        headers: headers,
       );
       if (response.statusCode != 200) {
         throw 'Failed to reset tracking';
@@ -249,26 +253,6 @@ class TrackingService {
       await refreshTracking(userId);
     } catch (e) {
       throw 'Failed to delete tracking ID: $e';
-    }
-  }
-
-  /// Fetch Daily Digest statistics for business dashboard
-  Future<Map<String, dynamic>?> fetchDailyDigest() async {
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.business}/daily-digest'),
-        headers: headers,
-      );
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        return body['data'];
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Error fetching daily digest: $e');
-      return null;
     }
   }
 
@@ -322,7 +306,7 @@ class TrackingService {
   }
 
   /// Batch stage multiple outbound customer packages
-  Future<List<dynamic>> batchStageOutboundPackages({
+  Future<({List<dynamic> packages, bool doorConfirmed})> batchStageOutboundPackages({
     required List<Map<String, String>> packages,
     required String shopName,
     bool openDoor = true,
@@ -337,7 +321,7 @@ class TrackingService {
           'shopName': shopName,
           'openDoor': openDoor,
         }),
-      );
+      ).timeout(const Duration(seconds: 20));
 
       Map<String, dynamic>? body;
       try {
@@ -349,7 +333,7 @@ class TrackingService {
       if (response.statusCode == 201 && body != null) {
         final userId = await _authService.currentUserId;
         if (userId != null) await refreshTracking(userId);
-        return body['data'];
+        return (packages: body['data'] as List, doorConfirmed: (body['doorCommand'] as Map?)?['ok'] == true);
       } else {
         final msg = body?['message'] ??
             (response.statusCode == 404
@@ -388,9 +372,17 @@ class TrackingService {
   }
 
   /// Dispose resources
+  void clearSession() {
+    _sessionGeneration++;
+    _isFetching = false;
+    _queuedRefresh = null;
+    _cachedTracking = [];
+    if (!_trackingController.isClosed) _trackingController.add([]);
+  }
+
   void dispose() {
+    _sessionGeneration++;
     _trackingController.close();
-    _allTrackingController.close();
   }
 
   /// Reset singleton instance

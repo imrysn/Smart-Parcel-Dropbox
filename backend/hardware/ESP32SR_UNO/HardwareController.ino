@@ -1,33 +1,7 @@
 // ============================================================
 //  HardwareController.ino
-//  Contains logic for Servos, Buzzers, Doors, Sensors, and Resets
+//  Contains logic for Buzzers, Doors, Sensors, and Resets
 // ============================================================
-
-void moveServoSmoothly(int to) {
-  targetServoPos = constrain(to, 0, 180);
-  if (!platformServo.attached()) {
-    platformServo.attach(SERVO_PIN, 500, 2500);
-  }
-}
-
-void processServo() {
-  if (currentServoPos == targetServoPos) return;
-  
-  if (millis() - lastServoMoveTime >= 15) {
-    int step = (currentServoPos < targetServoPos) ? 1 : -1;
-    currentServoPos += step;
-    platformServo.write(currentServoPos);
-    lastServoMoveTime = millis();
-  }
-}
-
-void shakeServo(int targetAngle) {
-  // We'll keep this as a special sequence but use the non-blocking target logic
-  moveServoSmoothly(targetAngle + 15);
-  // Real non-blocking shake would need a mini state machine, 
-  // let's simplify and just move to targeted angle for now to maintain stability
-  targetServoPos = targetAngle; 
-}
 
 void triggerCyberChirp(int pattern) {
   switch (pattern) {
@@ -51,35 +25,108 @@ void triggerBuzzer(int beeps) {
   triggerCyberChirp(beeps == 1 ? 3 : beeps == 2 ? 1 : 2);
 }
 
-float getDistance(const int pins[]) {
-  // Non-blocking trigger and wait logic
-  // Trigger
+int readReedDebounced(int pin) {
+  int first = digitalRead(pin);
+  // Multi-sample check spaced 4ms apart to reject ground bounce & back-EMF spikes
+  for (int i = 0; i < 3; i++) {
+    delay(4);
+    if (digitalRead(pin) != first) {
+      delay(4);
+      return digitalRead(pin);
+    }
+  }
+  return first;
+}
+
+static float _getDistanceRaw(const int pins[]) {
   digitalWrite(pins[0], LOW);
   delayMicroseconds(2);
   digitalWrite(pins[0], HIGH);
   delayMicroseconds(10);
   digitalWrite(pins[0], LOW);
   
-  // We use a shorter timeout for performance
   long dur = pulseIn(pins[1], HIGH, 20000); 
   if (dur == 0) return 999.0;
   return (dur * 0.0343) / 2.0;
 }
 
-void processSensors() {
-  // Update one sensor per call to avoid blocking the loop too much
-  static int sensorIndex = 0;
-  if (sensorIndex == 0) {
-    lastUsPlatformDist = getDistance(US_PLATFORM);
-    lastUsPlatformTime = millis();
-  } else if (sensorIndex == 1) {
-    lastUsPickupDist = getDistance(US_PICKUP);
-    lastUsPickupTime = millis();
-  } else {
-    lastUsDropoffDist = getDistance(US_DROPOFF);
-    lastUsDropoffTime = millis();
+float getDistance(const int pins[]) {
+  float a = _getDistanceRaw(pins);
+  // If an object is detected, verify with 2 additional samples to eliminate phantom ground spikes
+  if (a < 900.0) {
+    delayMicroseconds(400);
+    float b = _getDistanceRaw(pins);
+    delayMicroseconds(400);
+    float c = _getDistanceRaw(pins);
+    
+    // Return median reading
+    if ((a <= b && b <= c) || (c <= b && b <= a)) return b;
+    if ((b <= a && a <= c) || (c <= a && a <= b)) return a;
+    return c;
   }
-  sensorIndex = (sensorIndex + 1) % 3;
+  return a;
+}
+
+// Timers for remote in-app door unlocks (auto-relock thermal protection)
+static unsigned long remoteTopOpenTime      = 0;
+static unsigned long remotePickupOpenTime   = 0;
+static unsigned long remoteReceivedOpenTime = 0;
+
+// ============================================================
+//  Pickup Lock (GPIO 38) Hi-Z Control for 5V Active-LOW Solo Relay
+//  Because the relay module VCC is powered by 5V, ESP32 3.3V HIGH
+//  leaves (5V - 3.3V) = 1.7V which keeps the optocoupler ON.
+//  In Hi-Z (INPUT) mode, the pin is electronically disconnected,
+//  identical to unplugging the jumper wire, completely de-energizing the relay.
+// ============================================================
+void setPickupLock(bool unlock) {
+  if (unlock) {
+    pinMode(LOCK_PICKUP, OUTPUT);
+    digitalWrite(LOCK_PICKUP, LOW);  // Drive LOW (GND) -> Optocoupler ON -> Energized (Unlocked)
+  } else {
+    pinMode(LOCK_PICKUP, INPUT);     // Hi-Z / Floating -> Pin Disconnected -> De-energized (Locked)
+  }
+  lockPickupOpen = unlock;
+}
+
+void processSensors() {
+  // Rate-limit polling to once every 120ms to prevent CPU starvation and loop jitter
+  static unsigned long lastSensorPoll = 0;
+  if (millis() - lastSensorPoll < 120) return;
+  lastSensorPoll = millis();
+
+  // Platform and Pickup sensors physically removed (GPIO 15, 4 and GPIO 7, 16 free)
+  lastUsPlatformDist = 999.0;
+  lastUsPickupDist   = 999.0;
+
+  // Poll only the active Drop-Off ultrasonic sensor
+  lastUsDropoffDist = getDistance(US_DROPOFF);
+  lastUsDropoffTime = millis();
+
+  // Thermal Auto-Relock Safety for Remote App Unlocks (15 seconds max energized time)
+  // Re-locking after 15s de-energizes the solenoid coil while slam latches allow the door
+  // to be safely closed at any time.
+  unsigned long now = millis();
+  if (lockTopOpen && remoteTopOpenTime > 0 && (now - remoteTopOpenTime >= 15000)) {
+    digitalWrite(LOCK_TOP, HIGH);
+    lockTopOpen = false;
+    remoteTopOpenTime = 0;
+    Serial.println("[DOOR] Auto-Relock: Top door solenoid safely de-energized.");
+    emitDoorState();
+  }
+  if (lockPickupOpen && remotePickupOpenTime > 0 && (now - remotePickupOpenTime >= 15000)) {
+    setPickupLock(false);
+    remotePickupOpenTime = 0;
+    Serial.println("[DOOR] Auto-Relock: Pickup door solenoid safely de-energized.");
+    emitDoorState();
+  }
+  if (lockReceivedOpen && remoteReceivedOpenTime > 0 && (now - remoteReceivedOpenTime >= 15000)) {
+    digitalWrite(LOCK_RECEIVED, HIGH);
+    lockReceivedOpen = false;
+    remoteReceivedOpenTime = 0;
+    Serial.println("[DOOR] Auto-Relock: Received door solenoid safely de-energized.");
+    emitDoorState();
+  }
 }
 
 void updateProcessingHUD(const char* status) {
@@ -111,12 +158,14 @@ void handleControlDoor(const String& payload) {
   if (type == "top") {
     digitalWrite(LOCK_TOP, isOpen ? LOW : HIGH);
     lockTopOpen = isOpen;
+    remoteTopOpenTime = isOpen ? millis() : 0;
   } else if (type == "pickup") {
-    digitalWrite(LOCK_PICKUP, isOpen ? LOW : HIGH);
-    lockPickupOpen = isOpen;
+    setPickupLock(isOpen);
+    remotePickupOpenTime = isOpen ? millis() : 0;
   } else if (type == "received") {
     digitalWrite(LOCK_RECEIVED, isOpen ? LOW : HIGH);
     lockReceivedOpen = isOpen;
+    remoteReceivedOpenTime = isOpen ? millis() : 0;
   } else {
     Serial.println("[DOOR] Unknown door type. Use: top, pickup, received");
     return;

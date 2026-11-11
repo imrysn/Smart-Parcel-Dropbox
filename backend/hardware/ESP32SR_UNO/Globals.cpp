@@ -17,17 +17,13 @@ unsigned long actionDelayStart  = 0;
 bool          actionDelayActive = false;
 SystemState   pendingNextState  = IDLE;
 bool          isScannerTestActive = false;
+bool          isUsDiagContinuousActive = false;
 unsigned long lastStateChangeTime = 0;
 unsigned long scannerTestStartTime = 0;
 
 bool   riderVerifyReceived = false;
 bool   riderVerifyValid    = false;
 char serial2Buffer[128]       = ""; 
-char ownerSessionToken[32]   = "";   
-bool   ownerApprovalReceived = false;
-bool   ownerApprovalValid    = false;
-bool   ownerQrDrawn          = false; 
-bool   ownerVerifyTimedOut   = false; 
 
 Preferences nvsPrefs;
 // Network State (NVS)
@@ -84,20 +80,21 @@ unsigned long pickupRegisterTime  = 0;
 const unsigned long TIMEOUT_MS    = 300000;
 
 // Non-blocking hardware state init
-int           currentServoPos     = 180; // Safe default
-int           targetServoPos      = 180;
-unsigned long lastServoMoveTime   = 0;
 float         lastUsPlatformDist  = 999.0;
 float         lastUsPickupDist    = 999.0;
 float         lastUsDropoffDist   = 999.0;
+float         dropoffBaselineDist = 999.0;
 unsigned long lastUsPlatformTime  = 0;
 unsigned long lastUsPickupTime    = 0;
 unsigned long lastUsDropoffTime   = 0;
 
-Servo            platformServo;
 Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_RST);
 SocketIOclient   socketIO;
 
-const int US_PLATFORM[2] = {15,  4};
-const int US_PICKUP[2]   = { 7, 16};
-const int US_DROPOFF[2]  = {18,  8};
+// Available free pins (hardware removed):
+// GPIO 15, 4  (Platform US removed - Available)
+// GPIO 16     (Pickup US removed - Available)
+// GPIO 7      (Assigned to TFT_RST)
+const int US_PLATFORM[2] = {-1, -1}; // Unassigned / Available
+const int US_PICKUP[2]   = {-1, -1}; // Unassigned / Available
+const int US_DROPOFF[2]  = {18,  8}; // Active Drop-Off Ultrasonic Sensor

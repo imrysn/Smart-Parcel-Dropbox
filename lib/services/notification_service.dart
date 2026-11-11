@@ -41,6 +41,9 @@ class NotificationService {
   final _notificationController =
       StreamController<List<NotificationModel>>.broadcast();
   List<NotificationModel> _cachedNotifications = [];
+  int _sessionGeneration = 0;
+  bool _refreshQueued = false;
+  final _shownDeliveryIds = <String>{};
   final _authService = getIt<AuthService>();
 
   // ── Pagination & Loading States ──────────────────────────────────────────
@@ -65,11 +68,14 @@ class NotificationService {
   /// payload when the user taps a system notification. Use this to navigate
   /// to the correct screen (e.g. OwnerVerifyScreen for 'owner_verify').
   Future<void> initialize({void Function(String? payload)? onNotificationTap}) async {
+    if (kIsWeb || ![TargetPlatform.android, TargetPlatform.iOS].contains(defaultTargetPlatform)) return;
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    const InitializationSettings settings =
-        InitializationSettings(android: androidSettings);
+    const InitializationSettings settings = InitializationSettings(
+      android: androidSettings,
+      iOS: DarwinInitializationSettings(),
+    );
 
     await _notifications.initialize(
       settings,
@@ -111,6 +117,10 @@ class NotificationService {
     await androidPlugin?.requestNotificationsPermission();
 
     _isInitialized = true;
+    final launch = await _notifications.getNotificationAppLaunchDetails();
+    if (launch?.didNotificationLaunchApp == true) {
+      onNotificationTap?.call(launch?.notificationResponse?.payload);
+    }
     debugPrint('✅ Notification service initialized: channel=$_channelId');
   }
 
@@ -126,7 +136,7 @@ class NotificationService {
   /// Show an urgent notification when the hardware enters Owner Verification
   /// mode (QR displayed on LCD). Tapping the notification will open the
   /// Verify Owner Access camera screen via the [payload] `'owner_verify'`.
-  Future<void> showOwnerAccessAlert() async {
+  Future<void> showOwnerAccessAlert({required String userId, required int expiresAt}) async {
     if (!_isInitialized) {
       debugPrint('[Notifications] Warning: showOwnerAccessAlert called before initialization');
       return;
@@ -140,6 +150,7 @@ class NotificationService {
         title,
         body,
         const NotificationDetails(
+          iOS: DarwinNotificationDetails(),
           android: AndroidNotificationDetails(
             _ownerChannelId,
             _ownerChannelName,
@@ -158,7 +169,7 @@ class NotificationService {
             ],
           ),
         ),
-        payload: 'owner_verify',
+        payload: jsonEncode({'type': 'owner_verify', 'userId': userId, 'expiresAt': expiresAt}),
       );
       debugPrint('[Notifications] Owner access alert shown');
     } catch (e) {
@@ -167,6 +178,40 @@ class NotificationService {
   }
 
   // ── System tray / push notifications ─────────────────────────────────────
+
+  Future<void> showParcelDelivered(String notificationId) async {
+    if (!_isInitialized || !_shownDeliveryIds.add(notificationId)) return;
+    if (_shownDeliveryIds.length > 128) {
+      _shownDeliveryIds.remove(_shownDeliveryIds.first);
+    }
+    try {
+      await _notifications.show(
+        notificationId.hashCode.abs(),
+        'Parcel delivered',
+        'Open Smart Parcel Dropbox for details.',
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channelId,
+            _channelName,
+            channelDescription: _channelDesc,
+            tag: notificationId,
+            visibility: NotificationVisibility.private,
+            importance: Importance.high,
+            priority: Priority.high,
+            onlyAlertOnce: true,
+          ),
+          iOS: const DarwinNotificationDetails(),
+        ),
+        payload: jsonEncode({
+          'type': 'parcel_delivered',
+          'notificationId': notificationId,
+        }),
+      );
+    } catch (_) {
+      _shownDeliveryIds.remove(notificationId);
+      debugPrint('Could not show the parcel alert.');
+    }
+  }
 
   /// Show a system notification when a parcel status changes.
   /// Called by DatabaseService when 'trackingStatusChanged' socket event fires.
@@ -201,6 +246,7 @@ class NotificationService {
         title,
         body,
         NotificationDetails(
+          iOS: const DarwinNotificationDetails(),
           android: AndroidNotificationDetails(
             _channelId,
             _channelName,
@@ -208,14 +254,6 @@ class NotificationService {
             importance: Importance.high,
             priority: Priority.high,
             icon: '@mipmap/ic_launcher',
-            actions: (status == 'delivered') 
-              ? [
-                  const AndroidNotificationAction(
-                    'action_unlock',
-                    '🔓 UNLOCK NOW',
-                    showsUserInterface: true,
-                  ),
-                ] : null,
           ),
         ),
       );
@@ -239,20 +277,32 @@ class NotificationService {
 
   /// Fetch notifications for a user with page-based lazy loading.
   Future<void> fetchNotifications(String userId, {bool isRefresh = false}) async {
+    if (_isFetchingMore) {
+      if (isRefresh) _refreshQueued = true;
+      return;
+    }
     if (isRefresh) {
       _currentPage = 1;
       _hasMore = true;
     }
 
-    if (_isFetchingMore || (!_hasMore && !isRefresh)) return;
+    if (!_hasMore && !isRefresh) return;
     _isFetchingMore = true;
+    final generation = _sessionGeneration;
 
     try {
+      if (await _authService.currentUserId != userId || generation != _sessionGeneration) return;
       final headers = await _authService.getAuthHeaders();
+      if (generation != _sessionGeneration) return;
       final response = await http.get(
         Uri.parse('${ApiConfig.notifications}/user/$userId?page=$_currentPage&limit=$_pageSize'),
         headers: headers,
-      );
+      ).timeout(const Duration(seconds: 12));
+      if (generation != _sessionGeneration) return;
+      if (response.statusCode == 401) {
+        await _authService.handleSessionExpired();
+        return;
+      }
 
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
@@ -280,7 +330,13 @@ class NotificationService {
     } catch (e) {
       debugPrint('Error fetching notifications: $e');
     } finally {
-      _isFetchingMore = false;
+      if (generation == _sessionGeneration) {
+        _isFetchingMore = false;
+        if (_refreshQueued) {
+          _refreshQueued = false;
+          unawaited(refreshNotifications(userId));
+        }
+      }
     }
   }
 
@@ -322,7 +378,12 @@ class NotificationService {
   /// Get notifications stream for a user
   Stream<List<NotificationModel>> getUserNotifications(String userId) {
     if (_cachedNotifications.isNotEmpty) {
-      Timer.run(() => _notificationController.add(List.from(_cachedNotifications)));
+      final generation = _sessionGeneration;
+      Timer.run(() {
+        if (generation == _sessionGeneration && !_notificationController.isClosed) {
+          _notificationController.add(List.from(_cachedNotifications));
+        }
+      });
     } else {
       fetchNotifications(userId, isRefresh: true);
     }
@@ -470,7 +531,28 @@ class NotificationService {
   }
 
   /// Dispose resources
+  void clearSession() {
+    _sessionGeneration++;
+    _shownDeliveryIds.clear();
+    _cachedNotifications = [];
+    _isFetchingMore = false;
+    _refreshQueued = false;
+    _currentPage = 1;
+    _hasMore = true;
+    if (!_notificationController.isClosed) _notificationController.add([]);
+    unawaited(_cancelLocalNotifications());
+  }
+
+  Future<void> _cancelLocalNotifications() async {
+    try {
+      await _notifications.cancelAll();
+    } catch (_) {
+      // Notification plugins are unavailable on some development targets.
+    }
+  }
+
   void dispose() {
+    _sessionGeneration++;
     _notificationController.close();
   }
 

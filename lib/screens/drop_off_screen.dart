@@ -4,53 +4,45 @@ import '../widgets/user_ui.dart';
 import '../services/database_service.dart';
 import '../models/tracking_model.dart';
 import 'tracking_details_screen.dart';
+import 'add_tracking_screen.dart';
+import '../presentation/components/carrier_badge.dart';
+import '../presentation/components/delivery_timeline.dart';
 
 /// Drop Off screen for parcels in delivery flow.
 class DropOffScreen extends StatelessWidget {
   final String userId;
   final DatabaseService databaseService;
-  final bool isAdmin;
 
   const DropOffScreen({
     super.key,
     required this.userId,
     required this.databaseService,
-    this.isAdmin = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.canPop(context);
+
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        appBar: canPop
+            ? UserTheme.appBarGradient(
+                context: context,
+                title: 'Drop-off Orders',
+                centerTitle: true,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              )
+            : null,
         body: RefreshIndicator(
-          onRefresh: () async {
-            if (isAdmin) {
-              await databaseService.refreshAllTrackingIds();
-            } else {
-              await databaseService.refreshTracking(userId);
-            }
-          },
+          onRefresh: () => databaseService.refreshTracking(userId),
           color: UserTheme.primaryOrange,
           child: StreamBuilder<List<TrackingModel>>(
-            stream: isAdmin
-                ? databaseService.getAllTrackingIds().map(
-                      (list) => list
-                          .where(
-                            (t) =>
-                                t.mode == 'drop_off' &&
-                                [
-                                  'pending',
-                                  'in_transit',
-                                  'delivered',
-                                  'awaiting_pickup',
-                                  'done',
-                                ].contains(t.status),
-                          )
-                          .toList(),
-                    )
-                : databaseService.getActiveOrders(userId),
+            stream: databaseService.getActiveOrders(userId),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return UserUi.emptyState(
@@ -68,12 +60,15 @@ class DropOffScreen extends StatelessWidget {
                   icon: Icons.inventory_2_outlined,
                   title: 'No drop offs',
                   subtitle: 'Incoming drop-off parcels will appear here.',
+                  actionLabel: 'Add Tracking',
+                  onActionTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AddTrackingScreen()),
+                  ),
                 );
               }
 
               return ListView.builder(
-                padding:
-                    const EdgeInsets.only(left: 20, right: 20, top: 16, bottom: 120),
+                padding: UserUi.listPadding(context, top: 16, bottom: 120),
                 itemCount: orders.length,
                 itemBuilder: (context, index) => _DropOffCard(order: orders[index]),
               );
@@ -90,10 +85,20 @@ class _DropOffCard extends StatelessWidget {
 
   const _DropOffCard({required this.order});
 
+  String _formatDate(DateTime? date) {
+    if (date == null) return '';
+    return '${date.month}/${date.day} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final statusColor = UserTheme.getStatusColor(order.status);
+
+    int stageIndex = 0;
+    if (order.status == 'in_transit') stageIndex = 1;
+    else if (order.status == 'delivered') stageIndex = 2;
+    else if (order.status == 'done' || order.status == 'retrieved') stageIndex = 3;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -113,49 +118,47 @@ class _DropOffCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: Text(
-                        order.shopName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: isDark
-                              ? UserTheme.nightTextPrimary
-                              : UserTheme.dayTextPrimary,
-                        ),
-                      ),
-                    ),
+                    Expanded(child: CarrierBadge(shopName: order.shopName)),
+                    const SizedBox(width: 8),
                     UserUi.statusPill(
                       label: order.getStatusText(),
                       color: statusColor,
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(
-                      Icons.qr_code_2_rounded,
-                      size: 14,
-                      color: UserTheme.primaryOrange,
-                    ),
-                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         order.trackingId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 13,
+                          fontWeight: FontWeight.w600,
                           color: isDark
                               ? UserTheme.nightTextSecondary
                               : UserTheme.dayTextSecondary,
                         ),
                       ),
                     ),
+                    if (order.registeredAt != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatDate(order.registeredAt),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
+                const SizedBox(height: 14),
+                DeliveryTimeline(stageIndex: stageIndex),
               ],
             ),
           ),

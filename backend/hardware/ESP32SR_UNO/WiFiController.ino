@@ -1,13 +1,14 @@
 // ============================================================
 //  WiFiController.ino - Captive Portal for WiFi Setup
 // ============================================================
+#include "StateMetrics.h"
 
 WebServer server(80);
 DNSServer dnsServer;
 
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
-const char* apSSID = "Smart Parcel Drop box setup";
+const char* apSSID = CAPTIVE_AP_SSID;
 
 void handleRoot();
 void handleSave();

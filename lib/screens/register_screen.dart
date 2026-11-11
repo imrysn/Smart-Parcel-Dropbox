@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/auth_service.dart';
+import '../services/input_validator.dart';
 import 'hardware_registration_screen.dart';
 
 /// Register Screen - New user registration
@@ -52,9 +53,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (mounted) {
-        // Direct newly registered owner to Hardware Registration Pairing Wizard
+        // Direct newly registered owner to Hardware Registration Pairing Wizard (skippable)
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const HardwareRegistrationScreen()),
+          MaterialPageRoute(
+            builder: (context) => const HardwareRegistrationScreen(canSkipToHome: true),
+          ),
           (route) => false,
         );
       }
@@ -83,33 +86,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : UserTheme.dayTextPrimary),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          title: Text(
-            'Create Account',
-            style: TextStyle(
-              color: isDark ? Colors.white : UserTheme.dayTextPrimary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+        appBar: UserTheme.appBarGradient(
+          title: 'Create Account',
+          context: context,
         ),
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 8, 28, 32),
-            child: Form(
+            padding: EdgeInsets.fromLTRB(
+              UserUi.horizontalGutter(context),
+              12,
+              UserUi.horizontalGutter(context),
+              32,
+            ),
+            child: UserUi.responsiveContainer(
+              context,
+              maxWidth: 460,
+              child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   UserUi.sectionTitle(
                     context,
-                    'Join the SPD Family',
-                    subtitle: 'Secure your deliveries with a personal smart dropbox account.',
+                    'Create your account',
+                    subtitle: 'Set up your personal Smart Parcel Dropbox profile.',
                   ),
                   const SizedBox(height: 24),
                   
@@ -132,11 +132,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       labelText: 'Email Address',
                       prefixIcon: Icon(Icons.alternate_email_rounded),
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) return 'Please enter your email';
-                      if (!value.contains('@')) return 'Please enter a valid email';
-                      return null;
-                    },
+                    validator: InputValidator.validateEmail,
                   ),
                   const SizedBox(height: 16),
 
@@ -209,19 +205,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   const SizedBox(height: 32),
 
                   // Register button
-                  _isLoading
-                      ? const Center(child: CircularProgressIndicator(color: UserTheme.primaryOrange))
-                      : UserUi.premiumButton(
-                          label: 'CREATE ACCOUNT',
-                          onTap: _register,
-                          icon: Icons.person_add_alt_1_rounded,
-                        ),
+                  UserUi.premiumButton(
+                    label: 'Create Account',
+                    onTap: _register,
+                    isLoading: _isLoading,
+                    icon: Icons.person_add_alt_1_rounded,
+                  ),
                   
                   const SizedBox(height: 24),
                   
                   // Already have account
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Text(
                         "Already have an account? ",
@@ -237,6 +233,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             ),
           ),
+        ),
         ),
       ),
     );

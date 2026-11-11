@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 import 'auth_service.dart';
 import 'database_service.dart';
 import 'notification_service.dart';
+import 'delivery_push_service.dart';
 import 'cache_service.dart';
 import 'secure_storage_service.dart';
 import 'connectivity_service.dart';
@@ -15,7 +16,6 @@ import 'scan_log_service.dart';
 import 'device_control_service.dart';
 import 'biometric_service.dart';
 import 'dropbox_service.dart';
-import 'task_service.dart';
 
 /// Service Locator for Dependency Injection
 /// Provides centralized access to all services
@@ -33,12 +33,17 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton(() => ScanLogService());
   getIt.registerLazySingleton(() => DeviceControlService());
   getIt.registerLazySingleton(() => NotificationService());
+  getIt.registerLazySingleton(
+    () => DeliveryPushService(getIt<AuthService>(), getIt<NotificationService>()),
+    dispose: (service) => service.dispose(),
+  );
   getIt.registerLazySingleton(() => DropboxService());
-  getIt.registerLazySingleton(() => TaskService());
 
   // Legacy DatabaseService (facade for backward compatibility)
   // TODO: Remove after all screens are migrated to new services
   getIt.registerLazySingleton(() => DatabaseService());
+  AuthService.onSessionEnded = () => getIt<DatabaseService>().endSession();
+  AuthService.onSessionEnding = () => getIt<DeliveryPushService>().endSession();
 
   // Utility Services
   getIt.registerLazySingleton(() => CacheService());
@@ -58,6 +63,9 @@ Future<void> setupServiceLocator() async {
 
 /// Dispose all services on app close
 Future<void> disposeServices() async {
+  AuthService.onSessionEnded = null;
+  AuthService.onSessionEnding = null;
+  if (getIt.isRegistered<DatabaseService>()) getIt<DatabaseService>().endSession();
   // Dispose new services
   if (getIt.isRegistered<WebSocketService>()) {
     getIt<WebSocketService>().dispose();

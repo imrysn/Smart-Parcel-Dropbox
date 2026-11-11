@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../config/api_config.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/auth_service.dart';
@@ -6,7 +8,6 @@ import '../services/database_service.dart';
 import '../services/input_validator.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
-import 'admin/admin_dashboard_screen.dart';
 import 'password_reset_screen.dart';
 
 /// Login Screen - User authentication with Email/Password and Google Sign-In
@@ -67,18 +68,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _navigateAfterLogin(Map<String, dynamic> user) async {
     if (!mounted) return;
-
-    final role = user['role'];
-
-    if (role == 'admin') {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
-      );
-    } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
-    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => const HomeScreen()),
+    );
   }
 
   void _showForgotPasswordDialog() {
@@ -137,31 +129,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         : () async {
                             if (!resetFormKey.currentState!.validate()) return;
                             setDialogState(() => isDialogLoading = true);
+                            final navigator = Navigator.of(context);
+                            final messenger = ScaffoldMessenger.of(context);
                             try {
                               final email = resetEmailController.text.trim();
-                              final exists = await _databaseService.checkEmailExists(email);
-                              if (!exists) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('This email is not registered.'),
-                                      backgroundColor: UserTheme.statusError,
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                }
-                                setDialogState(() => isDialogLoading = false);
-                                return;
-                              }
                               await _databaseService.requestPasswordReset(email);
                               if (context.mounted) {
-                                Navigator.of(context).pop();
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(builder: (context) => PasswordResetScreen(email: email)),
+                                navigator.pop();
+                                navigator.push(
+                                  MaterialPageRoute(builder: (_) => PasswordResetScreen(email: email)),
                                 );
-                                ScaffoldMessenger.of(context).showSnackBar(
+                                messenger.showSnackBar(
                                   const SnackBar(
-                                    content: Text('Reset code sent!'),
+                                    content: Text('If your account exists, a reset code has been sent.'),
                                     backgroundColor: UserTheme.statusSuccess,
                                     behavior: SnackBarBehavior.floating,
                                   ),
@@ -169,8 +149,12 @@ class _LoginScreenState extends State<LoginScreen> {
                               }
                             } catch (e) {
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error: $e'), backgroundColor: UserTheme.statusError),
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text(e.toString()),
+                                    backgroundColor: UserTheme.statusError,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
                                 );
                               }
                               setDialogState(() => isDialogLoading = false);
@@ -188,250 +172,206 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+    final mutedText = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.08);
+
+    final gutter = UserUi.horizontalGutter(context);
 
     return Scaffold(
       backgroundColor: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
-      // Prevent Scaffold from resizing — the SingleChildScrollView handles keyboard avoidance.
-      resizeToAvoidBottomInset: false,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          // Fixed, stable header height based on the physical screen — never squishes.
-          final double screenHeight = constraints.maxHeight;
-          final double headerHeight = screenHeight * 0.45;
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.symmetric(horizontal: gutter, vertical: 24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: (constraints.maxHeight - 48).clamp(0.0, double.infinity),
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Minimalist Brand Mark & Greeting
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          color: UserTheme.primaryOrange,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.inventory_2_rounded,
+                          size: 26,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Welcome back',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: primaryText,
+                        letterSpacing: -0.7,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Sign in to manage deliveries and your dropbox.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: secondaryText,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
 
-          return SingleChildScrollView(
-            // Allows dragging down to dismiss keyboard.
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            child: ConstrainedBox(
-              // Ensures the Column always fills the visible screen when keyboard is hidden.
-              constraints: BoxConstraints(minHeight: screenHeight),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // ─── Sunset Header ─────────────────────────────────────────
-                  SizedBox(
-                    height: headerHeight,
-                    width: double.infinity,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(gradient: UserTheme.sunsetGradient),
-                      child: Stack(
-                        clipBehavior: Clip.none,
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Email address',
+                        prefixIcon: Icon(Icons.mail_outline_rounded),
+                      ),
+                      validator: InputValidator.validateEmail,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        prefixIcon: const Icon(Icons.lock_open_rounded),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                      ),
+                      validator: (value) =>
+                          value == null || value.isEmpty ? 'Please enter password' : null,
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _isLoading ? null : _showForgotPasswordDialog,
+                        child: const Text(
+                          'Forgot password?',
+                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    UserUi.premiumButton(
+                      label: 'Sign in',
+                      onTap: _login,
+                      isLoading: _isLoading,
+                      icon: Icons.login_rounded,
+                    ),
+
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 28),
+                      Row(
                         children: [
-                          // Decorative circle — top-right
-                          Positioned(
-                            top: -64,
-                            right: -64,
-                            child: Container(
-                              width: 256,
-                              height: 256,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.12),
-                                shape: BoxShape.circle,
+                          Expanded(child: Divider(color: borderColor)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'Debug quick fill',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: mutedText,
                               ),
                             ),
                           ),
-                          // Decorative circle — bottom-left
-                          Positioned(
-                            bottom: -32,
-                            left: -32,
-                            child: Container(
-                              width: 160,
-                              height: 160,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.08),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                          // Branding content — safe area aware
-                          SafeArea(
-                            bottom: false,
-                            child: Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  UserUi.glassCard(
-                                    context,
-                                    blur: 16,
-                                    borderRadius: UserTheme.radiusXL,
-                                    padding: const EdgeInsets.all(28),
-                                    color: Colors.white.withOpacity(0.15),
-                                    child: const Icon(
-                                      Icons.inventory_2_rounded,
-                                      size: 64,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  const Text(
-                                    'SPD',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.white,
-                                      letterSpacing: 6,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Smart Parcel\nDrop Box',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white,
-                                      height: 1,
-                                      letterSpacing: -1,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                          Expanded(child: Divider(color: borderColor)),
                         ],
                       ),
-                    ),
-                  ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          _emailController.text = 'imrays23@gmail.com';
+                          _passwordController.text = 'password123';
+                        },
+                        icon: const Icon(Icons.person_outline_rounded, size: 16, color: UserTheme.primaryOrange),
+                        label: Text(
+                          'Fill demo account',
+                          style: TextStyle(
+                            color: primaryText,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                          side: BorderSide(color: borderColor),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Server: ${ApiConfig.serverUrl}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: mutedText),
+                      ),
+                    ],
 
-                  // ─── Form Card ─────────────────────────────────────────────
-                  Container(
-                    width: double.infinity,
-                    // minHeight fills the rest of the screen; grows naturally with the form.
-                    constraints: BoxConstraints(minHeight: screenHeight - headerHeight),
-                    decoration: BoxDecoration(
-                      color: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(UserTheme.radiusXL),
-                      ),
+                    const SizedBox(height: 20),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          'New here? ',
+                          style: TextStyle(color: secondaryText, fontSize: 13),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => const RegisterScreen(),
+                              ),
+                            );
+                          },
+                          child: const Text(
+                            'Create account',
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                          ),
+                        ),
+                      ],
                     ),
-                    padding: const EdgeInsets.fromLTRB(28, 32, 28, 48),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          UserUi.sectionTitle(
-                            context,
-                            'Welcome Back',
-                            subtitle: 'Sign in to continue managing your parcels',
-                          ),
-                          const SizedBox(height: 24),
-                          TextFormField(
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(
-                              labelText: 'Email Address',
-                              prefixIcon: Icon(Icons.mail_outline_rounded),
-                            ),
-                            validator: InputValidator.validateEmail,
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: _obscurePassword,
-                            decoration: InputDecoration(
-                              labelText: 'Password',
-                              prefixIcon: const Icon(Icons.lock_open_rounded),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                ),
-                                onPressed: () =>
-                                    setState(() => _obscurePassword = !_obscurePassword),
-                              ),
-                            ),
-                            validator: (value) =>
-                                value == null || value.isEmpty ? 'Please enter password' : null,
-                          ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: _isLoading ? null : _showForgotPasswordDialog,
-                              child: const Text('Forgot Password?'),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          _isLoading
-                              ? const Center(
-                                  child: CircularProgressIndicator(
-                                      color: UserTheme.primaryOrange))
-                              : UserUi.premiumButton(
-                                  label: 'SIGN IN',
-                                  onTap: _login,
-                                  icon: Icons.login_rounded,
-                                ),
-                          const SizedBox(height: 24),
-                          Text(
-                            'QUICK DEMO LOGIN',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.2,
-                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              ActionChip(
-                                avatar: const Icon(Icons.person_rounded, size: 14, color: UserTheme.primaryOrange),
-                                label: const Text('Raysan (User)'),
-                                backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-                                onPressed: () {
-                                  _emailController.text = 'imrays23@gmail.com';
-                                  _passwordController.text = 'password123';
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              ActionChip(
-                                avatar: const Icon(Icons.admin_panel_settings_rounded, size: 14, color: Color(0xFF10B981)),
-                                label: const Text('Brant (Admin)'),
-                                backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-                                onPressed: () {
-                                  _emailController.text = 'brantcordova0@gmail.com';
-                                  _passwordController.text = 'password123';
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'New here? ',
-                                style: TextStyle(
-                                  color: isDark
-                                      ? UserTheme.nightTextMuted
-                                      : UserTheme.dayTextMuted,
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                        builder: (context) => const RegisterScreen()),
-                                  );
-                                },
-                                child: const Text('Create Account'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

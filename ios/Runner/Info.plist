@@ -24,6 +24,10 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSCameraUsageDescription</key>
+		<string>Scan dropbox setup codes, owner verification codes, and parcel waybills.</string>
+		<key>NSFaceIDUsageDescription</key>
+		<string>Verify your identity when the app lock is enabled.</string>
 		<key>UILaunchStoryboardName</key>
 		<string>LaunchScreen</string>
 		<key>UIMainStoryboardFile</key>

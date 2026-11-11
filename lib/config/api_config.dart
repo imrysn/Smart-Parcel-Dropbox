@@ -1,27 +1,32 @@
+import 'package:flutter/foundation.dart';
+
 class ApiConfig {
-  // LOCAL TESTING: Localhost for Windows Desktop app
-  static const String baseUrl = 'http://localhost:3000/api';
-  
+  static const String _envServerUrl = String.fromEnvironment('API_URL');
+  static const String productionServerUrl = 'https://smart-parcel-dropbox.onrender.com';
+  static const String localServerUrl = 'http://localhost:3000';
+  static const String androidEmulatorServerUrl = 'http://10.0.2.2:3000';
+
+  static final String serverUrl = _initialServerUrl();
+
+  static String _initialServerUrl() {
+    if (_envServerUrl.isNotEmpty) return _envServerUrl.replaceFirst(RegExp(r'/+$'), '');
+    if (!kDebugMode) return productionServerUrl;
+    return !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+        ? androidEmulatorServerUrl : localServerUrl;
+  }
+
+  static String get baseUrl => '$serverUrl/api';
+
   // Socket.IO connects to the root server URL (no /api)
-  static const String socketUrl = 'http://localhost:3000';
-  
-  static const String users = '$baseUrl/users';
-  static const String tracking = '$baseUrl/tracking';
-  static const String scanLogs = '$baseUrl/scan-logs';
-  static const String notifications = '$baseUrl/notifications';
-  static const String deviceControl = '$baseUrl/device-control';
-  static const String dropbox = '$baseUrl/dropbox';
-  static const String business = '$baseUrl/business';
-  static const String tasks = '$baseUrl/tasks';
-  static const String financial = '$baseUrl/financial';
-  static const String payments = '$baseUrl/payments';
+  static String get socketUrl => serverUrl;
 
-  // User Management Admin Endpoints
-  static const String pendingUsers = '$baseUrl/users/pending';
-  static const String approveUser = '$baseUrl/users/approve';
-  static const String rejectUser = '$baseUrl/users/reject';
-
-  // Public Branded Web Pass for Couriers & Riders
-  static const String publicWebDomain = 'https://smart-parcel-dropbox-depth.onrender.com';
-  static String passUrl(String trackingId) => '$publicWebDomain/pass/$trackingId';
+  static String get users => '$baseUrl/users';
+  static String get tracking => '$baseUrl/tracking';
+  static String get scanLogs => '$baseUrl/scan-logs';
+  static String get notifications => '$baseUrl/notifications';
+  // Mounted at root (/device-control), not under /api
+  static String get deviceControl => '$serverUrl/device-control';
+  static String get dropbox => '$baseUrl/dropbox';
+  static String get business => '$baseUrl/business';
+  static String get riders => '$baseUrl/riders';
 }

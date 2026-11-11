@@ -3,7 +3,6 @@ import 'dart:async';
 import '../models/tracking_model.dart';
 import '../models/scan_log_model.dart';
 import '../models/notification_model.dart';
-import '../models/user_model.dart';
 import 'service_locator.dart';
 import 'websocket_service.dart';
 import 'tracking_service.dart';
@@ -11,6 +10,7 @@ import 'user_service.dart';
 import 'scan_log_service.dart';
 import 'device_control_service.dart';
 import 'notification_service.dart';
+import 'delivery_push_service.dart';
 
 /// Database Service - FACADE for backward compatibility
 ///
@@ -38,7 +38,9 @@ class DatabaseService {
         '⚠️ DatabaseService (facade) initialized - consider migrating to new services');
   }
   
-  bool _isSocketInitialized = false;
+  String? _sessionUserId;
+  final _sessionSubscriptions = <StreamSubscription<dynamic>>[];
+  String? get sessionUserId => _sessionUserId;
 
   // Lazy getters for new services
   WebSocketService get _ws => getIt<WebSocketService>();
@@ -51,46 +53,63 @@ class DatabaseService {
   // ========== WebSocket Methods ==========
 
   Future<void> initSocket(String userId) async {
-    if (_isSocketInitialized) {
-      debugPrint('ℹ️ DatabaseService: Socket listeners already initialized');
+    if (_sessionUserId == userId) {
+      await _ws.connect(userId);
       return;
     }
-    
+    if (_sessionUserId != null) endSession();
+    _sessionUserId = userId;
+    _sessionSubscriptions.addAll([
+      _ws.connectionStatusStream.listen((connected) {
+        if (connected) refreshSession();
+      }),
+      _ws.trackingUpdates.listen((_) => _tracking.refreshTracking(userId)),
+      _ws.notificationUpdates.listen((_) => _notification.refreshNotifications(userId)),
+      _ws.doorStateUpdates.listen(_device.updateDoorState),
+      _ws.trackingStatusChanges.listen((data) {
+        if (_sessionUserId != userId) return;
+        _tracking.refreshTracking(userId);
+        _notification.refreshNotifications(userId);
+        final eventId = data['notificationId'];
+        if (eventId is String) {
+          final hasPush = getIt.isRegistered<DeliveryPushService>() &&
+              getIt<DeliveryPushService>().registeredFor(userId);
+          if (data['pushQueued'] != true || !hasPush) {
+            unawaited(_notification.showParcelDelivered(eventId));
+          }
+          return;
+        }
+        _notification.showDeliveryNotification(
+          trackingId: (data['trackingId'] ?? '').toString(),
+          status: (data['status'] ?? '').toString(),
+        );
+      }),
+    ]);
     await _ws.connect(userId);
-    _isSocketInitialized = true;
-
-    // Wire up WebSocket events to services
-    _ws.trackingUpdates.listen((_) => _tracking.refreshTracking(userId));
-    _ws.notificationUpdates
-        .listen((_) => _notification.refreshNotifications(userId));
-    _ws.doorStateUpdates.listen((state) => _device.updateDoorState(state));
-
-    // ── Phase 4: Hardware delivery events ──────────────────────────────────
-    // Fired by backend when ESP32 emits statusUpdate after a drop-off/pick-up.
-    // Payload: { trackingId, status, mode, timestamp }
-    _ws.trackingStatusChanges.listen((data) {
-      debugPrint('Socket: trackingStatusChanged received: $data');
-
-      final trackingId = (data['trackingId'] ?? '').toString();
-      final status = (data['status'] ?? '').toString();
-
-      // 1. Refresh the tracking lists so the UI updates immediately
-      _tracking.refreshTracking(userId);
-      
-      // If admin, also refresh all tracking
-      _tracking.getAllTrackingIds();
-
-      // 2. Show a local system tray/push notification
-      _notification.showDeliveryNotification(
-        trackingId: trackingId,
-        status: status,
-      );
-    });
   }
 
-  void dispose() {
+  Future<void> refreshSession() async {
+    final userId = _sessionUserId;
+    if (userId == null) return;
+    await Future.wait([
+      _tracking.refreshTracking(userId),
+      _notification.refreshNotifications(userId),
+    ]);
+  }
+
+  void endSession() {
+    _sessionUserId = null;
+    for (final subscription in _sessionSubscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _sessionSubscriptions.clear();
     _ws.disconnect();
+    _tracking.clearSession();
+    _notification.clearSession();
+    _device.clearSession();
   }
+
+  void dispose() => endSession();
 
   static void reset() {
     WebSocketService.reset();
@@ -146,10 +165,6 @@ class DatabaseService {
   }) =>
       _tracking.updateTrackingStatus(trackingId: trackingId, status: status);
 
-  Stream<List<TrackingModel>> getAllTrackingIds() => _tracking.allTrackingStream;
-
-  Future<List<TrackingModel>> refreshAllTrackingIds() => _tracking.getAllTrackingIds();
-
   Future<void> simulateTracking(String trackingId) => _tracking.simulateTracking(trackingId);
 
   Future<void> resetTracking(String trackingId) => _tracking.resetTracking(trackingId);
@@ -168,6 +183,9 @@ class DatabaseService {
 
   // ========== User Methods ==========
 
+  Future<Map<String, dynamic>?> getMe({Duration timeout = const Duration(seconds: 10)}) =>
+      _user.getMe(timeout: timeout);
+
   Future<Map<String, dynamic>?> getUserData(String userId) =>
       _user.getUserData(userId);
 
@@ -184,27 +202,16 @@ class DatabaseService {
         address: address,
       );
 
-  Stream<List<UserModel>> getAllUsers() => _user.getAllUsers();
-
-  Future<void> refreshAllUsers() => _user.refreshAllUsers();
-
-  Future<void> updateUserRole({
-    required String userId,
-    required String role,
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
   }) =>
-      _user.updateUserRole(userId: userId, role: role);
-
-  Future<String?> getUserRole(String userId) => _user.getUserRole(userId);
+      _user.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
 
   Future<void> deleteUser(String userId) => _user.deleteUser(userId);
-
-  Future<List<UserModel>> getPendingUsers() => _user.getPendingUsers();
-
-  Future<void> approveUser(String userId) => _user.approveUser(userId);
-
-  Future<void> rejectUser(String userId) => _user.rejectUser(userId);
-
-  Future<bool> checkEmailExists(String email) => _user.checkEmailExists(email);
 
   Future<void> requestPasswordReset(String email) =>
       _user.requestPasswordReset(email);

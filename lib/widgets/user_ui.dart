@@ -1,8 +1,8 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import '../config/user_theme.dart';
+import '../presentation/components/status_pill.dart';
 
 /// Shared layout and surface styles for the user (mobile) app.
 /// Colors and Design Tokens come from [UserTheme].
@@ -13,6 +13,50 @@ class UserUi {
   static const double sM = 16.0;
   static const double sL = 24.0;
   static const double sXL = 32.0;
+
+  /// Responsive horizontal page gutter prioritizing mobile viewports.
+  static double horizontalGutter(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 390) return 16.0;
+    if (width < 600) return 20.0;
+    return 24.0;
+  }
+
+  /// Computes scrollable content padding that stays full-width on mobile
+  /// and automatically centers content up to [maxWidth] on wider screens
+  /// without clipping edge scrollbars or pull-to-refresh gestures.
+  static EdgeInsets listPadding(
+    BuildContext context, {
+    double top = 12,
+    double bottom = 32,
+    double maxWidth = 600,
+  }) {
+    final width = MediaQuery.sizeOf(context).width;
+    final base = horizontalGutter(context);
+    final horizontal = width > maxWidth + (base * 2) ? (width - maxWidth) / 2 : base;
+    return EdgeInsets.fromLTRB(horizontal, top, horizontal, bottom);
+  }
+
+  /// Constrains and centers body content on wider viewports while staying
+  /// full-width on mobile phones.
+  static Widget responsiveContainer(
+    BuildContext context, {
+    required Widget child,
+    double maxWidth = 560,
+    EdgeInsetsGeometry? padding,
+  }) {
+    Widget content = SizedBox(width: double.infinity, child: child);
+    if (padding != null) {
+      content = Padding(padding: padding, child: content);
+    }
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: content,
+      ),
+    );
+  }
 
   /// Theme-aware page background.
   static BoxDecoration pageBackground(BuildContext context) {
@@ -61,13 +105,13 @@ class UserUi {
         color: color ?? (isDark ? UserTheme.nightCard : UserTheme.dayCard),
         borderRadius: BorderRadius.circular(UserTheme.radiusL),
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.06) : UserTheme.dayTextMuted.withOpacity(0.12),
+          color: isDark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.06),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -87,17 +131,17 @@ class UserUi {
     EdgeInsetsGeometry? padding,
     bool isLoading = false,
   }) {
+    final effectiveColor = color ?? UserTheme.primaryOrange;
     return Container(
       width: fullWidth ? double.infinity : null,
       decoration: BoxDecoration(
-        gradient: color == null ? UserTheme.sunsetGradient : null,
-        color: color,
+        color: effectiveColor,
         borderRadius: BorderRadius.circular(UserTheme.radiusM),
         boxShadow: [
           BoxShadow(
-            color: (color ?? UserTheme.sunsetMid).withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: effectiveColor.withValues(alpha: 0.14),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -183,69 +227,80 @@ class UserUi {
     );
   }
 
-  /// Refined Status Pill.
+  /// Lightweight Status Indicator (dot + label).
   static Widget statusPill({
     required String label,
     required Color color,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(UserTheme.radiusXL),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
+    return StatusPill(label: label, color: color);
   }
 
-  /// Premium Empty State.
+  /// Responsive empty state with optional action button.
   static Widget emptyState(BuildContext context, {
     required IconData icon,
     required String title,
     String? subtitle,
+    String? actionLabel,
+    VoidCallback? onActionTap,
+    Widget? action,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(sXL),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(sXL),
-              decoration: BoxDecoration(
-                color: (isDark ? UserTheme.nightCard : UserTheme.daySurface).withOpacity(0.5),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 64, color: UserTheme.primaryOrange.withOpacity(0.8)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: SizedBox(
+          width: double.infinity,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: horizontalGutter(context),
+              vertical: sL,
             ),
-            const SizedBox(height: sL),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
-            ),
-            if (subtitle != null) ...[
-              const SizedBox(height: sS),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
-                  height: 1.5,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: (isDark ? UserTheme.nightCard : UserTheme.daySurface).withValues(alpha: 0.6),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, size: 42, color: UserTheme.primaryOrange.withValues(alpha: 0.85)),
                 ),
-              ),
-            ],
-          ],
+                const SizedBox(height: sM),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: sS),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                      height: 1.5,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+                if (action != null) ...[
+                  const SizedBox(height: sL),
+                  action,
+                ] else if (actionLabel != null && onActionTap != null) ...[
+                  const SizedBox(height: sL),
+                  premiumButton(
+                    label: actionLabel,
+                    onTap: onActionTap,
+                    fullWidth: false,
+                    fontSize: 13,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -406,46 +461,12 @@ class UserUi {
     );
   }
 
-  /// Live Hardware / App Pulsing Status Indicator Badge
+  /// Hardware / App Connectivity Status Text
   static Widget pulsingStatusBadge({required bool isOnline, String? label}) {
     final color = isOnline ? UserTheme.statusSuccess : UserTheme.statusWarning;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(0.6),
-                  blurRadius: 6,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label ?? (isOnline ? 'BOX ONLINE' : 'OFFLINE'),
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
-            ),
-          ),
-        ],
-      ),
+    return StatusPill(
+      label: label ?? (isOnline ? 'Box Online' : 'Offline'),
+      color: color,
     );
   }
 

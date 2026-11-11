@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <ESP32Servo.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include <SocketIOclient.h>
@@ -15,7 +14,7 @@
 // ============================================================
 #define TFT_CS    10
 #define TFT_DC    21
-#define TFT_RST   20
+#define TFT_RST   7   // Moved from GPIO 20 (native USB_D+) to GPIO 7 to prevent white screen
 #define TFT_MOSI  11
 #define TFT_SCK   12
 #define TFT_MISO  13
@@ -32,7 +31,16 @@
 #define REED_PICKUP      35
 #define REED_RECEIVED    45
 
-#define SERVO_PIN        14
+// ============================================================
+//  AVAILABLE / RESERVED FREE PINS (Hardware components removed)
+// ============================================================
+// GPIO 14: Available (Servo motor removed)
+// GPIO 15: Available (Platform Ultrasonic Trig removed)
+// GPIO  4: Available (Platform Ultrasonic Echo removed)
+// GPIO  7: Assigned to TFT_RST (Moved from GPIO 20)
+// GPIO 16: Available (Pickup Ultrasonic Echo removed)
+// GPIO 20: Dedicated to ESP32-S3 Native USB_D+
+#define SERVO_PIN        14  // Available GPIO 14
 
 // ============================================================
 //  DISPLAY COLORS (Sci-Fi Robotic HUD Theme)
@@ -54,6 +62,10 @@
 #define HUD_MARGIN    10
 #define HUD_CORNER    6
 #define BAR_HEIGHT    24
+#define TFT_SPI_FREQ  14000000UL  // 14MHz noise-damped SPI clock for ground noise immunity
+
+// Network & Setup Constants
+#define CAPTIVE_AP_SSID   "SmartParcelBox_Setup"
 
 // ============================================================
 //  STATE MACHINE
@@ -62,20 +74,10 @@ enum SystemState {
   DEVICE_UNREGISTERED,
   SHOWING_REGISTRATION_QR,
   IDLE,
-  SELECTING_PICKUP_TYPE,
-  OWNER_VERIFYING,
-  OWNER_SELECTING_MODE,
-  OWNER_SCANNING,
-  OWNER_ADD_MORE_PROMPT,
-  RIDER_VERIFYING,
-  RIDER_DOOR_OPEN,
-  RIDER_SCANNING_PARCELS,
-  RIDER_PICKUP_PROMPT,
+  PICKUP_DOOR_OPEN,
   WAITING_FOR_SCAN,
   VERIFYING_SCAN,
   UNLOCKING_ENTRY,
-  WAITING_PLACEMENT_STABLE,
-  TILTING_PLATFORM,
   CONFIRMING_DROP,
   SCAN_FAILED_PROMPT,
   SCAN_TIMEOUT_PROMPT,
@@ -85,6 +87,8 @@ enum SystemState {
   RESETTING,
   LOCKSCREEN
 };
+
+#define RIDER_DOOR_OPEN PICKUP_DOOR_OPEN
 
 #define IDLE_TIMEOUT_MS 30000
 
@@ -117,18 +121,13 @@ extern unsigned long actionDelayStart;
 extern bool          actionDelayActive;
 extern SystemState   pendingNextState;
 extern bool          isScannerTestActive;
+extern bool          isUsDiagContinuousActive;
 extern unsigned long lastStateChangeTime;
 extern unsigned long scannerTestStartTime;
 
 extern bool   riderVerifyReceived;
 extern bool   riderVerifyValid;
 extern char serial2Buffer[128];
-
-extern char ownerSessionToken[32];
-extern bool   ownerApprovalReceived;
-extern bool   ownerApprovalValid;
-extern bool   ownerQrDrawn;
-extern bool   ownerVerifyTimedOut;
 
 extern Preferences nvsPrefs;
 extern char nvsWifiSSID[33];
@@ -181,29 +180,23 @@ extern unsigned long pickupRegisterTime;
 extern const unsigned long TIMEOUT_MS;
 
 // Non-blocking hardware state
-extern int currentServoPos;
-extern int targetServoPos;
-extern unsigned long lastServoMoveTime;
 extern float lastUsPlatformDist;
 extern float lastUsPickupDist;
 extern float lastUsDropoffDist;
+extern float dropoffBaselineDist;
 extern unsigned long lastUsPlatformTime;
 extern unsigned long lastUsPickupTime;
 extern unsigned long lastUsDropoffTime;
 
-extern Servo            platformServo;
 extern Adafruit_ILI9341 tft;
 extern SocketIOclient   socketIO;
 
 // --- Global Function Prototypes (Hardware & UI) ---
-void processServo();
 void processSensors();
 void triggerCyberChirp(int pattern);
 void triggerBuzzer(int beeps);
 void updateDynamicIndicators();
 void updateProcessingHUD(const char* status);
-void shakeServo(int targetAngle);
-void moveServoSmoothly(int to);
 void showHomeScreen();
 void displayMessage(const char* title, const char* msg);
 void drawTimeoutScreen(const char* title, const char* subtitle);
@@ -212,9 +205,7 @@ void drawLockscreenText(const char* line1, const char* line2);
 void drawDeviceUnregisteredScreen();
 void changeState(SystemState newState);
 void emitDoorState();
-void emitRequestOwnerSession();
 void emitVerifyRider(const String& riderId);
-void emitRegisterOwnerPickup(const String& trackingId);
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode);
 void handleRequestWiFiScan();
 void handleApplyHardwareConfig(const String& payload);
@@ -222,12 +213,15 @@ void handleScanResult(const String& payload);
 void handleRiderVerifyResult(const String& payload);
 void handleRegisterTracking(const String& payload);
 void handleControlDoor(const String& payload);
+void emitWifiScanResult(int n);
+int  readReedDebounced(int pin);
+void setPickupLock(bool unlock);
 
 extern const int US_PLATFORM[2];
 extern const int US_PICKUP[2];
 extern const int US_DROPOFF[2];
 
-// Utility Forward declarations for globally used functions
-void changeState(SystemState newState);
-void displayMessage(const String& title, const String& subtitle);
-void drawTimeoutScreen(const char* title, const char* subtitle);
+// Utility inline helper for String-based displayMessage calls
+inline void displayMessage(const String& title, const String& subtitle) {
+  displayMessage(title.c_str(), subtitle.c_str());
+}

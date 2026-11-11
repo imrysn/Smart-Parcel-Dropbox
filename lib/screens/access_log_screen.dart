@@ -16,160 +16,158 @@ class AccessLogScreen extends StatefulWidget {
 
 class _AccessLogScreenState extends State<AccessLogScreen> {
   final ScanLogService _scanLogService = getIt<ScanLogService>();
+  late Future<List<ScanLogModel>> _logsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _logsFuture = _scanLogService.getOwnerAccessLogs();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _logsFuture = _scanLogService.getOwnerAccessLogs();
+    });
+    await _logsFuture;
+  }
+
+  String _formatReason(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return 'Standard Unlock Request';
+    final words = raw.replaceAll('_', ' ').trim().split(RegExp(r'\s+'));
+    return words
+        .map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
+        .join(' ');
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: UserTheme.appBarGradient(
-        title: 'Owner access history',
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.of(context).pop(),
+        backgroundColor: Colors.transparent,
+        appBar: UserTheme.appBarGradient(
+          context: context,
+          title: 'Owner Access History',
+          centerTitle: false,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
         ),
-      ),
-      body: FutureBuilder<List<ScanLogModel>>(
-        future: _scanLogService.getOwnerAccessLogs(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        body: FutureBuilder<List<ScanLogModel>>(
+          future: _logsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+              return UserUi.shimmerList(context, count: 4, cardHeight: 84);
+            }
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error loading access logs',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[700]),
+            if (snapshot.hasError) {
+              return RefreshIndicator(
+                color: UserTheme.primaryOrange,
+                onRefresh: _refresh,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(top: 60),
+                  child: UserUi.emptyState(
+                    context,
+                    icon: Icons.cloud_off_rounded,
+                    title: 'Could Not Load Access Logs',
+                    subtitle: 'Check your connection and pull down to try again.',
                   ),
-                ],
+                ),
+              );
+            }
+
+            final logs = snapshot.data ?? [];
+
+            if (logs.isEmpty) {
+              return RefreshIndicator(
+                color: UserTheme.primaryOrange,
+                onRefresh: _refresh,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(top: 60),
+                  child: UserUi.emptyState(
+                    context,
+                    icon: Icons.history_rounded,
+                    title: 'No Access Attempts Yet',
+                    subtitle: 'Owner QR scans and unlock history will be logged here.',
+                  ),
+                ),
+              );
+            }
+
+            return RefreshIndicator(
+              color: UserTheme.primaryOrange,
+              onRefresh: _refresh,
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: UserUi.listPadding(context, top: 12, bottom: 32),
+                itemCount: logs.length,
+                itemBuilder: (context, index) => _buildLogCard(logs[index]),
               ),
             );
-          }
-
-          final logs = snapshot.data ?? [];
-
-          if (logs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.history_outlined,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No owner access attempts recorded',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: logs.length,
-            itemBuilder: (context, index) {
-              final log = logs[index];
-              return _buildLogCard(log);
-            },
-          );
-        },
-      ),
+          },
+        ),
       ),
     );
   }
 
   Widget _buildLogCard(ScanLogModel log) {
-    // Determine visual status
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isGranted = log.accessGranted;
-    final isPending = log.status == 'pending'; // e.g., expired/unanswered QR
-    
+    final isPending = log.status == 'pending';
+
     final Color statusColor;
-    final IconData statusIcon;
     final String statusText;
 
     if (isPending) {
-      statusColor = Colors.orange;
-      statusIcon = Icons.access_time;
-      statusText = 'Unanswered / Expired';
+      statusColor = UserTheme.statusWarning;
+      statusText = 'Expired / Unanswered';
     } else if (isGranted) {
-      statusColor = Colors.green;
-      statusIcon = Icons.check_circle;
+      statusColor = UserTheme.statusSuccess;
       statusText = 'Access Granted';
     } else {
-      statusColor = Colors.red;
-      statusIcon = Icons.cancel;
+      statusColor = UserTheme.statusError;
       statusText = 'Access Denied';
     }
 
-    // Attempt type details (reason)
-    final String attemptType = log.reason?.replaceAll('_', ' ').toUpperCase() ?? 'UNKNOWN REQUEST';
+    final attemptType = _formatReason(log.reason);
 
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
+      child: UserUi.surfaceCard(
+        context,
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(statusIcon, size: 18, color: statusColor),
-                      const SizedBox(width: 6),
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          color: statusColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  log.getFormattedDateTime(),
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(Icons.shield_outlined, size: 20, color: Colors.grey[600]),
-                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     attemptType,
-                    style: const TextStyle(
-                      fontSize: 12, 
-                      fontWeight: FontWeight.bold, 
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
                     ),
                   ),
                 ),
+                const SizedBox(width: 8),
+                UserUi.statusPill(label: statusText, color: statusColor),
               ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              log.getFormattedDateTime(),
+              style: TextStyle(
+                color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),

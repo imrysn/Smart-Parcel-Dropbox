@@ -7,14 +7,12 @@
  * Network: Connects to WiFi and communicates with backend via Socket.IO
  * 
  * Required Libraries (Arduino Library Manager):
- *   - ESP32Servo          (by Kevin Harrington)
  *   - Adafruit GFX        (by Adafruit)
  *   - Adafruit ILI9341    (by Adafruit)
  *   - arduinoWebSockets   (by Markus Sattler) — provides SocketIOclient
  *   - ArduinoJson         (by Benoit Blanchon, v6.x)
  */
 
-#include <ESP32Servo.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include <SPI.h>
@@ -29,6 +27,7 @@
 #include <SocketIOclient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h> // ESP32 Task Watchdog Timer
+#include <esp_timer.h>
 #include <Preferences.h>  // NVS (Non-Volatile Storage) for persisting credentials
 
 #define WDT_TIMEOUT 8 // Watchdog timeout in seconds
@@ -87,15 +86,12 @@ void setupSocketIO();
 void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length);
 void emitVerifyScan(const String& trackingId, const String& mode);
 void emitVerifyRider(const String& riderId);
-void emitRegisterOwnerPickup(const String& trackingId);
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode);
 void emitDoorState();
-void emitRequestOwnerSession();
+void sendDeviceHeartbeat(bool immediate);
 void handleRegisterTracking(const String& payload);
 void handleScanResult(const String& payload);
 void handleRiderVerifyResult(const String& payload);
-void handleOwnerSessionToken(const String& payload);
-void handleOwnerApprovalResult(const String& payload);
 void handleControlDoor(const String& payload);
 float getDistance(const int pins[]);
 void emitRequestDeviceRegistration();
@@ -107,36 +103,27 @@ void setupCaptivePortal();
 void loopCaptivePortal();
 void stopCaptivePortal();
 void checkFactoryReset();
+void checkSerialCommands();
+void forceNextStep();
 void printSerialMenu();
 void showHomeScreen();
 void drawStatusBar();
-void drawOwnerVerifyingScreen(const String& token);
 void drawQRCode(int x, int y, int moduleSize, const String& text);
 void drawScannerBg();
-void drawPickupSelectScreen();
-void drawOwnerModeScreen();
-void drawAddMorePrompt();
-void drawRiderScanIdScreen();
-void drawRiderScanParcelScreen();
-void drawRiderPickupMorePrompt();
 void drawScanFailedPrompt();
 void drawIconLock(int x, int y, uint16_t color, bool open);
 void drawIconBox(int x, int y, uint16_t color);
 void drawIconCheck(int x, int y, uint16_t color);
 void drawIconX(int x, int y, uint16_t color);
 void drawWiFiSignal(int x, int y, uint16_t color);
-void drawWiFiSignal(int x, int y, uint16_t color);
 void reinitTFT();
 
 // --- Non-blocking Hardware Hooks ---
-void processServo(); 
 void processSensors();
 void triggerCyberChirp(int pattern);
 void triggerBuzzer(int beeps);
 void updateDynamicIndicators();
 void updateProcessingHUD(const char* status);
-void shakeServo(int targetAngle);
-void moveServoSmoothly(int to);
 void showHomeScreen();
 void displayMessage(const char* title, const char* msg);
 void drawTimeoutScreen(const char* title, const char* subtitle);
@@ -154,25 +141,13 @@ void setup() {
   Serial.println("\n--- [SYSTEM STARTUP] ---");
 
   // --- SAFE HARDWARE INIT ---
-  // Ensure solenoids and buzzer don't float and trigger during the servo boot delay
+  // Ensure solenoids and buzzer don't float and trigger during microcontroller boot
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW); // Assumes HIGH = beep
 
-  pinMode(LOCK_TOP,      OUTPUT); digitalWrite(LOCK_TOP,      HIGH); // HIGH = Locked
-  pinMode(LOCK_PICKUP,   OUTPUT); digitalWrite(LOCK_PICKUP,   HIGH);
-  pinMode(LOCK_RECEIVED, OUTPUT); digitalWrite(LOCK_RECEIVED, HIGH);
-
-  // --- EARLY SERVO INIT ---
-  // Prevents floating and uncontrolled spinning on power up
-  ESP32PWM::allocateTimer(0);
-  ESP32PWM::allocateTimer(1);
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
-  platformServo.setPeriodHertz(50); // Standard 50Hz servo
-  platformServo.attach(SERVO_PIN, 500, 2500); // Expanded 180° servo pulse range
-  platformServo.write(90);          // Drive to center to stabilize
-  delay(500);                       // Give it time to reach center
-  platformServo.detach();           // Detach: stops PWM output → servo holds position passively
+  pinMode(LOCK_TOP,      OUTPUT); digitalWrite(LOCK_TOP,      HIGH); // HIGH = Locked (Active-LOW relay)
+  setPickupLock(false);                                              // Hi-Z Mode = Locked (for 5V solo relay on 3.3V GPIO38)
+  pinMode(LOCK_RECEIVED, OUTPUT); digitalWrite(LOCK_RECEIVED, HIGH); // HIGH = Locked (Active-LOW relay)
 
   // Inputs
   pinMode(BTN_RECEIVE,   INPUT_PULLUP);
@@ -183,14 +158,17 @@ void setup() {
 
   // Watchdog initialization will be moved to the end of setup() to prevent reboots during WiFi sync
 
-  // Ultrasonic sensors - Ensure pins start in a stable state
-  pinMode(US_PLATFORM[0], OUTPUT); pinMode(US_PLATFORM[1], INPUT_PULLDOWN);
-  pinMode(US_PICKUP[0],   OUTPUT); pinMode(US_PICKUP[1],   INPUT_PULLDOWN);
-  pinMode(US_DROPOFF[0],  OUTPUT); pinMode(US_DROPOFF[1],  INPUT_PULLDOWN);
-  digitalWrite(US_PLATFORM[0], LOW);
-  digitalWrite(US_PICKUP[0],   LOW);
+  // Active Ultrasonic Sensor: US_DROPOFF
+  // (GPIO 15, 4 for Platform and GPIO 7, 16 for Pickup are available free pins)
+  pinMode(US_DROPOFF[0],  OUTPUT);
+  pinMode(US_DROPOFF[1],  INPUT_PULLDOWN);
   digitalWrite(US_DROPOFF[0],  LOW);
-  delay(50); // Give the sensors and pull-downs time to stabilize
+  delay(50); // Give the sensor and pull-down time to stabilize
+  float initDrop = getDistance(US_DROPOFF);
+  if (initDrop < 900.0) {
+    dropoffBaselineDist = initDrop;
+    Serial.print("[BOOT] DropOff bin baseline: "); Serial.print(dropoffBaselineDist, 1); Serial.println(" cm");
+  }
 
   // Scanner serial: Arduino Uno TX → GPIO17 (ESP32 RX). TX=-1 as no return wire exists.
   // We use a pullup on RX to prevent floating noise from being interpreted as data.
@@ -206,7 +184,7 @@ void setup() {
   delay(150);
 
   SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
-  tft.begin();
+  tft.begin(TFT_SPI_FREQ); // Noise-damped SPI clock for ground noise immunity
   tft.setRotation(3);
   tft.fillScreen(COLOR_BG);
 
@@ -270,11 +248,32 @@ void loop() {
   
   // 1. Maintain background tasks
   socketIO.loop();
+  sendDeviceHeartbeat(false);
   // esp_task_wdt_reset(); // Disabled to prevent "task not found" spam after detaching main loop
-  processServo();
   processSensors();
   
   checkSerialCommands();
+
+  // Continuous Ultrasonic Live Stream (toggled via 'D' command)
+  static unsigned long lastUsStreamTime = 0;
+  if (isUsDiagContinuousActive && (millis() - lastUsStreamTime >= 250)) {
+    lastUsStreamTime = millis();
+    float d3 = getDistance(US_DROPOFF);
+    Serial.print("[US LIVE] DropOff: ");
+    if (d3 < 900.0) {
+      Serial.print(d3, 1);
+      Serial.print(" cm");
+      if (dropoffBaselineDist < 900.0) {
+        Serial.print(" (Base: ");
+        Serial.print(dropoffBaselineDist, 1);
+        Serial.print("cm)");
+      }
+      Serial.print("\t");
+    } else {
+      Serial.print("OUT_OF_RANGE\t");
+    }
+    Serial.println("| Platform & Pickup: DISABLED (Hardware Removed)");
+  }
 
   // --- Bug Fix: Drainage for "Always Active" Scanner ---
   // Cooldown: Don't drain for 200ms after a state change to prevent race conditions
@@ -305,21 +304,27 @@ void loop() {
               }
             }
     }
-  } else if (!cooldownActive && currentState != OWNER_SCANNING && currentState != RIDER_VERIFYING && 
-             currentState != RIDER_SCANNING_PARCELS && currentState != WAITING_FOR_SCAN) {
+  } else if (!cooldownActive && currentState != WAITING_FOR_SCAN) {
     // Regular Drainage: Clear buffer when NOT in a scan-expectant state
     while (Serial2.available() > 0) Serial2.read();
     serial2Buffer[0] = '\0'; 
   }
+
+  // Inter-character noise filter: if partial data in serial2Buffer sits for > 300ms without \n or \r, clear noise
+  static unsigned long lastSerial2ByteTime = 0;
+  if (serial2Buffer[0] != '\0' && millis() - lastSerial2ByteTime > 300) {
+    serial2Buffer[0] = '\0';
+  }
   // Skip status-bar repaints while QR verification screens, WiFi setup, or lockscreen are up
-  if (currentState != OWNER_VERIFYING && currentState != SHOWING_REGISTRATION_QR && 
+  if (currentState != SHOWING_REGISTRATION_QR && 
       currentState != WAITING_FOR_WIFI_CONFIG && currentState != LOCKSCREEN) {
     updateDynamicIndicators();
   }
 
-  // Active WiFi Monitoring and Auto-Reconnect
+  // Active WiFi Monitoring and Auto-Reconnect (skip during captive portal or setup)
   unsigned long currentMillisMillis = millis();
-  if (WiFi.status() != WL_CONNECTED && (currentMillisMillis - previousMillisWiFi >= intervalWiFi)) {
+  if (currentState != WAITING_FOR_WIFI_CONFIG && currentState != DEVICE_UNREGISTERED &&
+      WiFi.status() != WL_CONNECTED && (currentMillisMillis - previousMillisWiFi >= intervalWiFi)) {
     Serial.println("[WiFi] Connection lost. Attempting to reconnect...");
     WiFi.disconnect();
     WiFi.reconnect();
@@ -417,7 +422,7 @@ void loop() {
     case WAITING_FOR_WIFI_CONFIG:
       if (!stateInitialized) {
         setupCaptivePortal();
-        drawWiFiConfigQRScreen("SmartParcelBox_Setup");
+        drawWiFiConfigQRScreen(CAPTIVE_AP_SSID);
         stateInitialized = true;
       }
       loopCaptivePortal();
@@ -541,21 +546,38 @@ void loop() {
             Serial.println("[FLOW] User selected: DROP OFF.");
             isReceivingMode = true;
             isRiderMode     = false;
+            // Lock in baseline distance of DropOff bin
+            if (lastUsDropoffDist < 900.0) {
+              dropoffBaselineDist = lastUsDropoffDist;
+              Serial.print("[FLOW] DropOff bin baseline locked: ");
+              Serial.print(dropoffBaselineDist, 1);
+              Serial.println(" cm");
+            }
             triggerCyberChirp(3);
             changeState(WAITING_FOR_SCAN);
           }
         }
       }
+
+      // Periodically calibrate DropOff bin baseline when idle
+      static unsigned long lastBaselineTrack = 0;
+      if (millis() - lastBaselineTrack > 4000) {
+        lastBaselineTrack = millis();
+        if (lastUsDropoffDist < 900.0 && (dropoffBaselineDist >= 900.0 || abs(lastUsDropoffDist - dropoffBaselineDist) < 3.0)) {
+          dropoffBaselineDist = lastUsDropoffDist;
+        }
+      }
       
-      // Right button is still a simple click for PICK UP
+      // Right button is a simple click for PICK UP
       if (digitalRead(BTN_PICKUP) == LOW) {
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
           Serial.println("[DEBUG] BTN_PICKUP (Pin 2) is LOW (Pressed)");
-          Serial.println("[FLOW] User selected: PICK UP → showing sub-menu.");
+          Serial.println("[FLOW] User selected: PICK UP → entering WAITING_FOR_SCAN.");
           isReceivingMode = false;
+          isRiderMode     = false;
           triggerCyberChirp(3);
-          changeState(SELECTING_PICKUP_TYPE);
+          changeState(WAITING_FOR_SCAN);
         }
       }
 
@@ -565,504 +587,61 @@ void loop() {
       }
       break;
 
-    // ── SELECTING PICKUP TYPE (ATM: Owner | Rider) ────────
-    case SELECTING_PICKUP_TYPE:
+    // ── PICKUP DOOR OPEN (unlock pickup compartment, wait open+close) ──────
+    case PICKUP_DOOR_OPEN:
       if (!stateInitialized) {
-        drawPickupSelectScreen();
-        Serial.println("[FLOW] Sub-menu: Waiting for Owner or Rider selection.");
-        Serial.println("==========================================");
-        Serial.println("  [BTN1] Owner        [BTN2] Rider");
-        Serial.println("------------------------------------------");
-        stateInitialized = true;
-      } else if (digitalRead(BTN_RECEIVE) == LOW) {
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Sub-menu: OWNER selected → Requesting QR session.");
-          isRiderMode = false;
-          triggerCyberChirp(3);
-          changeState(OWNER_VERIFYING);
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Rider
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.println("[FLOW] Sub-menu: RIDER selected.");
-          isRiderMode = true;
-          triggerCyberChirp(3);
-          changeState(RIDER_VERIFYING);
-        }
-      }
-      break;
-
-    // ── OWNER VERIFYING (show QR on LCD; wait for mobile app scan) ────
-    case OWNER_VERIFYING:
-      if (!stateInitialized) {
-        ownerApprovalReceived = false;
-        ownerApprovalValid    = false;
-        ownerSessionToken[0]  = '\0';
-        ownerQrDrawn          = false;
-        ownerVerifyTimedOut   = false;
-        stateStartTime        = millis();
-        stateInitialized      = true;
-        Serial.println("[FLOW] Owner QR: Requesting session token from server...");
-        displayMessage("VERIFYING", "Connecting...");
-        if (socketIO.isConnected()) {
-          emitRequestOwnerSession();
-        } else {
-          Serial.println("[WARN] Owner QR: server offline, cannot generate QR.");
-          displayMessage("OFFLINE", "No server");
-          triggerCyberChirp(2);
-          pendingNextState  = IDLE;
-          actionDelayStart  = millis();
-          actionDelayActive = true;
-        }
-      }
-
-      // ── Retry/Exit prompt (shown after timeout) ──────────────
-      if (ownerVerifyTimedOut && !actionDelayActive) {
-        if (digitalRead(BTN_RECEIVE) == LOW) {      // BTN1 = Retry
-          delay(50);
-          if (digitalRead(BTN_RECEIVE) == LOW) {
-            Serial.println("[FLOW] Owner QR: Retry pressed — requesting new session.");
-            ownerVerifyTimedOut   = false;
-            ownerApprovalReceived = false;
-            ownerApprovalValid    = false;
-            ownerSessionToken[0]  = '\0';
-            ownerQrDrawn          = false;
-            stateStartTime        = millis();
-            displayMessage("VERIFYING", "Connecting...");
-            if (socketIO.isConnected()) emitRequestOwnerSession();
-            triggerCyberChirp(3);
-          }
-        } else if (digitalRead(BTN_PICKUP) == LOW) { // BTN2 = Exit
-          delay(50);
-          if (digitalRead(BTN_PICKUP) == LOW) {
-            Serial.println("[FLOW] Owner QR: Exit pressed — returning to IDLE.");
-            triggerCyberChirp(2);
-            ownerVerifyTimedOut = false;
-            changeState(IDLE);
-          }
-        }
-        break; // Don't run timer checks while showing Retry/Exit prompt
-      }
-
-      // ── Session token received → draw QR once ───────────────
-      if (strlen(ownerSessionToken) > 0 && !actionDelayActive) {
-        if (!ownerQrDrawn) {
-          drawOwnerVerifyingScreen(String(ownerSessionToken));
-          ownerQrDrawn = true;
-          stateStartTime = millis(); // restart 60s countdown from when QR is shown
-          Serial.println("[FLOW] Owner QR: QR code displayed. Owner has 60s to scan.");
-        }
-
-        // Feature #5: Update countdown every second (overwrite only the timer area)
-        static int lastCountdownSec = -1;
-        int elapsed = (millis() - stateStartTime) / 1000;
-        int remaining = max(0, 60 - elapsed);
-        
-        // --- Added: Real-time EXIT check (BTN2) while QR is displayed ---
-        if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-          delay(50);
-          if (digitalRead(BTN_PICKUP) == LOW) {
-            Serial.println("[FLOW] Owner QR: Exit pressed — returning to IDLE.");
-            triggerCyberChirp(2);
-            ownerQrDrawn        = false;
-            ownerVerifyTimedOut = false;
-            changeState(IDLE);
-            return; // Exit state handler immediately
-          }
-        }
-        if (remaining != lastCountdownSec) {
-          lastCountdownSec = remaining;
-          // Overwrite just the bottom line — white bg, black text (QR screen colors)
-          tft.fillRect(0, 218, 320, 22, COLOR_TEXT);
-          tft.setTextSize(1); tft.setTextColor(COLOR_BG);
-          tft.setCursor(100, 222);
-          tft.print("Expires in "); tft.print(remaining); tft.print(" seconds");
-        }
-      }
-
-      // ── Approval result from server ──────────────────────────
-      if (ownerApprovalReceived && !actionDelayActive) {
-        ownerApprovalReceived = false;
-        if (ownerApprovalValid) {
-          Serial.println("[FLOW] Owner QR: APPROVED by app scan.");
-          displayMessage("VERIFIED", "Access Granted");
-          triggerBuzzer(2);
-          pendingNextState = OWNER_SELECTING_MODE;
-        } else {
-          Serial.println("[FLOW] Owner QR: DENIED by app.");
-          displayMessage("DENIED", "Access Rejected");
-          triggerCyberChirp(2);
-          pendingNextState = IDLE;
-        }
-        actionDelayStart  = millis();
-        actionDelayActive = true;
-        ownerSessionToken[0] = '\0';
-        ownerQrDrawn      = false;
-      }
-
-      // ── (A) 8s server non-response timeout ───────────────────
-      if (!actionDelayActive && !ownerVerifyTimedOut &&
-          strlen(ownerSessionToken) == 0 && !ownerQrDrawn &&
-          stateInitialized && millis() - stateStartTime > 8000) {
-        Serial.println("[FLOW] Owner QR: Server did not respond. Show Retry/Exit.");
-        triggerCyberChirp(2);
-        drawTimeoutScreen("TIMED OUT", "Server did not respond");
-        ownerVerifyTimedOut = true;
-        ownerSessionToken[0] = '\0';
-        ownerQrDrawn        = false;
-      }
-
-      // ── (B) 60s scan timeout (owner didn't scan in time) ─────
-      if (!ownerApprovalReceived && !actionDelayActive && !ownerVerifyTimedOut &&
-          ownerQrDrawn && millis() - stateStartTime > 60000) {
-        Serial.println("[FLOW] Owner QR: 60s scan timeout. Show Retry/Exit.");
-        triggerCyberChirp(2);
-        drawTimeoutScreen("TIMED OUT", "");
-        ownerVerifyTimedOut = true;
-        ownerSessionToken[0] = '\0';
-        ownerQrDrawn         = false;
-      }
-
-      // ── Delayed state transition (after approved/denied) ─────
-      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
-        actionDelayActive = false;
-        changeState(pendingNextState);
-        pendingNextState = IDLE;
-      }
-      break;
-
-    // ── OWNER SELECTING MODE (ATM: Single | Multiple) ─────
-    case OWNER_SELECTING_MODE:
-      if (!stateInitialized) {
-        drawOwnerModeScreen();
-        Serial.println("[FLOW] Owner sub-menu: Single or Multiple?");
-        Serial.println("==========================================");
-        Serial.println("  [BTN1] Single       [BTN2] Multiple");
-        Serial.println("------------------------------------------");
-        stateInitialized = true;
-      }
-      if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Single
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Owner Mode: SINGLE pick up.");
-          isMultiMode  = false;
-          scannedCount = 0;
-          triggerCyberChirp(3);
-          changeState(OWNER_SCANNING);
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Multiple
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.println("[FLOW] Owner Mode: MULTIPLE pick up.");
-          isMultiMode  = true;
-          scannedCount = 0;
-          triggerCyberChirp(3);
-          changeState(OWNER_SCANNING);
-        }
-      }
-      break;
-
-    // ── OWNER SCANNING (register tracking ID) ─────────────
-    case OWNER_SCANNING:
-      if (!stateInitialized) {
-        tft.fillScreen(COLOR_BG);
-        drawStatusBar();
-        drawScannerBg();
-        tft.setCursor(20, 185); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
-        if (isMultiMode) {
-          String lbl = "Multi-Scan #" + String(scannedCount + 1);
-          tft.print(lbl);
-        } else {
-          tft.print("Scan Waybill QR");
-        }
-        Serial.println("[FLOW] Owner: Waiting for tracking ID scan...");
-        while (Serial2.available()) Serial2.read(); // Flush stale buffer
-        stateInitialized = true;
-      }
-      
-      // Feature: 60s Timeout while scanning
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = OWNER_SCANNING;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(IDLE);
-           break;
-        }
-      }
-      
-      // Non-blocking Serial2 read: accumulate bytes until '\n'
-      while (Serial2.available() && !actionDelayActive) {
-        char c = (char)Serial2.read();
-        if (c == '\n' || c == '\r') {
-          // Manual trim and process
-          int len = strlen(serial2Buffer);
-          if (len > 2) {
-             // Process the read tracking ID
-             strncpy(currentTrackingId, serial2Buffer, sizeof(currentTrackingId)-1);
-             currentTrackingId[sizeof(currentTrackingId)-1] = '\0';
-             serial2Buffer[0] = '\0';
-             scannedCount++;
-             Serial.print("[FLOW] Owner scanned ID #"); Serial.print(scannedCount);
-             Serial.print(": "); Serial.println(currentTrackingId);
-             char msgBuf[32];
-             snprintf(msgBuf, sizeof(msgBuf), "#%d %.15s", scannedCount, currentTrackingId);
-             displayMessage("REGISTERED", msgBuf);
-             triggerBuzzer(2);
-             emitRegisterOwnerPickup(String(currentTrackingId));
-             pendingNextState  = UNLOCKING_ENTRY;
-             actionDelayStart  = millis();
-             actionDelayActive = true;
-          }
-          serial2Buffer[0] = '\0';
-        } else if (c >= 32 && c <= 126) {
-          int len = strlen(serial2Buffer);
-          if (len < sizeof(serial2Buffer) - 1) {
-            serial2Buffer[len] = c;
-            serial2Buffer[len+1] = '\0';
-          }
-        }
-      }
-      if (actionDelayActive && millis() - actionDelayStart >= 1500) {
-        actionDelayActive = false;
-        changeState(pendingNextState);
-        pendingNextState = IDLE;
-      }
-      break;
-
-    // ── OWNER ADD MORE PROMPT (ATM: Add More | Done) ──────
-    case OWNER_ADD_MORE_PROMPT:
-      if (!stateInitialized) {
-        drawAddMorePrompt();
-        Serial.print("[FLOW] Owner: Add more parcel? (registered so far: ");
-        Serial.print(scannedCount); Serial.println(")");
-        Serial.println("==========================================");
-        Serial.println("  [BTN1] Add More     [BTN2] Done");
-        Serial.println("------------------------------------------");
-        stateInitialized = true;
-      }
-      if (digitalRead(BTN_RECEIVE) == LOW) {          // Left = Add More
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Owner: Adding more parcels.");
-          triggerBuzzer(1);
-          changeState(OWNER_SCANNING);
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {   // Right = Done
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.print("[FLOW] Owner: Done. Total registered: "); Serial.println(scannedCount);
-          triggerBuzzer(1);
-          changeState(RESETTING);
-        }
-      }
-      break;
-
-    // ── RIDER VERIFYING (scan rider QR → server check) ────
-    case RIDER_VERIFYING:
-      if (!stateInitialized) {
-        drawRiderScanIdScreen();
-        riderVerifyReceived = false;
-        riderVerifyValid    = false;
-        stateStartTime      = millis();
-        while (Serial2.available()) Serial2.read(); // Flush stale buffer
-        stateInitialized    = true;
-        Serial.println("[FLOW] Rider: Waiting for Rider QR scan...");
-      }
-
-      // Feature: 60s Timeout while verifying
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = RIDER_VERIFYING;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(IDLE);
-           break;
-        }
-      }
-
-      // Non-blocking Serial2 read: accumulate bytes until '\n'
-      while (Serial2.available() && !actionDelayActive) {
-        char c = (char)Serial2.read();
-        if (c == '\n' || c == '\r') {
-          int len = strlen(serial2Buffer);
-          if (len > 0) {
-            String riderId = String(serial2Buffer);
-            serial2Buffer[0] = '\0';
-            if (riderId.length() > 2 && riderId.indexOf('[') == -1 && riderId.indexOf(']') == -1) {
-              Serial.print("[FLOW] Rider ID scanned: "); Serial.println(riderId);
-              displayMessage("VERIFYING...", "Please wait");
-              if (socketIO.isConnected()) {
-                emitVerifyRider(riderId);
-              } else {
-                Serial.println("[WARN] Rider verify: offline — cannot verify.");
-                displayMessage("OFFLINE", "No server");
-                triggerBuzzer(3);
-                pendingNextState  = RIDER_VERIFYING;
-                actionDelayStart  = millis();
-                actionDelayActive = true;
-              }
-            }
-          }
-        } else if (c >= 32 && c <= 126) {
-          int len = strlen(serial2Buffer);
-          if (len < sizeof(serial2Buffer) - 1) {
-            serial2Buffer[len] = c;
-            serial2Buffer[len+1] = '\0';
-          }
-        }
-      }
-      if (riderVerifyReceived && !actionDelayActive) {
-        riderVerifyReceived = false;
-        if (riderVerifyValid) {
-          Serial.println("[FLOW] Rider: VERIFIED.");
-          displayMessage("VERIFIED", "Opening Bin...");
-          triggerBuzzer(2);
-          pendingNextState  = RIDER_DOOR_OPEN;
-        } else {
-          Serial.println("[FLOW] Rider: NOT AUTHORIZED.");
-          displayMessage("REJECTED", "Retry Scan");
-          triggerBuzzer(3);
-          pendingNextState  = RIDER_VERIFYING;
-        }
-        actionDelayStart  = millis();
-        actionDelayActive = true;
-      }
-      if (actionDelayActive && millis() - actionDelayStart >= 2000) {
-        actionDelayActive = false;
-        changeState(pendingNextState);
-        pendingNextState = IDLE;
-      }
-      break;
-
-    // ── RIDER DOOR OPEN (unlock bin, wait open+close) ──────
-    case RIDER_DOOR_OPEN:
-      if (!stateInitialized) {
-        digitalWrite(LOCK_PICKUP, LOW);   // Unlock pickup bin
-        lockPickupOpen = true;
+        setPickupLock(true);              // Unlock pickup compartment (Hi-Z/GND mode)
         emitDoorState();
-        displayMessage("DOOR OPEN", "Collect Parcels");
-        doorWasOpened    = false;
-        stateInitialized = true;
-        scannedCount     = 0;
+        displayMessage("UNLOCKED", "Collect & Close Door");
+        doorWasOpened     = false;
+        stateInitialized  = true;
+        actionDelayActive = false;
+        scannedCount      = 0;
         triggerBuzzer(2);
-        Serial.println("[FLOW] Rider: Pickup bin UNLOCKED.");
+        Serial.println("[FLOW] Pickup compartment UNLOCKED.");
       }
-      if (digitalRead(REED_PICKUP) == 1 && !doorWasOpened) {
-        Serial.println("[FLOW] Rider: Bin door OPENED.");
+      if (readReedDebounced(REED_PICKUP) == 1 && !doorWasOpened) {
+        Serial.println("[FLOW] Pickup compartment door OPENED. Retrieving parcel(s)...");
         doorWasOpened = true;
         triggerBuzzer(1);
-        drawRiderScanParcelScreen();
       }
-      if (doorWasOpened && digitalRead(REED_PICKUP) == 0) {
-        digitalWrite(LOCK_PICKUP, HIGH);  // Re-lock
+      if (doorWasOpened && readReedDebounced(REED_PICKUP) == 0 && !actionDelayActive) {
+        setPickupLock(false);             // Re-lock (Hi-Z mode)
+        emitDoorState();
+        Serial.println("[FLOW] Pickup compartment door CLOSED → Locked. Pickup complete!");
+        triggerBuzzer(1);
+        triggerCyberChirp(1);
+        displayMessage("SUCCESS", "Pickup Complete");
+
+        // If a tracking ID was scanned for this pickup, notify server it was retrieved
+        if (strlen(currentTrackingId) > 0) {
+          emitStatusUpdate(String(currentTrackingId), "retrieved", "pick_up");
+          currentTrackingId[0] = '\0';
+        }
+        // Clear offline registered pickup ID if present
+        if (strlen(registeredPickup) > 0) {
+          emitStatusUpdate(String(registeredPickup), "retrieved", "pick_up");
+          registeredPickup[0] = '\0';
+        }
+
+        actionDelayStart  = millis();
+        actionDelayActive = true;
+      }
+
+      if (actionDelayActive && (millis() - actionDelayStart >= 2500)) {
+        actionDelayActive = false;
+        changeState(RESETTING);
+      }
+
+      // Safety timeout: 30 seconds to prevent solenoid overheating if abandoned
+      if (!actionDelayActive && (millis() - stateStartTime > 30000)) {
+        setPickupLock(false);             // Ensure locked (Hi-Z mode)
         lockPickupOpen = false;
         emitDoorState();
-        Serial.println("[FLOW] Rider: Bin door CLOSED → Locked.");
-        triggerBuzzer(1);
-        changeState(RIDER_SCANNING_PARCELS);
-      }
-      break;
-
-    // ── RIDER SCANNING PARCELS ─────────────────────────────
-    case RIDER_SCANNING_PARCELS:
-      if (!stateInitialized) {
-        drawRiderScanParcelScreen();
-        Serial.println("[FLOW] Rider: Waiting for parcel scan...");
-        while (Serial2.available()) Serial2.read(); // Flush stale buffer
-        stateInitialized = true;
-      }
-
-      // Feature: 60s Timeout while scanning parcels
-      if (millis() - stateStartTime > 60000 && !actionDelayActive) {
-        pendingNextState = RIDER_SCANNING_PARCELS;
-        changeState(SCAN_TIMEOUT_PROMPT);
-        break;
-      }
-      
-      // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-           triggerBuzzer(2);
-           changeState(RIDER_PICKUP_PROMPT);
-           break;
-        }
-      }
-
-      // Non-blocking Serial2 read
-      while (Serial2.available() && !actionDelayActive) {
-        char c = (char)Serial2.read();
-        if (c == '\n' || c == '\r') {
-          int len = strlen(serial2Buffer);
-          if (len > 0) {
-            String scanned = String(serial2Buffer);
-            serial2Buffer[0] = '\0';
-            if (scanned.length() > 2 && scanned.indexOf('[') == -1 && scanned.indexOf(']') == -1) {
-              scannedCount++;
-              Serial.print("[FLOW] Rider scanned parcel #"); Serial.print(scannedCount);
-              Serial.print(": "); Serial.println(scanned);
-              emitStatusUpdate(scanned, "retrieved", "rider_collect");
-              String label = "#" + String(scannedCount) + " " + scanned.substring(0, 10);
-              displayMessage("SCANNED", label.c_str());
-              triggerBuzzer(1);
-              pendingNextState  = RIDER_PICKUP_PROMPT;
-              actionDelayStart  = millis();
-              actionDelayActive = true;
-            }
-          }
-        } else if (c >= 32 && c <= 126) {
-          int len = strlen(serial2Buffer);
-          if (len < sizeof(serial2Buffer) - 1) {
-            serial2Buffer[len] = c;
-            serial2Buffer[len+1] = '\0';
-          }
-        }
-      }
-      if (actionDelayActive && millis() - actionDelayStart >= 1000) {
-        actionDelayActive = false;
-        changeState(pendingNextState);
-        pendingNextState = IDLE;
-      }
-      break;
-
-    // ── RIDER PICKUP PROMPT (ATM: Pick Up More | Done) ────
-    case RIDER_PICKUP_PROMPT:
-      if (!stateInitialized) {
-        drawRiderPickupMorePrompt();
-        Serial.print("[FLOW] Rider: Parcels scanned so far: "); Serial.println(scannedCount);
-        Serial.println("==========================================");
-        Serial.println("  [BTN1] Pick Up More [BTN2] Done");
-        Serial.println("------------------------------------------");
-        stateInitialized = true;
-      }
-      if (digitalRead(BTN_RECEIVE) == LOW) {         // Left = Pick Up More
-        delay(50);
-        if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Rider: Scanning more parcels.");
-          triggerBuzzer(1);
-          changeState(RIDER_SCANNING_PARCELS);
-        }
-      } else if (digitalRead(BTN_PICKUP) == LOW) {  // Right = Done
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          Serial.print("[FLOW] Rider: DONE. Total parcels: "); Serial.println(scannedCount);
-          triggerBuzzer(1);
-          changeState(RESETTING);
-        }
+        Serial.println("[FLOW] WARNING: Pickup door timed out (30s). Re-locking for thermal safety.");
+        displayMessage("TIMEOUT", "Door Re-locked");
+        triggerBuzzer(3);
+        changeState(RESETTING);
       }
       break;
 
@@ -1072,12 +651,18 @@ void loop() {
         tft.fillScreen(COLOR_BG);
         drawStatusBar();
         drawScannerBg();
-        tft.setCursor(65, 190); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
+        tft.setCursor(65, 185); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
         tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
-        Serial.println("[FLOW] Waiting for scan data on Serial2...");
+        tft.setCursor(35, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+        tft.print(isReceivingMode ? "Scan Parcel Barcode" : "Scan Pass, Code or Rider ID");
+        Serial.print("[FLOW] Waiting for scan data on Serial2 in mode: ");
+        Serial.println(isReceivingMode ? "DROP OFF" : "PICK UP");
         while (Serial2.available()) Serial2.read(); // Flush hardware buffer
         serial2Buffer[0] = '\0';  // Clear software accumulator
-        stateInitialized = true;
+        scanResultReceived = false;
+        scanResultValid    = false;
+        actionDelayActive  = false;
+        stateInitialized   = true;
       }
 
       // Feature: 60s Timeout while dropping off
@@ -1103,11 +688,12 @@ void loop() {
         if (c == '\n' || c == '\r') {
           int len = strlen(serial2Buffer);
           if (len > 0) {
-            String scanned = "";
-            for (int i = 0; i < len; i++) {
-              char ch = serial2Buffer[i];
-              if (ch >= 32 && ch <= 126 && ch != '[' && ch != ']') scanned += ch;
+            // Discard Arduino Uno debug messages (e.g. "[TEST] ...")
+            if (strchr(serial2Buffer, '[') != NULL || strchr(serial2Buffer, ']') != NULL) {
+              serial2Buffer[0] = '\0';
+              break;
             }
+            String scanned = String(serial2Buffer);
             serial2Buffer[0] = '\0';
             scanned.trim();
             if (scanned.length() < 3) break;
@@ -1125,8 +711,12 @@ void loop() {
               if (socketIO.isConnected()) {
                 emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
               }
+              // BUG-04 Fix: Clear manual offline ID once consumed
+              if (isReceivingMode) registeredDropOff[0] = '\0';
+              else registeredPickup[0] = '\0';
+
               consecutiveScanFails = 0; 
-              pendingNextState  = UNLOCKING_ENTRY;
+              pendingNextState  = isReceivingMode ? UNLOCKING_ENTRY : PICKUP_DOOR_OPEN;
               actionDelayStart  = millis();
               actionDelayActive = true;
             } 
@@ -1150,6 +740,7 @@ void loop() {
             }
           }
         } else if (c >= 32 && c <= 126 && c != '[' && c != ']') {
+          lastSerial2ByteTime = millis();
           int len = strlen(serial2Buffer);
           if (len < sizeof(serial2Buffer) - 1) {
             serial2Buffer[len] = c;
@@ -1158,9 +749,9 @@ void loop() {
         }
       } // end while Serial2.available()
 
-      // Non-blocking delay: 1s pause → UNLOCKING_ENTRY (success), 2s → retry (fail/offline)
+      // Non-blocking delay: 1s pause → UNLOCKING_ENTRY/PICKUP_DOOR_OPEN (success), 2s → retry (fail/offline)
       if (actionDelayActive) {
-        unsigned long pauseMs = (pendingNextState == UNLOCKING_ENTRY) ? 1000 : 2000;
+        unsigned long pauseMs = (pendingNextState == UNLOCKING_ENTRY || pendingNextState == PICKUP_DOOR_OPEN) ? 1000 : 2000;
         if (millis() - actionDelayStart >= pauseMs) {
           actionDelayActive = false;
           if (pendingNextState == WAITING_FOR_SCAN) {
@@ -1168,11 +759,10 @@ void loop() {
             tft.fillScreen(COLOR_BG);
             drawStatusBar();
             drawScannerBg();
-            tft.setFont(&FreeSansBold12pt7b);
-            tft.setTextColor(COLOR_TEXT);
-            tft.setCursor(25, 200);
+            tft.setCursor(65, 185); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
             tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
-            tft.setFont();
+            tft.setCursor(35, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
+            tft.print(isReceivingMode ? "Scan Parcel Barcode" : "Scan Pass, Code or Rider ID");
             pendingNextState = IDLE;  // reset flag, stay in WAITING_FOR_SCAN
           } else {
             changeState(pendingNextState);
@@ -1202,13 +792,15 @@ void loop() {
       }
 
       if (scanResultReceived && !actionDelayActive) {
+        scanResultReceived = false;
         if (scanResultValid) {
+          scanResultValid = false;
           Serial.print("[FLOW] Server APPROVED ID: "); Serial.println(currentTrackingId);
           displayMessage("VALID ID", "Authorized Access");
           triggerBuzzer(2);
           consecutiveScanFails = 0; // Reset fails on success
           // Non-blocking 1s display pause before unlocking
-          pendingNextState  = UNLOCKING_ENTRY;
+          pendingNextState  = isReceivingMode ? UNLOCKING_ENTRY : PICKUP_DOOR_OPEN;
           actionDelayStart  = millis();
           actionDelayActive = true;
         } else {
@@ -1216,7 +808,6 @@ void loop() {
           displayMessage("REJECTED", "RETRY SCAN");
           triggerBuzzer(3);
           currentTrackingId[0]  = '\0';
-          scanResultReceived = false;
           consecutiveScanFails++;
           pendingNextState   = (consecutiveScanFails >= 3) ? SCAN_FAILED_PROMPT : WAITING_FOR_SCAN;
           actionDelayStart   = millis();
@@ -1233,9 +824,9 @@ void loop() {
         actionDelayStart   = millis();
         actionDelayActive  = true;
       }
-      // Non-blocking pause: 1s (success → UNLOCKING_ENTRY) or 2s (fail/timeout → WAITING_FOR_SCAN)
+      // Non-blocking pause: 1s (success → UNLOCK) or 2s (fail/timeout → WAITING_FOR_SCAN)
       if (actionDelayActive) {
-        unsigned long pauseMs = (pendingNextState == UNLOCKING_ENTRY) ? 1000 : 2000;
+        unsigned long pauseMs = (pendingNextState == UNLOCKING_ENTRY || pendingNextState == PICKUP_DOOR_OPEN) ? 1000 : 2000;
         if (millis() - actionDelayStart >= pauseMs) {
           actionDelayActive = false;
           changeState(pendingNextState);
@@ -1251,111 +842,158 @@ void loop() {
           digitalWrite(LOCK_TOP, LOW);  // UNLOCK
           lockTopOpen = true;
           emitDoorState();             // 🔔 notify app: door is now unlocked
-          displayMessage("UNLOCKED", "Please Open Door");
+          displayMessage("UNLOCKED", "Drop In & Close");
           doorWasOpened   = false;
           stateInitialized = true;
           triggerBuzzer(2);
-          Serial.println("[FLOW] Lock: UNLOCKED. Waiting for Reed (1=Open).");
+          Serial.println("[FLOW] Lock: UNLOCKED. Waiting for Top Door Reed (1=Open).");
         }
 
-        if (digitalRead(REED_TOP) == 1) {
+        if (readReedDebounced(REED_TOP) == 1) {
           if (!doorWasOpened) {
-            Serial.println("[FLOW] Reed: Door OPEN.");
+            Serial.println("[FLOW] Reed: Top Door OPEN. Deposit parcel inside.");
             triggerBuzzer(1);
             doorWasOpened = true;
           }
         }
 
-        // Wait for door to physically close (reed=0) before engaging solenoid
-        // Prevents the lock pin from driving against an open door frame
-        bool isTimeout = (millis() - stateStartTime > 15000);
-        if (doorWasOpened && digitalRead(REED_TOP) == 0) {
+        // Wait for door to physically close (reed=0) before engaging solenoid and confirming drop
+        if (doorWasOpened && readReedDebounced(REED_TOP) == 0) {
           digitalWrite(LOCK_TOP, HIGH);  // LOCK
           lockTopOpen = false;
           emitDoorState();              // 🔔 notify app: door is now locked
-          Serial.println("[FLOW] Door closed → Lock ENGAGED. Proceeding.");
+          Serial.println("[FLOW] Door closed → Lock ENGAGED. Verifying drop in bin...");
           triggerBuzzer(1);
-          changeState(WAITING_PLACEMENT_STABLE);
-        } else if (isTimeout) {
+          changeState(CONFIRMING_DROP);
+        } else if (!doorWasOpened && (millis() - stateStartTime > 15000)) {
+          // Timeout if door was NEVER opened within 15 seconds
           digitalWrite(LOCK_TOP, HIGH);  // LOCK
           lockTopOpen = false;
           emitDoorState();
-          Serial.println("[FLOW] WARNING: Door unlock timed out (15s). Lock ENGAGED. Resetting.");
+          Serial.println("[FLOW] WARNING: Door unlock timed out (15s). Door was never opened. Lock ENGAGED. Resetting.");
           displayMessage("TIMEOUT", "Door Not Opened");
+          triggerBuzzer(3);
+          changeState(RESETTING);
+        } else if (doorWasOpened && (millis() - stateStartTime > 35000)) {
+          // Thermal safety timeout if door was opened but held open / abandoned for > 35s
+          digitalWrite(LOCK_TOP, HIGH);  // LOCK (slam latch allows it to snap shut when eventually pushed)
+          lockTopOpen = false;
+          emitDoorState();
+          Serial.println("[FLOW] WARNING: Door left open timed out (35s). Lock ENGAGED. Resetting.");
+          displayMessage("TIMEOUT", "Door Left Open");
           triggerBuzzer(3);
           changeState(RESETTING);
         }
       }
       break;
 
-    case WAITING_PLACEMENT_STABLE:
-      {
-        if (!stateInitialized) {
-          stateStartTime = millis();
-          displayMessage("PLACEMENT", "Place on Tray");
-          Serial.println("[FLOW] Waiting for placement (Fallback active).");
-          stateInitialized = true;
-        }
-
-        // Logical Fallback: Proceed after 5 seconds OR if sensor detects OR if button pressed
-        float d = getDistance(US_PLATFORM);
-        if (millis() - stateStartTime > 5000 || (d > 1.0 && d <= 20.0) || digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[FLOW] Parcel confirmed (Fallback/Detect). Tilting...");
-          triggerBuzzer(2);
-          changeState(TILTING_PLATFORM);
-        }
-      }
-      break;
-
-    // ── TILTING PLATFORM ──────────────────────────────────
-    case TILTING_PLATFORM: {
-      if (!stateInitialized) {
-        int tiltAngle = isReceivingMode ? 30 : 150; 
-        Serial.print("[FLOW] Tilting to "); Serial.print(isReceivingMode ? "DROP-OFF (30)" : "PICKUP (150)");
-        Serial.println(" bin.");
-        
-        updateProcessingHUD(isReceivingMode ? "DROPPING..." : "PICKUP TILT...");
-        shakeServo(tiltAngle); // sets target
-        stateStartTime = millis();
-        stateInitialized = true;
-      }
-      if (millis() - stateStartTime > 5000) {
-        changeState(CONFIRMING_DROP);
-      }
-      break;
-    }
-
     // ── CONFIRMING DROP ───────────────────────────────────
     case CONFIRMING_DROP:
       {
-        if (!stateInitialized) {
-          String newStatus = isReceivingMode ? "delivered" : "awaiting_pickup";
-          String modeStr   = isReceivingMode ? "drop_off"  : "pick_up";
+        static bool dropConfirmed = false;
+        static bool dropFailed = false;
+        static unsigned long confirmStartTime = 0;
+        static unsigned long confirmResultTime = 0;
+        static unsigned long lastSampleTime = 0;
+        static int consecutiveHits = 0;
 
-          // LOGICAL FALLBACK: We trust the physical drop cycle and force +1 / -1
-          displayMessage("SUCCESS", "Stored Safely");
-          Serial.println("[FLOW] Parcel drop confirmed (Logical Fallback).");
-          triggerBuzzer(2);
-          
-          // Notify backend → marks DB as delivered/retrieved
-          if (strlen(currentTrackingId) > 0) {
-            emitStatusUpdate(String(currentTrackingId), newStatus, modeStr);
-          }
-          
-          actionDelayStart  = millis();   
-          actionDelayActive = true;
+        if (!stateInitialized) {
+          dropConfirmed     = false;
+          dropFailed        = false;
+          confirmStartTime  = millis();
+          confirmResultTime = 0;
+          lastSampleTime    = 0;
+          consecutiveHits   = 0;
           stateInitialized  = true;
-        }
-        if (actionDelayActive && millis() - actionDelayStart >= 3000) {
-          actionDelayActive = false;
-          if (!isReceivingMode && !isRiderMode && isMultiMode) {
-            changeState(OWNER_ADD_MORE_PROMPT);
+          displayMessage("VERIFYING", "Checking Bin...");
+          Serial.println("\n[FLOW] === STRICT DROP VERIFICATION (US ONLY) ===");
+          Serial.print("[FLOW] DropOff Bin Baseline: ");
+          if (dropoffBaselineDist < 900.0) {
+            Serial.print(dropoffBaselineDist, 1); Serial.println(" cm");
           } else {
-            changeState(RESETTING);
+            Serial.println("OUT_OF_RANGE (Will detect parcel < 30.0 cm)");
           }
+        }
+
+        // Sampling loop: rate-limited to 120ms to allow clean ultrasonic echo reflections
+        if (!dropConfirmed && !dropFailed) {
+          if (millis() - lastSampleTime >= 120) {
+            lastSampleTime = millis();
+            float currentDist = getDistance(US_DROPOFF);
+            bool detected = false;
+            float delta = 0.0;
+
+            if (currentDist > 1.0 && currentDist < 900.0) {
+              if (dropoffBaselineDist < 900.0) {
+                delta = dropoffBaselineDist - currentDist;
+                // Distance must decrease by at least 4.0 cm to confirm parcel presence
+                if (delta >= 4.0) {
+                  detected = true;
+                }
+              } else if (currentDist < 30.0) {
+                detected = true;
+                delta = 30.0 - currentDist;
+              }
+            }
+
+            Serial.print("[US CONFIRM] Current: ");
+            if (currentDist < 900.0) {
+              Serial.print(currentDist, 1); Serial.print(" cm");
+            } else {
+              Serial.print("OUT_OF_RANGE");
+            }
+            Serial.print(" | Delta: "); Serial.print(delta, 1);
+            Serial.print(" cm | Hits: "); Serial.print(consecutiveHits);
+            Serial.println(detected ? " [PASS]" : " [WAIT]");
+
+            if (detected) {
+              consecutiveHits++;
+              // Require 2 consecutive positive samples to guarantee stable parcel placement
+              if (consecutiveHits >= 2) {
+                dropConfirmed = true;
+                confirmResultTime = millis();
+
+                // Update baseline so subsequent parcels stack properly
+                dropoffBaselineDist = currentDist;
+
+                Serial.print("[FLOW] Parcel STRICTLY CONFIRMED in DropOff bin! Distance: ");
+                Serial.print(currentDist, 1);
+                Serial.print(" cm (Delta: -");
+                Serial.print(delta, 1);
+                Serial.println(" cm)");
+
+                displayMessage("SUCCESS", "Stored Safely");
+                triggerBuzzer(2);
+
+                String newStatus = isReceivingMode ? "delivered" : "awaiting_pickup";
+                String modeStr   = isReceivingMode ? "drop_off"  : "pick_up";
+                if (strlen(currentTrackingId) > 0) {
+                  emitStatusUpdate(String(currentTrackingId), newStatus, modeStr);
+                }
+              }
+            } else {
+              consecutiveHits = 0;
+            }
+          }
+
+          // Strict 6-second timeout: If US sensor never detects a parcel, mark as FAILED
+          if (!dropConfirmed && (millis() - confirmStartTime > 6000)) {
+            dropFailed = true;
+            confirmResultTime = millis();
+
+            Serial.println("[FLOW] ERROR: Drop verification FAILED! No parcel detected by US sensor.");
+            Serial.println("[FLOW] Parcel NOT marked as delivered. Returning to safe idle state.");
+
+            displayMessage("DROP FAILED", "No Parcel Detected");
+            triggerCyberChirp(2); // Double-low buzz
+          }
+        }
+
+        // Dwell 2.5s on Result screen (SUCCESS or DROP FAILED) before resetting
+        if ((dropConfirmed || dropFailed) && (millis() - confirmResultTime >= 2500)) {
+          changeState(RESETTING);
         }
       }
-      break;
       break;
 
     // ── SCAN FAILED PROMPT ────────────────────────────────
@@ -1524,12 +1162,14 @@ void loop() {
          Serial.println("[FLOW] Resetting platform and locks.");
          triggerBuzzer(1);
          digitalWrite(LOCK_TOP,      HIGH);
-         digitalWrite(LOCK_PICKUP,   HIGH);
+         delay(30);
+         setPickupLock(false);
+         delay(30);
          digitalWrite(LOCK_RECEIVED, HIGH);
-         lockTopOpen = false; lockPickupOpen = false; lockReceivedOpen = false;
+         lockTopOpen = false; lockReceivedOpen = false;
          emitDoorState(); 
          
-         moveServoSmoothly(90); 
+         // Servo removed 
          currentTrackingId[0] = '\0';
          scanResultReceived  = false;
          isRiderMode         = false;
@@ -1630,22 +1270,38 @@ void checkSerialCommands() {
     input.trim();
     char cmd = toupper(input.charAt(0));
 
+    if (cmd != 'D') {
+      isUsDiagContinuousActive = false; // Auto-stop stream when executing another command
+    }
+
     if (cmd == 'S') {
       changeState(RESETTING);
     } else if (cmd == 'U') {
       digitalWrite(LOCK_TOP, LOW);
-      digitalWrite(LOCK_PICKUP, LOW);
+      delay(150); // Stagger inrush current
+      setPickupLock(true);
+      delay(150);
       digitalWrite(LOCK_RECEIVED, LOW);
-      Serial.println("[MANUAL] Override: All Solenoids UNLOCKED.");
+      lockTopOpen = true; lockReceivedOpen = true;
+      emitDoorState();
+      Serial.println("[MANUAL] Override: All Solenoids UNLOCKED (auto-relocking in 10s)...");
+      delay(10000);
+      digitalWrite(LOCK_TOP, HIGH);
+      delay(30);
+      setPickupLock(false);
+      delay(30);
+      digitalWrite(LOCK_RECEIVED, HIGH);
+      lockTopOpen = false; lockReceivedOpen = false;
+      emitDoorState();
+      Serial.println("[MANUAL] Override: All Solenoids RE-LOCKED.");
     } else if (cmd == 'D') {
-      Serial.println("[DIAG] === Ultrasonic Sensor Diagnostic ===");
-      float d1 = getDistance(US_PLATFORM);
-      float d2 = getDistance(US_PICKUP);
-      float d3 = getDistance(US_DROPOFF);
-      Serial.print("  US1 Platform : "); Serial.println(d1 < 900 ? String(d1,1)+"cm" : "OUT_OF_RANGE");
-      Serial.print("  US2 Pickup   : "); Serial.println(d2 < 900 ? String(d2,1)+"cm" : "OUT_OF_RANGE");
-      Serial.print("  US3 DropOff  : "); Serial.println(d3 < 900 ? String(d3,1)+"cm" : "OUT_OF_RANGE");
-      Serial.println("[DIAG] Done.");
+      isUsDiagContinuousActive = !isUsDiagContinuousActive;
+      if (isUsDiagContinuousActive) {
+        Serial.println("\n[DIAG] === Continuous Ultrasonic Live Stream: STARTED ===");
+        Serial.println("[HINT] Updating every 250ms. Press 'D' + Enter again to STOP.\n");
+      } else {
+        Serial.println("\n[DIAG] === Continuous Ultrasonic Live Stream: STOPPED ===\n");
+      }
     } else if (cmd == 'R') {
       // Format: R1:<tracking_id>  or  R2:<tracking_id>
       if (input.length() > 3 && input.charAt(2) == ':') {
@@ -1677,20 +1333,27 @@ void checkSerialCommands() {
     } else if (cmd == 'M') {
       Serial.println("\n[DIAG] === Full Hardware Monitor ===");
       // Reed Status: 0 = Magnet Near (Closed), 1 = Magnet Away (Open)
-      int r1 = digitalRead(REED_TOP);
-      int r2 = digitalRead(REED_PICKUP);
-      int r3 = digitalRead(REED_RECEIVED);
+      int r1 = readReedDebounced(REED_TOP);
+      int r2 = readReedDebounced(REED_PICKUP);
+      int r3 = readReedDebounced(REED_RECEIVED);
       Serial.print("  Reed TOP      : "); Serial.println(r1 == 0 ? "CLOSED (Locked)" : "OPEN (Unlocked)");
       Serial.print("  Reed PICKUP   : "); Serial.println(r2 == 0 ? "CLOSED" : "OPEN");
       Serial.print("  Reed RECEIVED : "); Serial.println(r3 == 0 ? "CLOSED" : "OPEN");
       
-      // Ultrasonic Sensors
-      float d1 = getDistance(US_PLATFORM);
-      float d2 = getDistance(US_PICKUP);
+      // Ultrasonic Sensors (DropOff active; Platform & Pickup removed)
       float d3 = getDistance(US_DROPOFF);
-      Serial.print("  US1 Platform  : "); Serial.println(d1 < 900 ? String(d1,1)+"cm" : "OUT_OF_RANGE");
-      Serial.print("  US2 Pickup    : "); Serial.println(d2 < 900 ? String(d2,1)+"cm" : "OUT_OF_RANGE");
-      Serial.print("  US3 DropOff   : "); Serial.println(d3 < 900 ? String(d3,1)+"cm" : "OUT_OF_RANGE");
+      Serial.println("  US1 Platform  : DISABLED (Removed - GPIO 15, 4 Free)");
+      Serial.println("  US2 Pickup    : DISABLED (Removed - GPIO 7, 16 Free)");
+      Serial.print("  US3 DropOff   : "); 
+      if (d3 < 900.0) {
+        Serial.print(d3, 1); Serial.print("cm");
+        if (dropoffBaselineDist < 900.0) {
+          Serial.print(" (Baseline: "); Serial.print(dropoffBaselineDist, 1); Serial.print("cm)");
+        }
+        Serial.println();
+      } else {
+        Serial.println("OUT_OF_RANGE");
+      }
       Serial.print("  Solenoid TOP  : "); Serial.println(lockTopOpen ? "UNLOCKED" : "LOCKED");
       Serial.println("[DIAG] Done.\n");
     } else if (cmd == 'W') {
@@ -1712,11 +1375,6 @@ void checkSerialCommands() {
           registrationToken[sizeof(registrationToken)-1] = '\0';
           regTokenReceived  = true;
           Serial.print("[DEV] Simulated registrationToken: "); Serial.println(token);
-        } else if (currentState == OWNER_VERIFYING) {
-          // Simulate owner approve via token entry
-          ownerApprovalValid    = true;
-          ownerApprovalReceived = true;
-          Serial.print("[DEV] Simulated ownerVerifyResult APPROVED for token: "); Serial.println(token);
         } else {
           Serial.println("[DEV] N:<token> not applicable in current state.");
         }
@@ -1736,20 +1394,6 @@ void checkSerialCommands() {
       Serial.println("[MANUAL] Triggering WiFi Captive Portal...");
       triggerBuzzer(2);
       changeState(WAITING_FOR_WIFI_CONFIG);
-    } else if (cmd == '1') {
-      Serial.println("[TEST] Tilting to DROP OFF bin (0°) + Shake...");
-      moveServoSmoothly(0);
-      delay(500);
-      shakeServo(0);
-      moveServoSmoothly(0);
-      Serial.println("[TEST] Done.");
-    } else if (cmd == '2') {
-      Serial.println("[TEST] Tilting to PICKUP bin (180°) + Shake...");
-      moveServoSmoothly(180);
-      delay(500);
-      shakeServo(180);
-      moveServoSmoothly(180);
-      Serial.println("[TEST] Done.");
     }
   }
 }
@@ -1758,63 +1402,25 @@ void checkSerialCommands() {
 
 void forceNextStep() {
   switch (currentState) {
-    case SELECTING_PICKUP_TYPE:
-      Serial.println("[FLOW] Bypass: Defaulting to OWNER mode → entering OWNER_VERIFYING.");
-      isRiderMode = false;
-      changeState(OWNER_VERIFYING);
-      break;
-    case OWNER_VERIFYING:
-      // Simulate approved mobile app scan without needing the physical QR scanner
-      Serial.println("[FLOW] Bypass: Owner verification APPROVED via serial shortcut.");
-      ownerApprovalValid    = true;
-      ownerApprovalReceived = true;
-      // The state loop will pick up ownerApprovalReceived and proceed to OWNER_SELECTING_MODE
-      break;
-    case OWNER_SELECTING_MODE:
-      Serial.println("[FLOW] Bypass: Defaulting to SINGLE mode.");
-      isMultiMode = false; scannedCount = 0;
-      changeState(OWNER_SCANNING);
-      break;
-    case OWNER_SCANNING:
-      Serial.println("[FLOW] Bypass: Skipping owner scan.");
-      changeState(UNLOCKING_ENTRY);
-      break;
-    case OWNER_ADD_MORE_PROMPT:
-      Serial.println("[FLOW] Bypass: Ending multi-scan.");
-      changeState(RESETTING);
-      break;
-    case RIDER_VERIFYING:
-      Serial.println("[FLOW] Bypass: Skipping rider verification.");
-      changeState(RIDER_DOOR_OPEN);
-      break;
-    case RIDER_DOOR_OPEN:
-      Serial.println("[FLOW] Bypass: Skipping bin door wait.");
-      changeState(RIDER_SCANNING_PARCELS);
-      break;
-    case RIDER_SCANNING_PARCELS:
-      Serial.println("[FLOW] Bypass: Skipping parcel scan.");
-      changeState(RIDER_PICKUP_PROMPT);
-      break;
-    case RIDER_PICKUP_PROMPT:
-      Serial.println("[FLOW] Bypass: Ending rider session.");
+    case PICKUP_DOOR_OPEN:
+      Serial.println("[FLOW] Bypass: Completing pickup.");
+      setPickupLock(false);
+      emitDoorState();
       changeState(RESETTING);
       break;
     case WAITING_FOR_SCAN:
       Serial.println("[FLOW] Bypass: Bypassing Scan.");
-      changeState(UNLOCKING_ENTRY);
+      changeState(isReceivingMode ? UNLOCKING_ENTRY : PICKUP_DOOR_OPEN);
       break;
     case UNLOCKING_ENTRY:
-      Serial.println("[FLOW] Bypass: Bypassing Reed Switch.");
-      changeState(WAITING_PLACEMENT_STABLE);
-      break;
-    case WAITING_PLACEMENT_STABLE:
-      Serial.println("[FLOW] Bypass: Bypassing Platform Sensor.");
-      changeState(TILTING_PLATFORM);
-      break;
-    case TILTING_PLATFORM:
+      Serial.println("[FLOW] Bypass: Bypassing Top Door Cycle.");
+      digitalWrite(LOCK_TOP, HIGH);
+      lockTopOpen = false;
+      emitDoorState();
       changeState(CONFIRMING_DROP);
       break;
     case CONFIRMING_DROP:
+      Serial.println("[FLOW] Bypass: Bypassing Drop Confirmation.");
       changeState(RESETTING);
       break;
     default:
@@ -1832,28 +1438,32 @@ void printSerialMenu() {
   Serial.println("==========================================");
   Serial.println("  [BLUE] Drop Off     [RED] Pick Up");
   Serial.println("------------------------------------------");
-  Serial.println("  S=Reset  | U=Unlock All | D=US Diag | M=Monitor | N=Next | T=TFT Reset | C=WiFi | X=Scan Test");
-  Serial.println("  1=Test DropOff (0°)  | 2=Test Pickup (180°)");
-  Serial.println("  V=View IDs & Status   | W=Network Info");
+  Serial.println("  S=Reset  | U=Unlock All | D=US Live Stream (Toggle) | M=Monitor | N=Next | X=Scan Test");
+  Serial.println("  T=TFT Reset | C=WiFi Setup | V=View IDs & Status | W=Network Info");
   Serial.println("  R1:<id> = Register Drop Off ID (offline)");
   Serial.println("  R2:<id> = Register Pick Up ID  (offline)");
   Serial.println("  N:<token>  = Simulate QR scan (dev bypass)");
   Serial.println("     e.g.  N:SPDB-REG-482913  (registration)");
-  Serial.println("           N:OWN-482913        (owner verify)");
   Serial.println("  IDs auto-registered via mobile app (online)");
   Serial.println("==========================================");
   Serial.println();
 }
 
 void changeState(SystemState newState) {
-  currentState     = newState;
-  stateStartTime   = millis();
+  currentState        = newState;
+  stateStartTime      = millis();
   lastStateChangeTime = millis();
-  stateInitialized = false;
+  stateInitialized    = false;
+  actionDelayActive   = false;
+  pendingNextState    = IDLE;
   tft.fillScreen(COLOR_BG);
   
-  if (newState == IDLE || newState == LOCKSCREEN) {
-    moveServoSmoothly(90);
+  if (newState == IDLE) {
+    scanResultReceived   = false;
+    scanResultValid      = false;
+    currentTrackingId[0] = '\0';
+    serial2Buffer[0]     = '\0';
+    doorWasOpened        = false;
     showHomeScreen();
   }
 }

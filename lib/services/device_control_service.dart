@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import '../config/api_config.dart';
+import 'auth_service.dart';
 import 'service_locator.dart';
 import 'biometric_service.dart';
 
@@ -22,6 +23,7 @@ class DeviceControlService {
   final _doorStateController =
       StreamController<Map<String, dynamic>?>.broadcast();
   Map<String, dynamic>? _cachedDoorState;
+  int _sessionGeneration = 0;
 
   // Public getters
   Map<String, dynamic>? get cachedDoorState => _cachedDoorState;
@@ -47,31 +49,61 @@ class DeviceControlService {
       }
     }
 
-    try {
-      await http.post(
-        Uri.parse(ApiConfig.deviceControl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'userId': userId,
-          'command': open ? 'open' : 'close',
-          'doorType': doorType,
-        }),
-      );
-    } catch (e) {
-      debugPrint('Error controlling door: $e');
-      rethrow;
+    await setDoorLock(doorType: doorType, unlock: open);
+  }
+
+  Future<Map<String, dynamic>> setDoorLock({
+    required String doorType,
+    required bool unlock,
+    String? deviceId,
+  }) async {
+    final generation = _sessionGeneration;
+    final auth = getIt<AuthService>();
+    final headers = await auth.getAuthHeaders();
+    if (generation != _sessionGeneration) throw StateError('The session changed');
+    final response = await http.post(
+      Uri.parse(ApiConfig.deviceControl),
+      headers: headers,
+      body: jsonEncode({
+        'command': unlock ? 'open' : 'close',
+        'doorType': doorType,
+        if (deviceId != null) 'deviceId': deviceId,
+      }),
+    ).timeout(const Duration(seconds: 12));
+    if (generation != _sessionGeneration) throw StateError('The session changed');
+    if (response.statusCode == 401) {
+      await auth.handleSessionExpired();
+      throw StateError('Your session expired');
     }
+    final dynamic result;
+    try {
+      result = jsonDecode(response.body);
+    } on FormatException {
+      throw StateError('The server returned an unexpected door response');
+    }
+    if (response.statusCode != 200 || result is! Map || result['success'] != true || result['doorState'] is! Map) {
+      throw StateError(result is Map ? '${result['message'] ?? 'Door command could not be confirmed'}' : 'Door command could not be confirmed');
+    }
+    final state = Map<String, dynamic>.from(result['doorState'] as Map);
+    updateDoorState(state);
+    return state;
   }
 
   /// Get door state
   Stream<Map<String, dynamic>?> getDropBoxDoorState() {
+    final generation = _sessionGeneration;
     // Seed with cached data
     if (_cachedDoorState != null) {
-      Timer.run(() => _doorStateController.add(_cachedDoorState));
+      Timer.run(() {
+        if (generation == _sessionGeneration && !_doorStateController.isClosed) {
+          _doorStateController.add(_cachedDoorState);
+        }
+      });
     }
 
     // Fetch latest state
     _fetchDoorState().then((data) {
+      if (generation != _sessionGeneration || _doorStateController.isClosed) return;
       _cachedDoorState = data;
       _doorStateController.add(data);
     });
@@ -81,7 +113,11 @@ class DeviceControlService {
 
   Future<Map<String, dynamic>?> _fetchDoorState() async {
     try {
-      final response = await http.get(Uri.parse(ApiConfig.deviceControl));
+      final headers = await getIt<AuthService>().getAuthHeaders();
+      final response = await http.get(
+        Uri.parse(ApiConfig.deviceControl),
+        headers: headers,
+      );
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }
@@ -99,7 +135,14 @@ class DeviceControlService {
   }
 
   /// Dispose resources
+  void clearSession() {
+    _sessionGeneration++;
+    _cachedDoorState = null;
+    if (!_doorStateController.isClosed) _doorStateController.add(null);
+  }
+
   void dispose() {
+    _sessionGeneration++;
     _doorStateController.close();
   }
 
