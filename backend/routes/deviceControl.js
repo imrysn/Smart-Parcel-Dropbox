@@ -1,189 +1,61 @@
-/**
- * Device Control Routes
- * Handles door control and status endpoints
- */
-
 const express = require('express');
-const router = express.Router();
-const DoorState = require('../models/DoorState');
-const Dropbox = require('../models/Dropbox');
-const esp32Controller = require('../hardware/esp32Controller');
 const { authMiddleware } = require('../utils/auth');
+const { pairedBoxForUser, getDoorState, isDeviceOnline, commandDoor } = require('../utils/deviceSessions');
 
-// Global socket.io instance (set by server.js)
-let io = null;
+const router = express.Router();
+let io;
+const doorTypes = { parcel: 'top', user: 'pickup', top: 'top', pickup: 'pickup', received: 'received' };
+const failures = {
+  invalid_command: [400, 'Invalid door or lock action'],
+  device_offline: [503, 'The paired dropbox is offline'],
+  command_pending: [409, 'The dropbox is processing another door command'],
+  confirmation_timeout: [504, 'The dropbox did not confirm the command. Check its state before trying again.'],
+  device_rejected: [409, 'The dropbox did not apply the requested lock state'],
+};
 
 function setSocketIO(socketIO) {
   io = socketIO;
 }
 
-async function findPairedDropbox(userId) {
-  return Dropbox.findOne({
-    isRegistered: true,
-    $or: [{ userIds: userId }, { primaryUserId: userId }, { userId }]
-  });
-}
-
-/**
- * POST /device-control
- * Control a specific door (parcel or user) — requires authenticated paired owner/member
- */
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const userId = req.userId;
-    const { command, doorType } = req.body;
-
-    if (!command || !doorType) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields: command, doorType'
-      });
+    const box = await pairedBoxForUser(req.userId);
+    if (!box || (req.body?.deviceId && req.body.deviceId !== box.deviceId)) {
+      return res.status(403).json({ success: false, message: 'No access to the requested dropbox' });
     }
-
-    const dropbox = await findPairedDropbox(userId);
-    if (!dropbox) {
-      return res.status(403).json({
-        success: false,
-        message: 'No paired dropbox found for this account'
-      });
+    const type = req.body?.doorType;
+    const result = await commandDoor(io, box.deviceId, Object.hasOwn(doorTypes, type) ? doorTypes[type] : null, req.body?.command);
+    if (!result.ok) {
+      const [status, message] = failures[result.reason] || [500, 'Door control failed'];
+      return res.status(status).json({ success: false, reason: result.reason, message, doorState: result.doorState });
     }
-
-    if (!['open', 'close'].includes(command)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid command. Must be "open" or "close"'
-      });
-    }
-
-    if (!['parcel', 'user'].includes(doorType)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid doorType. Must be "parcel" or "user"'
-      });
-    }
-
-    console.log(`🚪 Door Control Request: ${doorType} door ${command} by ${userId}`);
-
-    // Get current state
-    const doorState = await DoorState.getInstance();
-    doorState.status = 'processing';
-    doorState.userId = userId;
-    await doorState.save();
-
-    // Broadcast processing status
-    if (io) {
-      io.emit('doorStateUpdate', {
-        parcelDoorOpen: doorState.parcelDoorOpen,
-        userDoorOpen: doorState.userDoorOpen,
-        status: 'processing',
-        parcelDetected: doorState.parcelDetected,
-        userId: doorState.userId
-      });
-    }
-
-    // Send command to ESP32
-    const result = await esp32Controller.controlDoor(doorType, command);
-
-    if (result.success) {
-      // Update door state
-      if (doorType === 'parcel') {
-        doorState.parcelDoorOpen = (command === 'open');
-      } else {
-        doorState.userDoorOpen = (command === 'open');
-      }
-      doorState.status = 'idle';
-      doorState.lastUpdate = new Date();
-      await doorState.save();
-
-      // Broadcast new state
-      if (io) {
-        io.emit('doorStateUpdate', {
-          parcelDoorOpen: doorState.parcelDoorOpen,
-          userDoorOpen: doorState.userDoorOpen,
-          status: 'idle',
-          parcelDetected: doorState.parcelDetected,
-          userId: doorState.userId
-        });
-      }
-
-      const doorName = doorType === 'parcel' ? 'Parcel door' : 'User door';
-      res.json({
-        success: true,
-        message: `${doorName} ${command === 'open' ? 'opened' : 'closed'} successfully`,
-        doorState: {
-          parcelDoorOpen: doorState.parcelDoorOpen,
-          userDoorOpen: doorState.userDoorOpen,
-          status: doorState.status,
-          parcelDetected: doorState.parcelDetected
-        }
-      });
-    } else {
-      doorState.status = 'idle';
-      await doorState.save();
-
-      res.status(500).json({
-        success: false,
-        message: 'Failed to control door',
-        error: result.error
-      });
-    }
+    res.json({ success: true, doorState: result.doorState });
   } catch (error) {
-    console.error('❌ Device Control Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
+    console.error('Device control failed:', error.message);
+    res.status(500).json({ success: false, message: 'Door control failed' });
   }
 });
 
-/**
- * GET /device-control
- * Get current door states — requires authenticated paired owner/member
- */
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const dropbox = await findPairedDropbox(req.userId);
-    if (!dropbox) {
-      return res.status(403).json({
-        success: false,
-        message: 'No paired dropbox found for this account'
-      });
-    }
-
-    const doorState = await DoorState.getInstance();
-
-    res.json({
-      parcelDoorOpen: doorState.parcelDoorOpen,
-      userDoorOpen: doorState.userDoorOpen,
-      status: doorState.status,
-      parcelDetected: doorState.parcelDetected,
-      userId: doorState.userId
-    });
+    const box = await pairedBoxForUser(req.userId);
+    if (!box) return res.status(403).json({ success: false, message: 'No paired dropbox found' });
+    const state = isDeviceOnline(io, box.deviceId) && getDoorState(box.deviceId);
+    if (!state) return res.status(503).json({ success: false, message: 'No current lock state from the dropbox' });
+    res.json(state);
   } catch (error) {
-    console.error('❌ Get Door State Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get door state',
-      error: error.message
-    });
+    console.error('Could not get door state:', error.message);
+    res.status(500).json({ success: false, message: 'Could not get door state' });
   }
 });
 
-/**
- * GET /device-control/health
- * Check ESP32 connection health
- */
-router.get('/health', async (req, res) => {
-  const esp32Online = await esp32Controller.ping();
-  
-  res.json({
-    esp32Connected: esp32Online,
-    timestamp: new Date()
-  });
+router.get('/health', authMiddleware, async (req, res) => {
+  try {
+    const box = await pairedBoxForUser(req.userId);
+    res.json({ esp32Connected: isDeviceOnline(io, box?.deviceId), timestamp: new Date() });
+  } catch {
+    res.status(500).json({ esp32Connected: false });
+  }
 });
 
-module.exports = {
-  router,
-  setSocketIO
-};
+module.exports = { router, setSocketIO };

@@ -10,6 +10,7 @@ import 'user_service.dart';
 import 'scan_log_service.dart';
 import 'device_control_service.dart';
 import 'notification_service.dart';
+import 'delivery_push_service.dart';
 
 /// Database Service - FACADE for backward compatibility
 ///
@@ -37,7 +38,9 @@ class DatabaseService {
         '⚠️ DatabaseService (facade) initialized - consider migrating to new services');
   }
   
-  bool _isSocketInitialized = false;
+  String? _sessionUserId;
+  final _sessionSubscriptions = <StreamSubscription<dynamic>>[];
+  String? get sessionUserId => _sessionUserId;
 
   // Lazy getters for new services
   WebSocketService get _ws => getIt<WebSocketService>();
@@ -50,43 +53,63 @@ class DatabaseService {
   // ========== WebSocket Methods ==========
 
   Future<void> initSocket(String userId) async {
-    if (_isSocketInitialized) {
-      debugPrint('ℹ️ DatabaseService: Socket listeners already initialized');
+    if (_sessionUserId == userId) {
+      await _ws.connect(userId);
       return;
     }
-    
+    if (_sessionUserId != null) endSession();
+    _sessionUserId = userId;
+    _sessionSubscriptions.addAll([
+      _ws.connectionStatusStream.listen((connected) {
+        if (connected) refreshSession();
+      }),
+      _ws.trackingUpdates.listen((_) => _tracking.refreshTracking(userId)),
+      _ws.notificationUpdates.listen((_) => _notification.refreshNotifications(userId)),
+      _ws.doorStateUpdates.listen(_device.updateDoorState),
+      _ws.trackingStatusChanges.listen((data) {
+        if (_sessionUserId != userId) return;
+        _tracking.refreshTracking(userId);
+        _notification.refreshNotifications(userId);
+        final eventId = data['notificationId'];
+        if (eventId is String) {
+          final hasPush = getIt.isRegistered<DeliveryPushService>() &&
+              getIt<DeliveryPushService>().registeredFor(userId);
+          if (data['pushQueued'] != true || !hasPush) {
+            unawaited(_notification.showParcelDelivered(eventId));
+          }
+          return;
+        }
+        _notification.showDeliveryNotification(
+          trackingId: (data['trackingId'] ?? '').toString(),
+          status: (data['status'] ?? '').toString(),
+        );
+      }),
+    ]);
     await _ws.connect(userId);
-    _isSocketInitialized = true;
-
-    // Wire up WebSocket events to services
-    _ws.trackingUpdates.listen((_) => _tracking.refreshTracking(userId));
-    _ws.notificationUpdates
-        .listen((_) => _notification.refreshNotifications(userId));
-    _ws.doorStateUpdates.listen((state) => _device.updateDoorState(state));
-
-    // ── Phase 4: Hardware delivery events ──────────────────────────────────
-    // Fired by backend when ESP32 emits statusUpdate after a drop-off/pick-up.
-    // Payload: { trackingId, status, mode, timestamp }
-    _ws.trackingStatusChanges.listen((data) {
-      debugPrint('Socket: trackingStatusChanged received: $data');
-
-      final trackingId = (data['trackingId'] ?? '').toString();
-      final status = (data['status'] ?? '').toString();
-
-      // 1. Refresh the tracking lists so the UI updates immediately
-      _tracking.refreshTracking(userId);
-
-      // 2. Show a local system tray/push notification
-      _notification.showDeliveryNotification(
-        trackingId: trackingId,
-        status: status,
-      );
-    });
   }
 
-  void dispose() {
+  Future<void> refreshSession() async {
+    final userId = _sessionUserId;
+    if (userId == null) return;
+    await Future.wait([
+      _tracking.refreshTracking(userId),
+      _notification.refreshNotifications(userId),
+    ]);
+  }
+
+  void endSession() {
+    _sessionUserId = null;
+    for (final subscription in _sessionSubscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _sessionSubscriptions.clear();
     _ws.disconnect();
+    _tracking.clearSession();
+    _notification.clearSession();
+    _device.clearSession();
   }
+
+  void dispose() => endSession();
 
   static void reset() {
     WebSocketService.reset();

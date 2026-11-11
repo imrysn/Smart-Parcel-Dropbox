@@ -96,9 +96,16 @@ void setupWiFi() {
   }
 }
 
+#include <mbedtls/md.h>
+static bool deviceAuthenticated = false;
+
 void setupSocketIO() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("[WS] Skipping Socket.IO — no WiFi.");
+    return;
+  }
+  if (strlen(SPD_DEVICE_KEY) < 32) {
+    Serial.println("[WS] Set a device credential before enabling server access.");
     return;
   }
 
@@ -112,25 +119,80 @@ void setupSocketIO() {
   Serial.println("[WS] Socket.IO initiated — connecting in background...");
 }
 
+void authenticateDevice(const String& nonce) {
+  if (nonce.length() != 48) return;
+  String deviceId = WiFi.macAddress();
+  deviceId.toUpperCase();
+  const String message = deviceId + ":" + nonce;
+  unsigned char digest[32];
+  const mbedtls_md_info_t* sha256 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if (!sha256 || mbedtls_md_hmac(sha256,
+      reinterpret_cast<const unsigned char*>(SPD_DEVICE_KEY), strlen(SPD_DEVICE_KEY),
+      reinterpret_cast<const unsigned char*>(message.c_str()), message.length(), digest) != 0) return;
+  char proof[65];
+  for (int i = 0; i < 32; i++) snprintf(proof + i * 2, 3, "%02x", digest[i]);
+  StaticJsonDocument<256> reply;
+  JsonArray arr = reply.to<JsonArray>();
+  arr.add("authenticateDevice");
+  JsonObject data = arr.createNestedObject();
+  data["deviceId"] = deviceId;
+  data["proof"] = proof;
+  String output;
+  serializeJson(reply, output);
+  socketIO.send(sIOtype_EVENT, output);
+}
+
+void emitDoorCommandResult(const String& requestId, bool ok) {
+  if (requestId.isEmpty()) return;
+  StaticJsonDocument<384> reply;
+  JsonArray arr = reply.to<JsonArray>();
+  arr.add("doorCommandResult");
+  JsonObject result = arr.createNestedObject();
+  result["requestId"] = requestId;
+  result["ok"] = ok;
+  JsonObject state = result.createNestedObject("doorState");
+  state["parcelDoorOpen"] = lockTopOpen;
+  state["pickupDoorOpen"] = lockPickupOpen;
+  state["receivedDoorOpen"] = lockReceivedOpen;
+  String output;
+  serializeJson(reply, output);
+  socketIO.send(sIOtype_EVENT, output);
+}
+
+void sendDeviceHeartbeat(bool immediate) {
+  static uint64_t lastHeartbeatMs = 0;
+  if (!deviceAuthenticated || WiFi.status() != WL_CONNECTED) return;
+
+  const uint64_t uptimeMs = esp_timer_get_time() / 1000;
+  if (!immediate && uptimeMs - lastHeartbeatMs < 30000) return;
+  lastHeartbeatMs = uptimeMs;
+
+  StaticJsonDocument<256> doc;
+  JsonArray message = doc.to<JsonArray>();
+  message.add("deviceHeartbeat");
+  JsonObject data = message.createNestedObject();
+  data["firmwareVersion"] = SPD_FIRMWARE_VERSION;
+  data["wifiRssi"] = WiFi.RSSI();
+  data["uptimeSeconds"] = static_cast<uint32_t>(uptimeMs / 1000);
+
+  String output;
+  serializeJson(doc, output);
+  socketIO.send(sIOtype_EVENT, output);
+}
+
 void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) {
   switch (type) {
     case sIOtype_CONNECT:
-      Serial.println("[WS] Socket.IO connected.");
-      socketIO.send(sIOtype_EVENT, "[\"join\",\"esp32_device\"]");
-      
-      if (offlineQueueCount > 0) {
-        offlineQueueCount = 0;
-      }
+      deviceAuthenticated = false;
+      Serial.println("[WS] Socket.IO connected; waiting for device authentication.");
       break;
 
     case sIOtype_DISCONNECT:
+      deviceAuthenticated = false;
       Serial.println("[WS] Socket.IO disconnected.");
       break;
 
     case sIOtype_EVENT: {
-      String msg = String((char*)payload, length);
-      if (DEBUG_WS) { Serial.print("[WS] Event: "); Serial.println(msg); }
-
       StaticJsonDocument<1024> doc;
       DeserializationError err = deserializeJson(doc, payload, length);
       if (err) {
@@ -139,8 +201,17 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
       }
 
       String eventName = doc[0].as<String>();
+      if (DEBUG_WS) { Serial.print("[WS] Event: "); Serial.println(eventName); }
+      if (!deviceAuthenticated && eventName != "deviceChallenge" && eventName != "deviceAuthenticated") break;
 
-      if (eventName == "scanResult") {
+      if (eventName == "deviceChallenge") {
+        authenticateDevice(doc[1]["nonce"].as<String>());
+      } else if (eventName == "deviceAuthenticated") {
+        deviceAuthenticated = true;
+        Serial.println("[WS] Device authenticated.");
+        emitDoorState();
+        sendDeviceHeartbeat(true);
+      } else if (eventName == "scanResult") {
         String data; serializeJson(doc[1], data);
         handleScanResult(data);
       } else if (eventName == "riderVerifyResult") {
@@ -150,8 +221,18 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
         String data; serializeJson(doc[1], data);
         handleRegisterTracking(data);
       } else if (eventName == "controlDoor") {
+        const String requestId = doc[1]["requestId"].as<String>();
+        const String action = doc[1]["action"].as<String>();
+        const String door = doc[1]["type"].as<String>();
+        const bool valid = !requestId.isEmpty() && (action == "open" || action == "close") &&
+          (door == "top" || door == "pickup" || door == "received");
+        if (!valid) {
+          emitDoorCommandResult(requestId, false);
+          break;
+        }
         String data; serializeJson(doc[1], data);
         handleControlDoor(data);
+        emitDoorCommandResult(requestId, true);
       } else if (eventName == "getStatus") {
         emitDoorState();
       } else if (eventName == "registrationToken") {
@@ -361,7 +442,7 @@ void handleRegisterTracking(const String& payload) {
     dropOffRegisterTime = millis();
     Serial.print("[REG] Drop Off ID registered via app: "); Serial.println(registeredDropOff);
     displayMessage("ID REGISTERED", ("Drop Off: " + trackingId.substring(0, 10)).c_str());
-  } else if (mode == "pick_up") {
+  } else if (mode == "pick_up" || mode == "pickup") {
     strncpy(registeredPickup, trackingId.c_str(), sizeof(registeredPickup)-1);
     pickupRegisterTime = millis();
     Serial.print("[REG] Pick Up ID registered via app: "); Serial.println(registeredPickup);

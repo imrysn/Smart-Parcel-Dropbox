@@ -6,6 +6,7 @@ const User = require('../models/User');
 const { authMiddleware } = require('../utils/auth');
 
 const { pendingRegistrations } = require('../controllers/hardwareController');
+const { deviceRoom } = require('../utils/deviceSessions');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -97,7 +98,7 @@ router.post('/claim', async (req, res) => {
         dropbox,
       });
       if (!pending.isHouseholdInvite) {
-        io.to('esp32_device').emit('deviceRegistered', { deviceId: targetDeviceId });
+        io.to(deviceRoom(targetDeviceId)).emit('deviceRegistered', { deviceId: targetDeviceId });
       }
     }
 
@@ -228,7 +229,7 @@ router.delete('/:userId', async (req, res) => {
       // Notify hardware to revert to setup mode
       const io = req.app.get('io');
       if (io) {
-        io.to('esp32_device').emit('deviceUnregistered', { deviceId });
+        io.to(deviceRoom(deviceId)).emit('deviceUnregistered', { deviceId });
       }
     } else if (dropbox.primaryUserId === uid || dropbox.userId === uid) {
       // Promote next remaining household member cleanly

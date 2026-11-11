@@ -171,6 +171,8 @@ android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 lib/firebase_options.dart
 web/firebase-config.js
+/backend/*-firebase-adminsdk-*.json
+/backend/spd-fcm.json
 
 # API Keys and Secrets
 .env
@@ -300,3 +302,4 @@ debug.log
 #   git status
 #   git diff
 # to verify what you're about to commit
+backend/hardware/ESP32SR_UNO/device_secrets.h

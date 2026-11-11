@@ -4,8 +4,8 @@ import '../../config/user_theme.dart';
 
 /// Displays the owner's dynamic QR token for quick hardware scanner access.
 class QrAccessBadgeCard extends StatelessWidget {
-  final String qrToken;
-  final VoidCallback onRefresh;
+  final String? qrToken;
+  final VoidCallback? onRefresh;
 
   const QrAccessBadgeCard({
     super.key,
@@ -60,12 +60,14 @@ class QrAccessBadgeCard extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 visualDensity: VisualDensity.compact,
-                tooltip: 'Refresh Access QR',
+                tooltip: qrToken == null ? 'Generate Access QR' : 'Refresh Access QR',
               ),
             ],
           ),
           const SizedBox(height: 14),
-          Row(
+          if (qrToken == null)
+            OutlinedButton(onPressed: onRefresh, child: const Text('Generate one-time QR'))
+          else Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(6),
@@ -77,7 +79,7 @@ class QrAccessBadgeCard extends StatelessWidget {
                   ),
                 ),
                 child: QrImageView(
-                  data: qrToken,
+                  data: qrToken!,
                   version: QrVersions.auto,
                   size: 68,
                   backgroundColor: Colors.white,

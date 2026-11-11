@@ -163,11 +163,12 @@ const verifyBarcode = async (req, res) => {
     // Notify connected clients via Socket.IO
     const io = req.app.get('io');
     if (io) {
-      io.emit('parcelDelivered', {
+      io.to(tracking.userId).emit('trackingStatusChanged', {
         deviceId,
         trackingId: tracking.trackingId,
-        userId: tracking.userId,
-        deliveredAt: tracking.deliveredAt
+        status: 'delivered',
+        mode: 'drop_off',
+        timestamp: tracking.deliveredAt
       });
     }
 

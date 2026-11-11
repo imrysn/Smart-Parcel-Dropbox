@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/database_service.dart';
+import '../services/delivery_push_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/input_validator.dart';
 import '../services/websocket_service.dart';
@@ -49,6 +50,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // Stream subscriptions for cleanup
   StreamSubscription<bool>? _connectionSub;
   StreamSubscription<Map<String, dynamic>>? _registrationSub;
+  StreamSubscription<Map<String, dynamic>>? _unregistrationSub;
+  DeliveryPushService? _deliveryPush;
 
   bool _appConnected = false;
 
@@ -96,8 +99,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _deliveryPush?.pendingTap.removeListener(_openDeliveryTap);
     _connectionSub?.cancel();
     _registrationSub?.cancel();
+    _unregistrationSub?.cancel();
     super.dispose();
   }
 
@@ -106,6 +111,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_userId != null) {
       // Establish WebSocket connection
       _databaseService.initSocket(_userId!);
+      if (getIt.isRegistered<DeliveryPushService>()) {
+        final push = getIt<DeliveryPushService>();
+        _deliveryPush = push;
+        push.pendingTap.addListener(_openDeliveryTap);
+        unawaited(push.sync(_userId!));
+        unawaited(_openDeliveryTap());
+      }
 
       // ── WebSocket Connectivity & Auto-Refresh ──
       _connectionSub?.cancel();
@@ -114,7 +126,6 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() => _appConnected = connected);
           if (connected) {
             debugPrint('🔄 WebSocket reconnected, auto-refreshing data');
-            _databaseService.refreshTracking(_userId!);
             _checkDropbox();
           }
         }
@@ -122,10 +133,36 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // ── Real-time Registration Sync ──
       _registrationSub?.cancel();
+      _unregistrationSub?.cancel();
       // Listen to both registration and unregistration to update _hasDropbox
       _registrationSub = _databaseService.deviceRegisteredStream.listen((_) => _checkDropbox());
-      _databaseService.deviceUnregisteredStream.listen((_) => _checkDropbox());
+      _unregistrationSub = _databaseService.deviceUnregisteredStream.listen((_) => _checkDropbox());
     }
+  }
+
+  Future<void> _openDeliveryTap() async {
+    final push = _deliveryPush;
+    final userId = _userId;
+    final eventId = push?.pendingTap.value;
+    if (push == null || userId == null || eventId == null || !mounted) return;
+    push.pendingTap.value = null;
+    TrackingModel? parcel;
+    try {
+      parcel = await push.loadParcel(eventId, userId);
+    } catch (_) {
+      // The parcel stays in notification history if the network is unavailable.
+    }
+    if (!mounted || _databaseService.sessionUserId != userId) return;
+    if (parcel == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Parcel details are unavailable.')),
+      );
+      return;
+    }
+    final tracking = parcel;
+    unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => TrackingDetailsScreen(tracking: tracking),
+    )));
   }
 
   /// Refresh user data after profile updates
@@ -1686,7 +1723,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       final dialogNav = Navigator.of(dialogContext);
                       try {
                         await _databaseService.deleteUser(_userId!);
-                        getIt<WebSocketService>().disconnect();
                         if (dialogContext.mounted) dialogNav.pop();
                         if (mounted) {
                           rootNavigator.pushAndRemoveUntil(
@@ -1747,7 +1783,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final messenger = ScaffoldMessenger.of(context);
       final navigator = Navigator.of(context);
       await _authService.signOut();
-      getIt<WebSocketService>().disconnect();
       if (mounted) {
         if (message != null) {
           messenger.showSnackBar(

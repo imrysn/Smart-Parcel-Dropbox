@@ -64,6 +64,12 @@ const dropboxSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  diagnostics: {
+    firmwareVersion: String,
+    wifiRssi: Number,
+    uptimeSeconds: Number,
+    reportedAt: Date,
+  },
 }, {
   timestamps: true,
 });

@@ -20,6 +20,7 @@ class WebSocketService {
 
   IO.Socket? _socket;
   String? _currentUserId;
+  int _connectionGeneration = 0;
   final _authService = getIt<AuthService>();
 
   // Event stream controllers
@@ -98,35 +99,30 @@ class WebSocketService {
 
   /// Initialize WebSocket connection for a user
   Future<void> connect(String userId) async {
-    final token = await _authService.getToken();
-
-    if (_socket != null) {
-      if (_socket!.connected && _currentUserId == userId) {
-        debugPrint('WebSocket already connected, joining room for $userId');
-        _socket!.emit('join', userId);
-        return;
-      }
-      _socket!.dispose();
-      _socket = null;
+    if (_currentUserId == userId && _socket != null) {
+      if (!_socket!.connected) _socket!.connect();
+      return;
     }
-
+    disconnect();
+    final generation = _connectionGeneration;
     _currentUserId = userId;
+    final token = await _authService.getToken();
+    if (generation != _connectionGeneration || token == null || token.isEmpty) return;
 
     _socket = IO.io(
-      ApiConfig.baseUrl.replaceAll('/api', ''),
+      ApiConfig.socketUrl,
       <String, dynamic>{
         'transports': ['websocket'],
-        'autoConnect': true,
+        'autoConnect': false,
+        'forceNew': true,
         'auth': {
-          'token': token,
-        },
-        'query': {
           'token': token,
         },
       },
     );
 
     _setupEventHandlers(userId);
+    _socket!.connect();
   }
 
   /// Setup event handlers for WebSocket
@@ -242,11 +238,23 @@ class WebSocketService {
   /// Emit an event to the server
   void emit(String event, dynamic data) {
     if (_socket?.connected ?? false) {
-      debugPrint('📤 Emitting event: $event ($data)');
+      debugPrint('Emitting event: $event');
       _socket!.emit(event, data);
     } else {
       debugPrint('⚠️ Cannot emit event: WebSocket not connected');
     }
+  }
+
+  Future<Map<String, dynamic>> requestOwnerPass() async {
+    final socket = _socket;
+    if (socket == null || !socket.connected) throw StateError('Connect to the server first');
+    final generation = _connectionGeneration;
+    final result = await socket.emitWithAckAsync('createOwnerPass', <String, dynamic>{})
+        .timeout(const Duration(seconds: 8));
+    if (generation != _connectionGeneration || result is! Map || result['ok'] != true) {
+      throw StateError('Could not create an access pass for this dropbox');
+    }
+    return Map<String, dynamic>.from(result);
   }
 
   /// Register a tracking ID on the ESP32 hardware (relayed via backend).
@@ -306,7 +314,6 @@ class WebSocketService {
   /// Backend will validate and relay result to the ESP32.
   void emitVerifyOwnerQR(String token) {
     emit('verifyOwnerQR', {'token': token});
-    debugPrint('🔑 Emitted verifyOwnerQR: $token');
   }
 
   /// Trigger a remote WiFi scan on the ESP32 hardware.
@@ -328,9 +335,12 @@ class WebSocketService {
 
   /// Disconnect and cleanup
   void disconnect() {
+    _connectionGeneration++;
+    final hadSocket = _socket != null;
     _socket?.dispose();
     _socket = null;
     _currentUserId = null;
+    if (hadSocket && !_connectionStatusController.isClosed) _connectionStatusController.add(false);
     debugPrint('🔌 WebSocket disconnected and cleaned up');
   }
 

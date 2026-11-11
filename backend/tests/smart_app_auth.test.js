@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+process.env.JWT_SECRET = require('node:crypto').randomBytes(32).toString('hex');
 const User = require('../models/User');
 const Dropbox = require('../models/Dropbox');
 const { generateToken, verifyToken, authMiddleware } = require('../utils/auth');

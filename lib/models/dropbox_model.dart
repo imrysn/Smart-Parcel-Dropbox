@@ -13,6 +13,7 @@ class Dropbox {
   final int dropoffCount;
   final DateTime? registeredAt;
   final DateTime? lastSeenAt;
+  final HardwareDiagnostics? diagnostics;
 
   const Dropbox({
     required this.deviceId,
@@ -26,6 +27,7 @@ class Dropbox {
     this.dropoffCount = 0,
     this.registeredAt,
     this.lastSeenAt,
+    this.diagnostics,
   });
 
   /// Backward-compat accessor — returns primaryUserId or the first entry in userIds.
@@ -63,6 +65,7 @@ class Dropbox {
       lastSeenAt: json['lastSeenAt'] != null
           ? DateTime.tryParse(json['lastSeenAt'])
           : null,
+      diagnostics: HardwareDiagnostics.tryParse(json['diagnostics']),
     );
   }
 
@@ -76,6 +79,48 @@ class Dropbox {
     'wifiSSID':      wifiSSID,
     'pickupCount':   pickupCount,
     'dropoffCount':  dropoffCount,
+    if (diagnostics != null) 'diagnostics': diagnostics!.toJson(),
+  };
+}
+
+class HardwareDiagnostics {
+  const HardwareDiagnostics({
+    required this.firmwareVersion,
+    required this.wifiRssi,
+    required this.uptimeSeconds,
+    required this.reportedAt,
+  });
+
+  static const freshness = Duration(seconds: 90);
+  final String firmwareVersion;
+  final int wifiRssi;
+  final int uptimeSeconds;
+  final DateTime reportedAt;
+
+  bool isStaleAt(DateTime now) => now.difference(reportedAt) >= freshness;
+
+  static HardwareDiagnostics? tryParse(Object? data) {
+    if (data is! Map<String, dynamic>) return null;
+    final version = data['firmwareVersion'];
+    final rssi = data['wifiRssi'];
+    final uptime = data['uptimeSeconds'];
+    final timestamp = data['reportedAt'];
+    if (version is! String || version.isEmpty || rssi is! int ||
+        uptime is! int || uptime < 0 || timestamp is! String) {
+      return null;
+    }
+    final reportedAt = DateTime.tryParse(timestamp);
+    if (reportedAt == null) return null;
+    return HardwareDiagnostics(
+      firmwareVersion: version, wifiRssi: rssi, uptimeSeconds: uptime, reportedAt: reportedAt,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'firmwareVersion': firmwareVersion,
+    'wifiRssi': wifiRssi,
+    'uptimeSeconds': uptimeSeconds,
+    'reportedAt': reportedAt.toIso8601String(),
   };
 }
 

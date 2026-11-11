@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const Tracking = require('../models/Tracking');
 const Dropbox = require('../models/Dropbox');
+const { commandDoor, pairedBoxForUser } = require('../utils/deviceSessions');
 
 /**
  * GET /api/tasks
@@ -88,6 +89,7 @@ exports.updateTaskStage = async (req, res) => {
     }
 
     task.stage = stage;
+    let doorCommand = null;
 
     // If moved to READY_FOR_BOX, auto-create Tracking item & generate Courier OTP
     if (stage === 'READY_FOR_BOX') {
@@ -112,16 +114,15 @@ exports.updateTaskStage = async (req, res) => {
       });
 
       // Increment dropbox pickup count
-      let dbQuery = { userIds: userId };
-      let dropbox = await Dropbox.findOne(dbQuery);
-      if (!dropbox) dbQuery = { userId };
-      await Dropbox.updateOne(dbQuery, { $inc: { pickupCount: 1 } });
+      const dropbox = await pairedBoxForUser(userId);
+      if (dropbox) await Dropbox.updateOne({ _id: dropbox._id }, { $inc: { pickupCount: 1 } });
 
       // Signal ESP32 hardware door unlock if requested
       const io = req.app.get('io');
-      if (openDoor && io) {
-        console.log(`🚪 Task Stage READY_FOR_BOX → Unlocking Dropbox door for ${userId}`);
-        io.to('esp32_device').emit('controlDoor', { type: 'pickup', action: 'open' });
+      if (openDoor === true) {
+        doorCommand = dropbox
+          ? await commandDoor(io, dropbox.deviceId, 'pickup', 'open')
+          : { ok: false, reason: 'unpaired' };
       }
     }
 
@@ -135,7 +136,8 @@ exports.updateTaskStage = async (req, res) => {
     res.json({
       success: true,
       message: `Task moved to ${stage}`,
-      data: task
+      data: task,
+      doorCommand,
     });
   } catch (err) {
     console.error('❌ updateTaskStage error:', err.message);

@@ -10,6 +10,7 @@ import '../config/api_config.dart';
 class AuthService {
   final _storage = const FlutterSecureStorage();
   static const String _tokenKey = 'auth_token';
+  static const String _serverKey = 'auth_server_url';
   static const String _userIdKey = 'user_id';
   static const String _userEmailKey = 'user_email';
   static const String _userRoleKey = 'user_role';
@@ -17,6 +18,9 @@ class AuthService {
 
   /// Thrown or invoked when stored credentials fail server validation (401/404).
   static VoidCallback? onSessionExpired;
+  static VoidCallback? onSessionEnded;
+  static Future<void> Function()? onSessionEnding;
+  static bool _handlingExpiration = false;
 
   // Get current user ID
   Future<String?> get currentUserId async {
@@ -35,17 +39,17 @@ class AuthService {
 
   // Check if user has a stored token
   Future<bool> get isLoggedIn async {
-    final token = await _storage.read(key: _tokenKey);
+    final token = await getToken();
     return token != null && token.isNotEmpty;
   }
 
   /// Decodes JWT `exp` claim offline and returns true if missing or expired.
   Future<bool> isTokenExpired() async {
-    final token = await _storage.read(key: _tokenKey);
+    final token = await getToken();
     if (token == null || token.isEmpty) return true;
     try {
       final parts = token.split('.');
-      if (parts.length != 3) return false;
+      if (parts.length != 3) return true;
       final normalized = base64Url.normalize(parts[1]);
       final payloadJson = utf8.decode(base64Url.decode(normalized));
       final payload = jsonDecode(payloadJson);
@@ -53,9 +57,9 @@ class AuthService {
         final expMs = (payload['exp'] as num).toInt() * 1000;
         return DateTime.now().millisecondsSinceEpoch >= expMs;
       }
-      return false;
+      return true;
     } catch (_) {
-      return false;
+      return true;
     }
   }
 
@@ -69,17 +73,30 @@ class AuthService {
   }
 
   Future<void> handleSessionExpired() async {
-    await signOut();
-    onSessionExpired?.call();
+    if (_handlingExpiration) return;
+    _handlingExpiration = true;
+    try {
+      await signOut();
+      onSessionExpired?.call();
+    } finally {
+      _handlingExpiration = false;
+    }
   }
 
   // Get auth token
   Future<String?> getToken() async {
-    return await _storage.read(key: _tokenKey);
+    if (await _storage.read(key: _serverKey) != ApiConfig.serverUrl) return null;
+    return _storage.read(key: _tokenKey);
   }
 
   Future<void> _persistSession(Map<String, dynamic> data) async {
     final user = data['user'] as Map<String, dynamic>;
+    final previousUserId = await currentUserId;
+    if (previousUserId != null) {
+      onSessionEnded?.call();
+      await onSessionEnding?.call();
+    }
+    await _storage.write(key: _serverKey, value: ApiConfig.serverUrl);
     await _storage.write(key: _tokenKey, value: data['token'] as String?);
     await _storage.write(key: _userIdKey, value: user['id']?.toString());
     await _storage.write(key: _userEmailKey, value: user['email'] as String?);
@@ -117,41 +134,11 @@ class AuthService {
     required String path,
     required Map<String, dynamic> body,
   }) async {
-    if (kDebugMode &&
-        !ApiConfig.hasExplicitOverride &&
-        (!ApiConfig.hasResolved || !ApiConfig.isUsingLocalServer)) {
-      await ApiConfig.resolveServerUrl(timeout: const Duration(milliseconds: 600));
-    }
-
-    Future<http.Response> send() => http
-        .post(
-          Uri.parse('${ApiConfig.users}$path'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-        )
-        .timeout(const Duration(seconds: 20));
-
-    try {
-      return await send();
-    } catch (e) {
-      final isNetworkFailure = e is TimeoutException ||
-          e is http.ClientException ||
-          e.toString().contains('SocketException');
-      if (kDebugMode && !ApiConfig.hasExplicitOverride && isNetworkFailure) {
-        final previous = ApiConfig.serverUrl;
-        if (ApiConfig.isUsingLocalServer) {
-          if (ApiConfig.useProductionFallback() && ApiConfig.serverUrl != previous) {
-            return await send();
-          }
-        } else {
-          final resolved = await ApiConfig.resolveServerUrl();
-          if (resolved != previous) {
-            return await send();
-          }
-        }
-      }
-      rethrow;
-    }
+    return http.post(
+      Uri.parse('${ApiConfig.users}$path'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    ).timeout(const Duration(seconds: 20));
   }
 
   // Sign in with email and password
@@ -218,7 +205,10 @@ class AuthService {
 
   // Sign out
   Future<void> signOut() async {
+    onSessionEnded?.call();
+    await onSessionEnding?.call();
     await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _serverKey);
     await _storage.delete(key: _userIdKey);
     await _storage.delete(key: _userEmailKey);
     await _storage.delete(key: _userRoleKey);

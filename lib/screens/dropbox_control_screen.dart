@@ -9,6 +9,7 @@ import '../services/service_locator.dart';
 import '../services/websocket_service.dart';
 import '../services/auth_service.dart';
 import '../services/dropbox_service.dart';
+import '../services/device_control_service.dart';
 import '../services/input_validator.dart';
 import 'hardware_registration_screen.dart';
 import '../presentation/components/qr_access_badge_card.dart';
@@ -37,8 +38,10 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   StreamSubscription<Map<String, dynamic>>? _regSub;
   StreamSubscription<Map<String, dynamic>>? _unregSub;
   StreamSubscription<Map<String, dynamic>>? _doorSub;
+  StreamSubscription<bool>? _connectionSub;
 
   bool _esp32Connected = false;
+  bool _doorStateKnown = false;
   final Map<String, bool> _doorOpen = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
   final Map<String, bool> _doorProcessing = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
   final Map<String, bool?> _reedState = {'REED_TOP': null, 'REED_PICKUP': null, 'REED_RECEIVED': null};
@@ -48,15 +51,18 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   int _logicalDropoffCount = 0;
   String? _userId;
   Dropbox? _dropbox;
+  HardwareDiagnostics? _diagnostics;
+  Timer? _diagnosticsExpiry;
   bool _hasDropbox = false;
   bool _registrationChecked = false;
   int _registeredUserCount = 0; // how many users share this device
-  late String _ownerQrToken;
+  String? _ownerQrToken;
+  bool _ownerQrLoading = false;
+  Timer? _ownerQrExpiry;
 
   @override
   void initState() {
     super.initState();
-    _ownerQrToken = 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}';
     _ws = getIt<WebSocketService>();
     _init();
   }
@@ -69,7 +75,15 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
       final dropbox = await dropboxService.getUserDropbox(_userId!);
       if (mounted) {
         setState(() {
+          if (dropbox?.deviceId != _dropbox?.deviceId) {
+            _doorStateKnown = false;
+            _esp32Connected = false;
+            _ownerQrToken = null;
+            _ownerQrExpiry?.cancel();
+            _diagnostics = null;
+          }
           _dropbox = dropbox;
+          _updateDiagnostics(dropbox?.diagnostics);
           _hasDropbox = dropbox != null;
           _registrationChecked = true;
           if (dropbox != null) {
@@ -87,22 +101,39 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     } else {
       if (mounted) setState(() => _registrationChecked = true);
     }
-    _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
-    _esp32Sub = _ws.esp32StatusUpdates.listen((data) { if (mounted) setState(() => _esp32Connected = data['connected'] == true); });
+    if (!mounted) return;
+    _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel(); _connectionSub?.cancel();
+    _connectionSub = _ws.connectionStatusStream.listen((connected) {
+      if (!mounted) return;
+      if (connected) {
+        _requestHardwareState();
+      } else {
+        setState(() {
+          _esp32Connected = false;
+          _doorStateKnown = false;
+          _reedState.updateAll((_, __) => null);
+        });
+      }
+    });
+    _esp32Sub = _ws.esp32StatusUpdates.listen((data) {
+      if (!mounted || !_matchesDropbox(data)) return;
+      setState(() {
+        _esp32Connected = data['connected'] == true;
+        _updateDiagnostics(HardwareDiagnostics.tryParse(data['diagnostics']));
+        if (!_esp32Connected) {
+          _doorStateKnown = false;
+          _reedState.updateAll((_, __) => null);
+        }
+      });
+      if (_esp32Connected && !_doorStateKnown) _ws.requestDoorStatus();
+    });
     _regSub = getIt<DropboxService>().deviceRegisteredStream.listen((_) => _init());
     _unregSub = getIt<DropboxService>().deviceUnregisteredStream.listen((data) {
       if (data['success'] == true || data['removedByOwner'] == true) _init();
     });
-    _doorSub = _ws.doorStateUpdates.listen((data) {
-      if (!mounted) return;
-      setState(() {
-        if (data.containsKey('parcelDoorOpen')) _doorOpen[kDoorTop] = data['parcelDoorOpen'] == true;
-        if (data.containsKey('pickupDoorOpen')) _doorOpen[kDoorPickup] = data['pickupDoorOpen'] == true;
-        if (data.containsKey('receivedDoorOpen')) _doorOpen[kDoorReceived] = data['receivedDoorOpen'] == true;
-      });
-    });
+    _doorSub = _ws.doorStateUpdates.listen(_applyDoorState);
     _binSub = _ws.binStatusUpdates.listen((data) {
-      if (!mounted) return;
+      if (!mounted || !_matchesDropbox(data)) return;
       setState(() {
         final usPickup = (data['US_PICKUP'] as num?)?.toDouble();
         final usDropoff = (data['US_DROPOFF'] as num?)?.toDouble();
@@ -127,7 +158,41 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
         if (data.containsKey('REED_RECEIVED')) _reedState['REED_RECEIVED'] = data['REED_RECEIVED'];
       });
     });
-    _ws.requestEsp32Status(); _ws.requestDoorStatus();
+    _requestHardwareState();
+  }
+
+  bool _matchesDropbox(Map<String, dynamic> data) =>
+      _dropbox != null && data['deviceId'] == _dropbox!.deviceId;
+
+  void _updateDiagnostics(HardwareDiagnostics? reading) {
+    if (reading != null && !(_diagnostics?.reportedAt.isAfter(reading.reportedAt) ?? false)) {
+      _diagnostics = reading;
+    }
+    _diagnosticsExpiry?.cancel();
+    final report = _diagnostics;
+    if (report == null) return;
+    final remaining = report.reportedAt.add(HardwareDiagnostics.freshness).difference(DateTime.now());
+    if (remaining > Duration.zero) {
+      _diagnosticsExpiry = Timer(remaining, () {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  void _requestHardwareState() {
+    _ws.requestEsp32Status();
+    _ws.requestDoorStatus();
+  }
+
+  void _applyDoorState(Map<String, dynamic> data) {
+    if (!mounted || !_matchesDropbox(data)) return;
+    if (data['parcelDoorOpen'] is! bool || data['pickupDoorOpen'] is! bool || data['receivedDoorOpen'] is! bool) return;
+    setState(() {
+      _doorOpen[kDoorTop] = data['parcelDoorOpen'] as bool;
+      _doorOpen[kDoorPickup] = data['pickupDoorOpen'] as bool;
+      _doorOpen[kDoorReceived] = data['receivedDoorOpen'] as bool;
+      _doorStateKnown = true;
+    });
   }
 
   double _cmToFill(double cm) {
@@ -137,7 +202,9 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
 
   @override
   void dispose() {
-    _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
+    _diagnosticsExpiry?.cancel();
+    _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel(); _connectionSub?.cancel();
+    _ownerQrExpiry?.cancel();
     super.dispose();
   }
 
@@ -158,21 +225,62 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     ));
   }
 
-  void _toggleDoor(String doorType) {
+  Future<void> _toggleDoor(String doorType) async {
     if (!_esp32Connected) {
       _showOfflineError();
       return;
     }
-    final isOpen = _doorOpen[doorType]!;
-    setState(() { _doorProcessing[doorType] = true; _doorOpen[doorType] = !isOpen; });
-    _ws.emitControlDoor(doorType, isOpen ? 'close' : 'open');
-    Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _doorProcessing[doorType] = false); });
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('${isOpen ? 'Securing' : 'Opening'} ${_doorLabel(doorType)}...'),
-      behavior: SnackBarBehavior.floating,
-      backgroundColor: isOpen ? UserTheme.statusError : UserTheme.statusSuccess,
-    ));
+    final deviceId = _dropbox?.deviceId;
+    if (deviceId == null || _doorProcessing.values.any((pending) => pending)) return;
+    if (!_doorStateKnown) {
+      _requestHardwareState();
+      return;
+    }
+    final unlock = !_doorOpen[doorType]!;
+    setState(() => _doorProcessing[doorType] = true);
+    try {
+      final state = await getIt<DeviceControlService>().setDoorLock(
+        doorType: doorType, unlock: unlock, deviceId: deviceId,
+      );
+      _applyDoorState(state);
+      if (!mounted || _dropbox?.deviceId != deviceId) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${_doorLabel(doorType)} ${unlock ? 'unlocked' : 'locked'}'),
+      ));
+    } catch (error) {
+      if (!mounted || _dropbox?.deviceId != deviceId) return;
+      setState(() => _doorStateKnown = false);
+      _requestHardwareState();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error is StateError ? error.message : 'The dropbox did not confirm the lock state.'),
+      ));
+    } finally {
+      if (mounted) setState(() => _doorProcessing[doorType] = false);
+    }
+  }
+
+  Future<void> _refreshOwnerBadge() async {
+    if (_ownerQrLoading) return;
+    final deviceId = _dropbox?.deviceId;
+    setState(() => _ownerQrLoading = true);
+    try {
+      final pass = await _ws.requestOwnerPass();
+      if (!mounted || _dropbox?.deviceId != deviceId) return;
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(pass['expiresAt'] as int);
+      _ownerQrExpiry?.cancel();
+      setState(() => _ownerQrToken = pass['token'] as String);
+      _ownerQrExpiry = Timer(expiresAt.difference(DateTime.now()), () {
+        if (mounted) setState(() => _ownerQrToken = null);
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not create an access QR. Check your connection.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _ownerQrLoading = false);
+    }
   }
 
   void _showUnregisterConfirmation() {
@@ -242,14 +350,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                 if (_hasDropbox) ...[
                   QrAccessBadgeCard(
                     qrToken: _ownerQrToken,
-                    onRefresh: () {
-                      setState(() {
-                        _ownerQrToken = 'SPD-QR-${DateTime.now().millisecondsSinceEpoch}';
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Dynamic QR Access Token Refreshed'), behavior: SnackBarBehavior.floating),
-                      );
-                    },
+                    onRefresh: _ownerQrLoading ? null : _refreshOwnerBadge,
                   ),
                   const SizedBox(height: 24),
                   UserUi.sectionTitle(context, 'Door Controls', subtitle: 'Lock or unlock compartments remotely'),
@@ -317,6 +418,10 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
               ),
             ],
           ),
+          if (_hasDropbox) ...[
+            const SizedBox(height: 14),
+            _buildDiagnostics(),
+          ],
           const SizedBox(height: 18),
           if (!_hasDropbox) ...[
             UserUi.premiumButton(
@@ -377,6 +482,32 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildDiagnostics() {
+    final report = _diagnostics;
+    final style = Theme.of(context).textTheme.bodySmall;
+    if (report == null) return Text('No hardware diagnostics reported yet.', style: style);
+
+    final stale = !_esp32Connected || report.isStaleAt(DateTime.now());
+    final date = report.reportedAt.toLocal();
+    final localizations = MaterialLocalizations.of(context);
+    final time = localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date));
+    final uptime = Duration(seconds: report.uptimeSeconds);
+    final uptimeLabel = uptime.inHours > 0
+        ? '${uptime.inHours} h ${uptime.inMinutes.remainder(60)} min'
+        : uptime.inMinutes > 0 ? '${uptime.inMinutes} min' : '${uptime.inSeconds} sec';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(stale ? 'Hardware diagnostics · Stale' : 'Hardware diagnostics',
+            style: style?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        Text('Firmware ${report.firmwareVersion} · Wi-Fi ${report.wifiRssi} dBm', style: style),
+        Text('Uptime $uptimeLabel · ${localizations.formatShortDate(date)} $time', style: style),
+      ],
     );
   }
 
@@ -524,8 +655,8 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   UserUi.statusPill(
-                    label: isOpen ? 'Open' : 'Locked',
-                    color: isOpen ? UserTheme.statusSuccess : UserTheme.statusError,
+                    label: !_doorStateKnown ? 'Unknown' : (isOpen ? 'Unlocked' : 'Locked'),
+                    color: !_doorStateKnown ? UserTheme.statusWarning : (isOpen ? UserTheme.statusSuccess : UserTheme.statusError),
                   ),
                   if (reedOpen == true) ...[
                     const SizedBox(height: 4),
@@ -545,9 +676,9 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
           const SizedBox(height: 16),
           UserUi.premiumButton(
             label: isProcessing
-                ? 'Working...'
-                : (isOpen ? 'Lock Door' : 'Unlock Door'),
-            onTap: isProcessing ? () {} : () => _toggleDoor(doorType),
+                ? 'Waiting for dropbox…'
+                : (!_doorStateKnown ? 'Refresh lock state' : (isOpen ? 'Lock Door' : 'Unlock Door')),
+            onTap: _doorProcessing.values.any((pending) => pending) ? () {} : () => _toggleDoor(doorType),
             icon: isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
             fontSize: 14,
             color: !_esp32Connected

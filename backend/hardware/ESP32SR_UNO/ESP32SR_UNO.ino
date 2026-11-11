@@ -27,6 +27,7 @@
 #include <SocketIOclient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h> // ESP32 Task Watchdog Timer
+#include <esp_timer.h>
 #include <Preferences.h>  // NVS (Non-Volatile Storage) for persisting credentials
 
 #define WDT_TIMEOUT 8 // Watchdog timeout in seconds
@@ -87,6 +88,7 @@ void emitVerifyScan(const String& trackingId, const String& mode);
 void emitVerifyRider(const String& riderId);
 void emitStatusUpdate(const String& trackingId, const String& status, const String& mode);
 void emitDoorState();
+void sendDeviceHeartbeat(bool immediate);
 void handleRegisterTracking(const String& payload);
 void handleScanResult(const String& payload);
 void handleRiderVerifyResult(const String& payload);
@@ -246,6 +248,7 @@ void loop() {
   
   // 1. Maintain background tasks
   socketIO.loop();
+  sendDeviceHeartbeat(false);
   // esp_task_wdt_reset(); // Disabled to prevent "task not found" spam after detaching main loop
   processSensors();
   

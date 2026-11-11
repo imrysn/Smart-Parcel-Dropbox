@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../config/api_config.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import 'login_screen.dart';
@@ -38,10 +37,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkAuthState() async {
-    await Future.wait([
-      Future.delayed(const Duration(milliseconds: 650)),
-      ApiConfig.resolveServerUrl(),
-    ]);
+    await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) return;
 
     final isLoggedIn = await _authService.isLoggedIn;

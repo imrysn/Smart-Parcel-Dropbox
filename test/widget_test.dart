@@ -29,6 +29,10 @@ class MockNotificationService extends Mock implements NotificationService {
 
 class MockWebSocketService extends Mock implements WebSocketService {
   @override
+  Stream<bool> get connectionStatusStream => const Stream.empty();
+  @override
+  bool get isConnected => false;
+  @override
   Stream<Map<String, dynamic>> get ownerAccessAlerts => const Stream.empty();
   @override
   void dispose() {}

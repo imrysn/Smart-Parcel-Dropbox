@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show Platform, Process;
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -311,34 +311,12 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
-      final qrPassUrl = "https://quickchart.io/qr?text=$trackingId&size=350";
-
-      final pickupPassText = 
-          "📦 SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
+      final pickupPassText =
+          "SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
           "Tracking ID: $trackingId\n"
           "Courier: $courierName\n"
           "Customer: $customerName\n\n"
-          "HOW TO UNLOCK DROPBOX:\n"
-          "1. Press the physical 'PICKUP' button on the Dropbox.\n"
-          "2. Scan the Waybill barcode directly from your $courierName Rider App or parcel slip.\n\n"
-          "👉 Or tap to open your Digital QR Pass:\n"
-          "$qrPassUrl\n\n"
-          "The pickup door will unlock automatically!";
-
-      Future<void> launchSms(String phone, String body) async {
-        final encoded = Uri.encodeComponent(body);
-        if (!kIsWeb && Platform.isWindows) {
-          try {
-            await Process.run('cmd', ['/c', 'start', 'sms:$phone?body=$encoded']);
-          } catch (_) {}
-        }
-        await Clipboard.setData(ClipboardData(text: body));
-      }
-
-      // Automatically trigger SMS dispatch immediately if rider phone is provided
-      if (riderPhone.isNotEmpty) {
-        await launchSms(riderPhone, pickupPassText);
-      }
+          "At the dropbox, select Pickup and scan the waybill barcode.";
 
       if (mounted) {
         final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -469,35 +447,9 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                             ),
                           ),
 
-                          // SMS Automated Dispatch Status
                           if (riderPhone.isNotEmpty) ...[
                             const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.09),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.green.withOpacity(0.25)),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.mark_email_read_rounded, color: Colors.green, size: 15),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      'SMS auto-sent to Rider ($riderPhone)',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.green,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                            Text('Rider: $riderPhone', textAlign: TextAlign.center),
                           ],
 
                           // In-Modal Immediate Feedback Toast (In front of dialog)
@@ -542,28 +494,6 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                           // Action Controls: Balanced & Modern
                           Row(
                             children: [
-                              if (riderPhone.isNotEmpty) ...[
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.green.shade700,
-                                      side: BorderSide(color: Colors.green.shade600),
-                                      padding: const EdgeInsets.symmetric(vertical: 12),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                    icon: const Icon(Icons.refresh_rounded, size: 16),
-                                    label: const Text(
-                                      'Re-send SMS',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                    ),
-                                    onPressed: () async {
-                                      await launchSms(riderPhone, pickupPassText);
-                                      triggerFeedback('SMS re-opened for $riderPhone!');
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                              ],
                               Expanded(
                                 child: ElevatedButton.icon(
                                   style: ElevatedButton.styleFrom(
@@ -578,7 +508,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                                     size: 16,
                                   ),
                                   label: Text(
-                                    isPassCopied ? 'Pass Copied!' : 'Share Pass',
+                                    isPassCopied ? 'Pass Copied!' : 'Copy Pickup Pass',
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                                   ),
                                   onPressed: () async {
@@ -664,7 +594,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         };
       }).toList();
 
-      final created = await _trackingService.batchStageOutboundPackages(
+      final result = await _trackingService.batchStageOutboundPackages(
         packages: packages,
         shopName: _batchShopNameController.text.trim(),
         openDoor: _openDoorForBatch,
@@ -685,7 +615,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Successfully registered ${created.length} packages for pickup via $_selectedCourierBatch.'),
+                Text('Successfully registered ${result.packages.length} packages for pickup via $_selectedCourierBatch.'),
                 const SizedBox(height: 12),
                 if (_openDoorForBatch)
                   Container(
@@ -696,13 +626,16 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                       border: Border.all(color: UserTheme.statusSuccess.withOpacity(0.3)),
                     ),
                     child: Row(
-                      children: const [
-                        Icon(Icons.lock_open, color: UserTheme.statusSuccess),
-                        SizedBox(width: 8),
+                      children: [
+                        Icon(result.doorConfirmed ? Icons.lock_open : Icons.warning_amber_rounded,
+                          color: result.doorConfirmed ? UserTheme.statusSuccess : UserTheme.statusWarning),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Dropbox door signal sent! Open box and deposit all parcels now.',
-                            style: TextStyle(color: UserTheme.statusSuccess, fontWeight: FontWeight.bold, fontSize: 13),
+                            result.doorConfirmed
+                                ? 'Pickup lock confirmed unlocked. You can deposit the parcels.'
+                                : 'Parcels registered. The dropbox did not confirm an unlock.',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                         ),
                       ],
@@ -964,7 +897,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                       controller: _riderPhoneController,
                       keyboardType: TextInputType.phone,
                       decoration: _buildInputDecoration(
-                        label: 'Courier / Rider Phone (For SMS Dispatch)',
+                        label: 'Courier / Rider Phone (optional)',
                         hint: 'e.g. 09123456789 (Optional)',
                         prefixIcon: Icons.sms_outlined,
                         isDark: isDark,

@@ -37,7 +37,7 @@ exports.handleShopeeWebhook = async (req, res) => {
     });
 
     const io = req.app.get('io');
-    if (io) io.emit('taskUpdate', task);
+    if (io) io.to(userId).emit('taskUpdate', task);
 
     res.json({ success: true, message: 'Shopee webhook processed', data: task });
   } catch (err) {
@@ -69,7 +69,7 @@ exports.handleTikTokWebhook = async (req, res) => {
     });
 
     const io = req.app.get('io');
-    if (io) io.emit('taskUpdate', task);
+    if (io) io.to(userId).emit('taskUpdate', task);
 
     res.json({ success: true, message: 'TikTok webhook processed', data: task });
   } catch (err) {
@@ -100,7 +100,7 @@ exports.handleInstagramWebhook = async (req, res) => {
     });
 
     const io = req.app.get('io');
-    if (io) io.emit('taskUpdate', task);
+    if (io) io.to(userId).emit('taskUpdate', task);
 
     res.json({ success: true, message: 'Instagram webhook processed', data: task });
   } catch (err) {

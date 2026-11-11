@@ -1,6 +1,7 @@
 const Tracking = require('../models/Tracking');
 const DeliveryLog = require('../models/DeliveryLog');
 const Notification = require('../models/Notification');
+const { deviceRoom, pairedBoxForUser } = require('../utils/deviceSessions');
 
 function escapeRegex(text) {
     return (text || '').replace(/[-[\]{}()*+?.:\\^$|#\s]/g, '\\$&');
@@ -15,12 +16,7 @@ exports.registerTracking = async (req, res) => {
         const escaped = escapeRegex(trackingId);
 
         const exists = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
-        if (exists) {
-            console.log(`[TESTING] Tracking ID ${trackingId} already exists. Overwriting for reuse.`);
-            // Clean up old records for a fresh start
-            await Tracking.deleteOne({ _id: exists._id });
-            await DeliveryLog.deleteMany({ trackingId: exists.trackingId });
-        }
+        if (exists) return res.status(409).json({ message: 'Tracking ID is already registered' });
 
         const tracking = await Tracking.create({
             trackingId,
@@ -30,22 +26,22 @@ exports.registerTracking = async (req, res) => {
             mode: mode || 'drop_off',
         });
 
-        // Use global io if available
         const io = req.app.get('io');
+        const box = io ? await pairedBoxForUser(userId) : null;
         if (io) {
             io.to(userId).emit('trackingUpdate', tracking);
-            io.to('esp32_device').emit('registerTracking', { trackingId, mode: mode || 'drop_off' });
-            console.log(`[SOCKET] trackingUpdate emitted for user: ${userId} & esp32_device`);
+            if (box) io.to(deviceRoom(box.deviceId)).emit('registerTracking', { trackingId, mode: tracking.mode });
         }
 
         // Create a notification for the registration
         const isPickUp = mode === 'pick_up' || mode === 'pickup';
-        await Notification.create({
+        const notification = await Notification.create({
             userId,
             title: isPickUp ? 'Pickup Registered' : 'Delivery Registered',
             message: `Tracking ID ${trackingId} has been registered for ${isPickUp ? 'pick up' : 'drop off'}.`,
             type: 'system_alert'
         });
+        if (io) io.to(userId).emit('notificationNew', notification);
 
         res.status(201).json(tracking);
     } catch (error) {
@@ -241,7 +237,7 @@ exports.simulateTracking = async (req, res) => {
 
                 if (io) {
                     io.to(updated.userId).emit('trackingUpdate', updated);
-                    io.emit('trackingStatusChanged', {
+                    io.to(updated.userId).emit('trackingStatusChanged', {
                         trackingId,
                         status: nextStatus,
                         mode: updated.mode,

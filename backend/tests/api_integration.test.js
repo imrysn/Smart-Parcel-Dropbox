@@ -2,14 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 
-const BASE_URL = process.env.TEST_API_URL || 'http://localhost:3000';
+const { once } = require('node:events');
+let baseUrl = process.env.TEST_API_URL;
 
 /**
  * Helper to execute HTTP request for testing
  */
 function makeRequest(path, method = 'GET', body = null, headers = {}) {
   return new Promise((resolve, reject) => {
-    const url = new URL(path, BASE_URL);
+    const url = new URL(path, baseUrl);
     const reqHeaders = { 'Content-Type': 'application/json', ...headers };
     let postData = null;
     if (body) {
@@ -17,7 +18,7 @@ function makeRequest(path, method = 'GET', body = null, headers = {}) {
       reqHeaders['Content-Length'] = Buffer.byteLength(postData);
     }
 
-    const req = http.request(
+    const req = (url.protocol === 'https:' ? require('node:https') : http).request(
       url,
       {
         method,
@@ -50,42 +51,34 @@ function makeRequest(path, method = 'GET', body = null, headers = {}) {
 }
 
 test('REST API Integration Suite', async (t) => {
-  await t.test('GET /health should return 200 and status online', async () => {
-    try {
-      const res = await makeRequest('/health');
-      assert.equal(res.statusCode, 200);
-      assert.equal(res.body.status, 'online');
-      assert.ok(res.body.timestamp);
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping live endpoint check.`);
-    }
+  if (!baseUrl) {
+    const { server, io } = require('../server');
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+    t.after(() => new Promise(resolve => io.close(resolve)));
+  }
+
+  await t.test('GET /health returns server status', async () => {
+    const res = await makeRequest('/health');
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.status, 'online');
+    assert.ok(res.body.timestamp);
   });
 
-  await t.test('GET / should return API metadata', async () => {
-    try {
-      const res = await makeRequest('/');
-      assert.equal(res.statusCode, 200);
-      assert.equal(res.body.name, 'Smart Parcel Drop Box API');
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping live endpoint check.`);
-    }
+  await t.test('GET / returns API metadata', async () => {
+    const res = await makeRequest('/');
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.name, 'Smart Parcel Drop Box API');
   });
 
-  await t.test('POST /api/users/login without body should fail validation with 400', async () => {
-    try {
-      const res = await makeRequest('/api/users/login', 'POST', {});
-      assert.equal(res.statusCode, 400);
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping validation test.`);
-    }
+  await t.test('login rejects an empty request', async () => {
+    const res = await makeRequest('/api/users/login', 'POST', {});
+    assert.equal(res.statusCode, 400);
   });
 
-  await t.test('GET /device-control without auth token should return 401', async () => {
-    try {
-      const res = await makeRequest('/device-control');
-      assert.equal(res.statusCode, 401);
-    } catch (err) {
-      t.diagnostic(`Server not running at ${BASE_URL}. Skipping device-control test.`);
-    }
+  await t.test('device control requires a session', async () => {
+    const res = await makeRequest('/device-control');
+    assert.equal(res.statusCode, 401);
   });
 });

@@ -5,6 +5,7 @@ const Tracking = require('../models/Tracking');
 const Rider = require('../models/Rider');
 const { sendResetCode } = require('../utils/emailService');
 const { generateToken } = require('../utils/auth');
+const { deviceRoom } = require('../utils/deviceSessions');
 const bcrypt = require('bcryptjs');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -253,7 +254,7 @@ exports.deleteUser = async (req, res) => {
                     }
                 );
                 if (io) {
-                    io.to('esp32_device').emit('deviceUnregistered', { deviceId: box.deviceId });
+                    io.to(deviceRoom(box.deviceId)).emit('deviceUnregistered', { deviceId: box.deviceId });
                 }
             } else {
                 const nextPrimary = box.primaryUserId === userId ? remaining[0] : box.primaryUserId;
