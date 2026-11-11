@@ -854,7 +854,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
           children: [
             // Tab 1: Single Outbound Customer Order Staging
             SingleChildScrollView(
-              padding: const EdgeInsets.all(20.0),
+              padding: UserUi.listPadding(context, top: 20, bottom: 40),
               child: Form(
                 key: _formKeyOutbound,
                 child: Column(
@@ -957,7 +957,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
 
             // Tab 2: Batch Outbound Staging & 1-Tap Unlock
             SingleChildScrollView(
-              padding: const EdgeInsets.all(20.0),
+              padding: UserUi.listPadding(context, top: 20, bottom: 40),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -1067,7 +1067,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
 
             // Tab 3: Personal Pickup
             SingleChildScrollView(
-              padding: const EdgeInsets.all(20.0),
+              padding: UserUi.listPadding(context, top: 20, bottom: 40),
               child: Form(
                 key: _formKeyPersonal,
                 child: Column(

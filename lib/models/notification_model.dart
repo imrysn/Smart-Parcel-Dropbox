@@ -84,9 +84,79 @@ class NotificationModel {
     };
   }
 
+  static const List<String> _monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String get _combinedText =>
+      '${type.toLowerCase()} ${title.toLowerCase()} ${message.toLowerCase()}';
+
+  /// Whether this alert relates to parcel deliveries, pickups, or rider dispatches.
+  bool get isDeliveryAlert {
+    final text = _combinedText;
+    return type == 'delivery' ||
+        type == 'parcel_delivered' ||
+        type == 'parcel_retrieved' ||
+        type == 'status_update' ||
+        text.contains('parcel') ||
+        text.contains('pickup') ||
+        text.contains('rider') ||
+        text.contains('delivery') ||
+        text.contains('delivered') ||
+        text.contains('dispatch');
+  }
+
+  /// Whether this alert relates to access, scans, household sharing, or security.
+  bool get isSecurityAlert {
+    final text = _combinedText;
+    return type == 'access_denied' ||
+        type == 'access_granted' ||
+        type == 'scan_attempt' ||
+        text.contains('owner') ||
+        text.contains('verify') ||
+        text.contains('denied') ||
+        text.contains('scan') ||
+        text.contains('security') ||
+        text.contains('household') ||
+        text.contains('member') ||
+        text.contains('access');
+  }
+
+  /// Chronological section header using calendar day boundaries.
+  String getDateGroupLabel() {
+    final local = timestamp.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final itemDay = DateTime(local.year, local.month, local.day);
+    final dayDiff = today.difference(itemDay).inDays;
+
+    if (dayDiff <= 0) return 'Today';
+    if (dayDiff == 1) return 'Yesterday';
+    if (dayDiff < 7) return 'This Week';
+    return 'Earlier';
+  }
+
+  /// Concise timestamp suited for notification card headers.
+  String getCompactTimestamp() {
+    final local = timestamp.toLocal();
+    final now = DateTime.now();
+    final diff = now.difference(local);
+
+    if (diff.inSeconds < 60 && diff.inSeconds >= 0) return 'Just now';
+    if (diff.inMinutes < 60 && diff.inMinutes >= 0) return '${diff.inMinutes}m ago';
+    if (local.year == now.year && local.month == now.month && local.day == now.day) {
+      return _formatTime(local);
+    }
+    if (local.year == now.year) {
+      return '${_monthNames[local.month - 1]} ${local.day} · ${_formatTime(local)}';
+    }
+    return '${_monthNames[local.month - 1]} ${local.day}, ${local.year}';
+  }
+
   /// Get formatted date and time string
   String getFormattedDateTime() {
-    final date = timestamp;
+    final date = timestamp.toLocal();
     final now = DateTime.now();
     final difference = now.difference(date);
 
@@ -95,20 +165,16 @@ class NotificationModel {
         if (difference.inMinutes == 0) {
           return 'Just now';
         }
-        return '${difference.inMinutes} minute${difference.inMinutes == 1 ? '' : 's'} ago';
+        return '${difference.inMinutes}m ago';
       }
-      return '${difference.inHours} hour${difference.inHours == 1 ? '' : 's'} ago';
+      return '${difference.inHours}h ago';
     } else if (difference.inDays == 1) {
       return 'Yesterday at ${_formatTime(date)}';
     } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago at ${_formatTime(date)}';
+      return '${difference.inDays}d ago · ${_formatTime(date)}';
     } else {
-      return '${_formatDate(date)} at ${_formatTime(date)}';
+      return '${_monthNames[date.month - 1]} ${date.day}, ${date.year} · ${_formatTime(date)}';
     }
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 
   String _formatTime(DateTime date) {
@@ -117,45 +183,55 @@ class NotificationModel {
     return '$hour:$minute';
   }
 
-  /// Get icon based on notification type
+  /// Get icon identifier based on notification type and semantic content.
   String getIconName() {
-    switch (type) {
-      case 'scan_attempt':
-        return 'qr_code_scanner';
-      case 'access_granted':
-        return 'check_circle';
-      case 'access_denied':
-        return 'cancel';
-      case 'delivery':
-        return 'local_shipping';
-      case 'status_update':
-        return 'update';
-      case 'parcel_delivered':
-        return 'inventory';
-      case 'parcel_retrieved':
-        return 'check_box';
-      default:
-        return 'notifications';
+    final text = _combinedText;
+    if (type == 'access_denied' || text.contains('denied') || text.contains('failed') || text.contains('unauthorized')) {
+      return 'cancel';
     }
+    if (type == 'parcel_delivered' || text.contains('delivered') || text.contains('dropped off')) {
+      return 'inventory';
+    }
+    if (type == 'parcel_retrieved' || text.contains('retrieved') || text.contains('collected')) {
+      return 'check_box';
+    }
+    if (type == 'access_granted' || text.contains('owner') || text.contains('granted') || text.contains('verified')) {
+      return 'check_circle';
+    }
+    if (type == 'scan_attempt' || text.contains('scan') || text.contains('qr')) {
+      return 'qr_code_scanner';
+    }
+    if (text.contains('household') || text.contains('member')) {
+      return 'group';
+    }
+    if (type == 'delivery' || text.contains('pickup') || text.contains('rider') || text.contains('dispatch')) {
+      return 'local_shipping';
+    }
+    if (type == 'status_update') {
+      return 'update';
+    }
+    return 'notifications';
   }
 
-  /// Get color based on notification type
+  /// Get semantic accent color based on notification type and content.
   int getColorValue() {
-    switch (type) {
-      case 'access_granted':
-      case 'parcel_delivered':
-      case 'parcel_retrieved':
-        return 0xFF4CAF50; // Green
-      case 'access_denied':
-        return 0xFFF44336; // Red
-      case 'scan_attempt':
-      case 'status_update':
-        return 0xFF2196F3; // Blue
-      case 'delivery':
-        return 0xFFFF9800; // Orange
-      default:
-        return 0xFF757575; // Grey
+    final text = _combinedText;
+    if (type == 'access_denied' || text.contains('denied') || text.contains('failed') || text.contains('unauthorized')) {
+      return 0xFFDC2626; // Red
     }
+    if (type == 'access_granted' ||
+        type == 'parcel_delivered' ||
+        type == 'parcel_retrieved' ||
+        text.contains('delivered') ||
+        text.contains('retrieved') ||
+        text.contains('collected') ||
+        text.contains('granted')) {
+      return 0xFF16A34A; // Green
+    }
+    if (type == 'scan_attempt' || type == 'status_update' || text.contains('owner') || text.contains('verify')) {
+      return 0xFF2563EB; // Blue
+    }
+    return 0xFFFF9800; // Signature Orange
   }
 }
 

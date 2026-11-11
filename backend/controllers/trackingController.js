@@ -70,18 +70,18 @@ exports.getUserTracking = async (req, res) => {
     }
 };
 
-// @desc    Get all tracking IDs (Admin)
+// @desc    Get tracking IDs owned by authenticated user
 // @route   GET /api/tracking
 exports.getAllTracking = async (req, res) => {
     try {
-        const tracking = await Tracking.find().sort({ createdAt: -1 });
+        const tracking = await Tracking.find({ userId: req.userId }).sort({ createdAt: -1 });
         res.json(tracking);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
 
-// @desc    Get tracking by ID (case-insensitive)
+// @desc    Get tracking by ID (case-insensitive, owner-scoped)
 // @route   GET /api/tracking/:trackingId
 exports.getTrackingById = async (req, res) => {
     try {
@@ -91,21 +91,33 @@ exports.getTrackingById = async (req, res) => {
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
         }
+        if (tracking.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot access another user\'s parcel' });
+        }
         res.json(tracking);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
 
-// @desc    Update tracking status (case-insensitive)
+// @desc    Update tracking status (case-insensitive, owner-scoped)
 // @route   PATCH /api/tracking/:trackingId/status
 exports.updateTrackingStatus = async (req, res) => {
     try {
         const { status } = req.body;
         const rawId = (req.params.trackingId || '').trim();
         const escaped = escapeRegex(rawId);
+        const existing = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+
+        if (!existing) {
+            return res.status(404).json({ message: 'Tracking ID not found' });
+        }
+        if (existing.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot update another user\'s parcel' });
+        }
+
         const tracking = await Tracking.findOneAndUpdate(
-            { trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } },
+            { _id: existing._id },
             {
                 $set: {
                     status,
@@ -115,10 +127,6 @@ exports.updateTrackingStatus = async (req, res) => {
             },
             { new: true }
         );
-
-        if (!tracking) {
-            return res.status(404).json({ message: 'Tracking ID not found' });
-        }
 
         // Log the change in DeliveryLog
         await DeliveryLog.create({
@@ -152,8 +160,9 @@ exports.resetTracking = async (req, res) => {
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
         }
-
-        const completedStatuses = ['delivered', 'done', 'retrieved', 'awaiting_pickup', 'ready_for_pickup'];
+        if (tracking.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot reset another user\'s parcel' });
+        }
         if (!completedStatuses.includes(tracking.status)) {
             return res.status(400).json({
                 message: `Cannot reset: status is '${tracking.status}'. Only completed parcels can be reset.`
@@ -195,6 +204,9 @@ exports.simulateTracking = async (req, res) => {
 
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
+        }
+        if (tracking.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot simulate another user\'s parcel' });
         }
 
         const trackingId = tracking.trackingId;

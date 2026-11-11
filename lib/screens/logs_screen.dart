@@ -99,17 +99,26 @@ class _LogsScreenState extends State<LogsScreen> {
         ),
         body: Column(
           children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
-              child: Row(
-                children: [
-                  _buildFilterChip('All', 'all'),
-                  const SizedBox(width: 8),
-                  _buildFilterChip('Granted', 'granted'),
-                  const SizedBox(width: 8),
-                  _buildFilterChip('Denied', 'denied'),
-                ],
+            UserUi.responsiveContainer(
+              context,
+              maxWidth: 600,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.fromLTRB(
+                  UserUi.horizontalGutter(context),
+                  10,
+                  UserUi.horizontalGutter(context),
+                  6,
+                ),
+                child: Row(
+                  children: [
+                    _buildFilterChip('All', 'all'),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Granted', 'granted'),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Denied', 'denied'),
+                  ],
+                ),
               ),
             ),
             Expanded(
@@ -148,7 +157,7 @@ class _LogsScreenState extends State<LogsScreen> {
                   }
 
                   return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    padding: UserUi.listPadding(context, top: 8, bottom: 32),
                     itemCount: filteredLogs.length,
                     itemBuilder: (context, index) => _buildLogCard(filteredLogs[index]),
                   );

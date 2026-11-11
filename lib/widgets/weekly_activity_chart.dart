@@ -92,7 +92,7 @@ class WeeklyActivityChart extends StatelessWidget {
                           TextSpan(
                             text: 'received : ${receivedData[group.x]}\n',
                             style: const TextStyle(
-                              color: UserTheme.accentAmberDark,
+                              color: UserTheme.primaryOrange,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -100,7 +100,7 @@ class WeeklyActivityChart extends StatelessWidget {
                           TextSpan(
                             text: 'delivered : ${deliveredData[group.x]}',
                             style: const TextStyle(
-                              color: UserTheme.sunsetEnd,
+                              color: UserTheme.statusSuccess,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -169,13 +169,13 @@ class WeeklyActivityChart extends StatelessWidget {
                     barRods: [
                       BarChartRodData(
                         toY: receivedData[i].toDouble(),
-                        color: UserTheme.accentAmberDark,
+                        color: UserTheme.primaryOrange,
                         width: 8,
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                       ),
                       BarChartRodData(
                         toY: deliveredData[i].toDouble(),
-                        color: UserTheme.gradientPink,
+                        color: UserTheme.statusSuccess,
                         width: 8,
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                       ),
@@ -190,9 +190,9 @@ class WeeklyActivityChart extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildLegendItem('received', UserTheme.accentAmberDark),
+              _buildLegendItem('received', UserTheme.primaryOrange),
               const SizedBox(width: 20),
-              _buildLegendItem('delivered', UserTheme.gradientPink),
+              _buildLegendItem('delivered', UserTheme.statusSuccess),
             ],
           ),
         ],

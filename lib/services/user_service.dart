@@ -2,14 +2,18 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
-import '../models/user_model.dart';
 import '../config/api_config.dart';
 import 'service_locator.dart';
 import 'auth_service.dart';
 
-/// User Service - Handles user management operations
-///
-/// Single Responsibility: Manage user data and profiles
+class SessionExpiredException implements Exception {
+  final String message;
+  SessionExpiredException([this.message = 'Session expired. Please sign in again.']);
+  @override
+  String toString() => message;
+}
+
+/// User Service - Handles self-service user profile and security operations.
 class UserService {
   static UserService? _instance;
 
@@ -21,15 +25,32 @@ class UserService {
   UserService._internal();
   final _authService = getIt<AuthService>();
 
-  final _usersController = StreamController<List<UserModel>>.broadcast();
-  List<UserModel> _cachedUsers = [];
-  bool _isFetching = false;
+  /// Validate stored JWT session and fetch current user profile.
+  /// Throws [SessionExpiredException] on 401/404; returns null on transient network errors.
+  Future<Map<String, dynamic>?> getMe({Duration timeout = const Duration(seconds: 10)}) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http
+          .get(Uri.parse('${ApiConfig.users}/me'), headers: headers)
+          .timeout(timeout);
 
-  // Public getters
-  List<UserModel> get cachedUsers => _cachedUsers;
-  Stream<List<UserModel>> get usersStream => _usersController.stream;
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      if (response.statusCode == 401 || response.statusCode == 404) {
+        throw SessionExpiredException();
+      }
+      debugPrint('Failed to verify session: HTTP ${response.statusCode}');
+      return null;
+    } on SessionExpiredException {
+      rethrow;
+    } catch (e) {
+      debugPrint('Transient error fetching /me: $e');
+      return null;
+    }
+  }
 
-  /// Get user data by MongoDB ID
+  /// Get user data by MongoDB ID (self only)
   Future<Map<String, dynamic>?> getUserData(String userId) async {
     try {
       final headers = await _authService.getAuthHeaders();
@@ -39,6 +60,9 @@ class UserService {
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
+      } else if (response.statusCode == 401) {
+        await _authService.handleSessionExpired();
+        return null;
       } else if (response.statusCode == 404) {
         return null;
       } else {
@@ -51,7 +75,7 @@ class UserService {
     }
   }
 
-  /// Update user profile
+  /// Update own profile
   Future<void> updateUserProfile({
     required String userId,
     String? fullName,
@@ -60,203 +84,106 @@ class UserService {
   }) async {
     try {
       final headers = await _authService.getAuthHeaders();
-      final response = await http.patch(
-        Uri.parse('${ApiConfig.users}/$userId'),
-        headers: headers,
-        body: jsonEncode({
-          if (fullName != null) 'fullName': fullName,
-          if (phoneNumber != null) 'phoneNumber': phoneNumber,
-          if (address != null) 'address': address,
-        }),
-      );
+      final response = await http
+          .patch(
+            Uri.parse('${ApiConfig.users}/$userId'),
+            headers: headers,
+            body: jsonEncode({
+              if (fullName != null) 'fullName': fullName,
+              if (phoneNumber != null) 'phoneNumber': phoneNumber,
+              if (address != null) 'address': address,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
+      if (response.statusCode == 401) {
+        await _authService.handleSessionExpired();
+        throw SessionExpiredException();
+      }
       if (response.statusCode != 200) {
         throw 'Failed to update profile';
       }
     } catch (e) {
+      if (e is SessionExpiredException || e is String) rethrow;
       throw 'Failed to update user profile: $e';
     }
   }
 
-  /// Get all users (Admin) — returns a broadcast stream safe to reuse across
-  /// navigations and widget rebuilds. Call [refreshAllUsers] to trigger or
-  /// re-trigger a fetch.
-  Stream<List<UserModel>> getAllUsers() {
-    // Emit cached data immediately if available so the UI renders without
-    // waiting for the next refresh cycle.
-    if (_cachedUsers.isNotEmpty && !_isFetching) {
-      Future.microtask(() => _usersController.add(_cachedUsers));
-    } else {
-      refreshAllUsers();
-    }
-    return _usersController.stream;
-  }
-
-
-  /// Refresh all users list
-  Future<void> refreshAllUsers() async {
-    if (_isFetching) return;
-    _isFetching = true;
-
-    try {
-      final users = await _fetchAllUsers();
-      _cachedUsers = users;
-      _usersController.add(users);
-    } catch (e, st) {
-      // Let the UI stop showing the endless spinner and show an actionable error state.
-      debugPrint('Error refreshing all users: $e');
-      _usersController.addError(e, st);
-    } finally {
-      _isFetching = false;
-    }
-  }
-
-  Future<List<UserModel>> _fetchAllUsers() async {
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.get(Uri.parse(ApiConfig.users), headers: headers)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode != 200) {
-        throw Exception(
-          'Failed to fetch all users: HTTP ${response.statusCode}',
-        );
-      }
-
-      final decoded = jsonDecode(response.body);
-      final List data = decoded as List;
-      return data.map((e) => UserModel.fromMap(e)).toList();
-    } catch (e) {
-      // Re-throw so refreshAllUsers can send the error to the StreamBuilder.
-      debugPrint('Error fetching all users: $e');
-      rethrow;
-    }
-  }
-
-  /// Update user role (Admin)
-  Future<void> updateUserRole({
-    required String userId,
-    required String role,
+  /// Change password while authenticated
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
   }) async {
     try {
       final headers = await _authService.getAuthHeaders();
-      await http.patch(
-        Uri.parse('${ApiConfig.users}/$userId'),
-        headers: headers,
-        body: jsonEncode({'role': role}),
-      );
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.users}/change-password'),
+            headers: headers,
+            body: jsonEncode({
+              'currentPassword': currentPassword,
+              'newPassword': newPassword,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 401) {
+        await _authService.handleSessionExpired();
+        throw SessionExpiredException();
+      }
+      if (response.statusCode != 200) {
+        final decoded = _tryDecodeJson(response.body);
+        throw decoded?['message'] ?? 'Failed to change password';
+      }
     } catch (e) {
-      debugPrint('Error updating role: $e');
-      rethrow;
+      if (e is SessionExpiredException || e is String) rethrow;
+      throw 'Failed to change password: $e';
     }
   }
 
-  /// Get user role
-  Future<String?> getUserRole(String userId) async {
-    final data = await getUserData(userId);
-    return data?['role'];
-  }
-
-  /// Delete user (Admin)
+  /// Permanently delete own account and sign out locally
   Future<void> deleteUser(String userId) async {
     try {
-      debugPrint('Deleting user: $userId');
       final headers = await _authService.getAuthHeaders();
-      final response = await http.delete(
-        Uri.parse('${ApiConfig.users}/$userId'),
-        headers: headers,
-      );
+      final response = await http
+          .delete(
+            Uri.parse('${ApiConfig.users}/$userId'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode != 200 && response.statusCode != 204) {
-        throw Exception(
-          'Failed to delete user: ${response.statusCode} - ${response.body}',
-        );
+      if (response.statusCode == 401) {
+        await _authService.handleSessionExpired();
+        throw SessionExpiredException();
       }
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        final decoded = _tryDecodeJson(response.body);
+        throw decoded?['message'] ?? 'Failed to delete account (${response.statusCode})';
+      }
+      await _authService.signOut();
     } catch (e) {
       debugPrint('Error deleting user: $e');
       rethrow;
     }
   }
 
-  /// Get pending users (awaiting admin approval)
-  Future<List<UserModel>> getPendingUsers() async {
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.get(Uri.parse(ApiConfig.pendingUsers), headers: headers);
-      if (response.statusCode == 200) {
-        final List data = jsonDecode(response.body);
-        return data.map((e) => UserModel.fromMap(e)).toList();
-      }
-      return [];
-    } catch (e) {
-      debugPrint('Error fetching pending users: $e');
-      return [];
-    }
-  }
-
-  /// Approve pending user
-  Future<void> approveUser(String userId) async {
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.approveUser}/$userId'),
-        headers: headers,
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception('Failed to approve user: ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('Error approving user: $e');
-      rethrow;
-    }
-  }
-
-  /// Reject pending user
-  Future<void> rejectUser(String userId) async {
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.rejectUser}/$userId'),
-        headers: headers,
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception('Failed to reject user: ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('Error rejecting user: $e');
-      rethrow;
-    }
-  }
-
-  /// Check if email exists
-  Future<bool> checkEmailExists(String email) async {
-    try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.users}/check-email/$email'),
-      );
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint('Error checking email: $e');
-      return false;
-    }
-  }
-
   /// Request password reset
   Future<void> requestPasswordReset(String email) async {
     try {
-      final response = await http.post(
-        Uri.parse('${ApiConfig.users}/request-reset'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email}),
-      );
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.users}/request-reset'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email}),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
-        final error = jsonDecode(response.body);
-        throw error['message'] ?? 'Failed to request password reset';
+        final decoded = _tryDecodeJson(response.body);
+        throw decoded?['message'] ?? 'Failed to request password reset';
       }
     } catch (e) {
+      if (e is String) rethrow;
       throw 'Failed to request password reset: $e';
     }
   }
@@ -264,15 +191,17 @@ class UserService {
   /// Verify reset code
   Future<bool> verifyResetCode(String email, String code) async {
     try {
-      final response = await http.post(
-        Uri.parse('${ApiConfig.users}/verify-reset-code'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'code': code}),
-      );
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.users}/verify-reset-code'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email, 'code': code}),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['valid'] == true;
+        final data = _tryDecodeJson(response.body);
+        return data?['valid'] == true;
       }
       return false;
     } catch (e) {
@@ -288,31 +217,39 @@ class UserService {
     required String newPassword,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('${ApiConfig.users}/reset-password'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'code': code,
-          'newPassword': newPassword,
-        }),
-      );
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.users}/reset-password'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'email': email,
+              'code': code,
+              'newPassword': newPassword,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
-        final error = jsonDecode(response.body);
-        throw error['message'] ?? 'Failed to reset password';
+        final decoded = _tryDecodeJson(response.body);
+        throw decoded?['message'] ?? 'Failed to reset password';
       }
     } catch (e) {
+      if (e is String) rethrow;
       throw 'Failed to reset password: $e';
     }
   }
 
-  /// Dispose resources
-  void dispose() {
-    _usersController.close();
+  Map<String, dynamic>? _tryDecodeJson(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
   }
 
-  /// Reset singleton instance
+  void dispose() {}
+
   static void reset() {
     _instance?.dispose();
     _instance = null;

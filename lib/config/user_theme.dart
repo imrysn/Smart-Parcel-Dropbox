@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// User Theme Configuration
-/// Modern Oasis theme with Plus Jakarta Sans and Sunset Gradients.
-/// Supports both Light (Warm) and Dark (Midnight Sunset) modes.
+/// Modern Minimalist palette anchored on signature orange (#FF9800) with crisp
+/// neutral surfaces across Light and Dark modes.
 class UserTheme {
   UserTheme._();
-  
-  // ─── Day Theme Palette (Warm Oasis) ────────────────────────────────────────
+
+  // ─── Brand Signature Accent ────────────────────────────────────────────────
 
   static const Color primaryOrange = Color(0xFFFF9800);
   static const Color primaryOrangeLight = Color(0xFFFFB74D);
@@ -15,40 +15,41 @@ class UserTheme {
 
   static const Color accentAmber = Color(0xFFFFA726);
   static const Color accentAmberLight = Color(0xFFFFB74D);
-  static const Color accentAmberDark = Color(0xFFFB8C00);
+  static const Color accentAmberDark = Color(0xFFF57C00);
 
-  // Gradient Colors - Sunset
-  static const Color sunsetStart = Color(0xFFFF6F00); // Orange 900
-  static const Color sunsetMid = Color(0xFFFF9800);   // Orange 500
-  static const Color sunsetEnd = Color(0xFFE91E63);   // Pink 500
+  // Tonal Orange Stops (no hot-pink gradient)
+  static const Color sunsetStart = Color(0xFFFF9800);
+  static const Color sunsetMid = Color(0xFFF57C00);
+  static const Color sunsetEnd = Color(0xFFEF6C00);
 
-  // Backgrounds
-  static const Color dayBackground = Color(0xFFFFF8F1);
+  // ─── Light Theme Palette (Modern Alabaster) ────────────────────────────────
+
+  static const Color dayBackground = Color(0xFFF9FAFB);
   static const Color dayCard = Color(0xFFFFFFFF);
-  static const Color daySurface = Color(0xFFFFF3E0);
+  static const Color daySurface = Color(0xFFF3F4F6);
 
   // Text Colors
-  static const Color dayTextPrimary = Color(0xFF0F172A);   // Deep Slate
-  static const Color dayTextSecondary = Color(0xFF475569); // Slate 600
-  static const Color dayTextMuted = Color(0xFF94A3B8);     // Slate 400
+  static const Color dayTextPrimary = Color(0xFF111827);
+  static const Color dayTextSecondary = Color(0xFF4B5563);
+  static const Color dayTextMuted = Color(0xFF9CA3AF);
 
-  // ─── Night Theme Palette (Midnight Sunset) ───────────────────────────────
+  // ─── Dark Theme Palette (True Charcoal) ────────────────────────────────────
 
-  static const Color nightBackground = Color(0xFF0F172A); // Slate 900
-  static const Color nightCard = Color(0xFF1E293B);       // Slate 800
-  static const Color nightSurface = Color(0xFF334155);    // Slate 700
+  static const Color nightBackground = Color(0xFF0A0A0B);
+  static const Color nightCard = Color(0xFF141416);
+  static const Color nightSurface = Color(0xFF202024);
 
-  static const Color nightTextPrimary = Color(0xFFF8FAFC);
-  static const Color nightTextSecondary = Color(0xFFCBD5E1);
-  static const Color nightTextMuted = Color(0xFF64748B);
+  static const Color nightTextPrimary = Color(0xFFFAFAFA);
+  static const Color nightTextSecondary = Color(0xFFA1A1AA);
+  static const Color nightTextMuted = Color(0xFF71717A);
 
-  static const Color statusSuccess = Color(0xFF10B981); // Emerald 500
-  static const Color statusWarning = Color(0xFFF59E0B); // Amber 500
-  static const Color statusError = Color(0xFFEF4444);   // Red 500
-  static const Color statusInfo = Color(0xFF3B82F6);    // Blue 500
+  static const Color statusSuccess = Color(0xFF16A34A);
+  static const Color statusWarning = Color(0xFFD97706);
+  static const Color statusError = Color(0xFFDC2626);
+  static const Color statusInfo = Color(0xFF2563EB);
 
-  // ─── Legacy & Utility Aliases ──────────────────────────────────────────
-  
+  // ─── Legacy & Utility Aliases ──────────────────────────────────────────────
+
   static const Color gradientPink = sunsetEnd;
   static const Color backgroundSurface = daySurface;
   static const Color backgroundCard = dayCard;
@@ -56,25 +57,25 @@ class UserTheme {
   static const Color textSecondary = dayTextSecondary;
   static const Color textMuted = dayTextMuted;
 
-  // ─── Design Tokens ──────────────────────────────────────────────────────
+  // ─── Design Tokens ─────────────────────────────────────────────────────────
 
   static const double radiusS = 12;
   static const double radiusM = 16;
-  static const double radiusL = 24;
-  static const double radiusXL = 32;
+  static const double radiusL = 20;
+  static const double radiusXL = 28;
 
   static LinearGradient get sunsetGradient => const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [sunsetStart, sunsetMid, sunsetEnd],
+        colors: [primaryOrange, primaryOrangeDark],
       );
 
   static LinearGradient get glassGradient => LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          Colors.white.withOpacity(0.12),
-          Colors.white.withOpacity(0.04),
+          Colors.white.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.03),
         ],
       );
 
@@ -84,7 +85,7 @@ class UserTheme {
   static ThemeData getTheme(Brightness brightness) {
     final bool isDark = brightness == Brightness.dark;
 
-    final Color primary = primaryOrange;
+    const Color primary = primaryOrange;
     final Color background = isDark ? nightBackground : dayBackground;
     final Color card = isDark ? nightCard : dayCard;
     final Color textPrimary = isDark ? nightTextPrimary : dayTextPrimary;
@@ -144,7 +145,7 @@ class UserTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radiusL),
           side: BorderSide(
-            color: isDark ? Colors.white.withOpacity(0.08) : textMuted.withOpacity(0.12),
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
           ),
         ),
       ),
@@ -165,15 +166,15 @@ class UserTheme {
         fillColor: card,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusM),
-          borderSide: BorderSide(color: textMuted.withOpacity(0.2)),
+          borderSide: BorderSide(color: textMuted.withValues(alpha: 0.25)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusM),
-          borderSide: BorderSide(color: textMuted.withOpacity(0.2)),
+          borderSide: BorderSide(color: textMuted.withValues(alpha: 0.25)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusM),
-          borderSide: BorderSide(color: primary, width: 2),
+          borderSide: const BorderSide(color: primary, width: 1.5),
         ),
         labelStyle: TextStyle(color: textSecondary),
       ),
@@ -191,51 +192,51 @@ class UserTheme {
   /// Default getter for backward compatibility (defaults to light).
   static ThemeData get theme => getTheme(Brightness.light);
 
-  /// Helper for status pills.
+  /// Helper for status indicators.
   static Color getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'pending': return statusWarning;
-      case 'in_transit': return statusInfo;
-      case 'delivered': return statusSuccess;
-      case 'retrieved': return accentAmber;
-      default: return dayTextMuted;
+      case 'pending':
+      case 'awaiting_pickup':
+        return primaryOrange;
+      case 'in_transit':
+      case 'ready_for_pickup':
+        return statusInfo;
+      case 'delivered':
+      case 'retrieved':
+      case 'done':
+        return statusSuccess;
+      default:
+        return dayTextMuted;
     }
   }
 
-  /// Modern Gradient App Bar.
+  /// Clean minimalist AppBar matching the page canvas.
   static PreferredSizeWidget appBarGradient({
     required String title,
     List<Widget>? actions,
     bool centerTitle = true,
     PreferredSizeWidget? bottom,
     Widget? leading,
-    BuildContext? context, // Added context to detect theme
+    BuildContext? context,
   }) {
     final bool isDark = context != null && Theme.of(context).brightness == Brightness.dark;
-    
+
     return AppBar(
       leading: leading,
       centerTitle: centerTitle,
       elevation: 0,
       scrolledUnderElevation: 0,
-      backgroundColor: Colors.transparent,
-      flexibleSpace: Container(
-        decoration: BoxDecoration(
-          // Use gradient only for dark mode, solid for light mode as requested
-          gradient: isDark ? sunsetGradient : null,
-          color: isDark ? null : dayBackground,
-        ),
-      ),
+      backgroundColor: isDark ? nightBackground : dayBackground,
       title: Text(
         title,
         style: TextStyle(
-          color: isDark ? Colors.white : dayTextPrimary,
+          color: isDark ? nightTextPrimary : dayTextPrimary,
           fontSize: 18,
           fontWeight: FontWeight.w800,
           letterSpacing: -0.5,
         ),
       ),
-      iconTheme: IconThemeData(color: isDark ? Colors.white : dayTextPrimary),
+      iconTheme: IconThemeData(color: isDark ? nightTextPrimary : dayTextPrimary),
       actions: actions,
       bottom: bottom,
     );

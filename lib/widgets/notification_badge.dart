@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/user_theme.dart';
 import '../services/database_service.dart';
 import '../screens/notifications_screen.dart';
 
@@ -26,12 +27,15 @@ class NotificationBadge extends StatelessWidget {
       stream: databaseService.getUnreadNotificationsCount(userId),
       builder: (context, snapshot) {
         final unreadCount = snapshot.data ?? 0;
-        return Stack(
-          children: [
-            IconButton(
-              icon: const Icon(Icons.notifications_outlined),
-              tooltip: 'Notifications',
-              onPressed: () async {
+        final iconColor = IconTheme.of(context).color;
+        return Semantics(
+          button: true,
+          label: 'Notifications',
+          child: Tooltip(
+            message: 'Notifications',
+            child: InkResponse(
+              radius: 22,
+              onTap: () async {
                 final result = await Navigator.of(context).push<Map<String, dynamic>>(
                   MaterialPageRoute(
                     builder: (context) => const NotificationsScreen(),
@@ -43,33 +47,45 @@ class NotificationBadge extends StatelessWidget {
                   onSelectTab!(tabIndex, subTabIndex: subTabIndex);
                 }
               },
-            ),
-            if (unreadCount > 0)
-              Positioned(
-                right: 8,
-                top: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 16,
-                    minHeight: 16,
-                  ),
-                  child: Text(
-                    unreadCount > 99 ? '99+' : '$unreadCount',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(Icons.notifications_outlined, color: iconColor),
+                    if (unreadCount > 0)
+                      Positioned(
+                        right: 4,
+                        top: 5,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: UserTheme.statusError,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            unreadCount > 99 ? '99+' : '$unreadCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.5,
+                              height: 1.1,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-          ],
+            ),
+          ),
         );
       },
     );

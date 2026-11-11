@@ -75,20 +75,7 @@ class InBoxSpotlight extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isDark
-              ? [
-                  Color.alphaBlend(
-                      primary.withValues(alpha: 0.14), UserTheme.nightCard),
-                  UserTheme.nightCard,
-                ]
-              : [
-                  const Color(0xFFFFF8F1),
-                  UserTheme.dayCard,
-                ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
         borderRadius: BorderRadius.circular(UserTheme.radiusL),
         border: Border.all(
           color: primary.withValues(alpha: isDark ? 0.35 : 0.28),
@@ -96,9 +83,9 @@ class InBoxSpotlight extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: primary.withValues(alpha: isDark ? 0.1 : 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
           ),
         ],
       ),

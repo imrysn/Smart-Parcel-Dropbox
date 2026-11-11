@@ -5,7 +5,9 @@ import 'services/notification_service.dart';
 import 'services/service_locator.dart';
 import 'services/connectivity_service.dart';
 import 'services/websocket_service.dart';
+import 'services/auth_service.dart';
 import 'screens/splash_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/owner_verify_screen.dart';
 
 /// Global navigator key — lets us navigate from outside the widget tree
@@ -44,7 +46,27 @@ class _SmartParcelDropBoxAppState extends State<SmartParcelDropBoxApp> {
   void initState() {
     super.initState();
     _notificationService = getIt<NotificationService>();
+    AuthService.onSessionExpired = _handleSessionExpired;
     _initializeServices();
+  }
+
+  void _handleSessionExpired() {
+    getIt<WebSocketService>().disconnect();
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    nav.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+    final ctx = navigatorKey.currentContext;
+    if (ctx != null && ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        const SnackBar(
+          content: Text('Your session expired. Please sign in again.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _initializeServices() async {
@@ -74,6 +96,7 @@ class _SmartParcelDropBoxAppState extends State<SmartParcelDropBoxApp> {
 
   @override
   void dispose() {
+    AuthService.onSessionExpired = null;
     _ownerAlertSub?.cancel();
     super.dispose();
   }

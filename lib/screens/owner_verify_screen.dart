@@ -3,7 +3,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../config/user_theme.dart';
 import '../services/websocket_service.dart';
+import '../widgets/user_ui.dart';
 
 /// Owner Verification Screen
 ///
@@ -57,7 +59,7 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
       setState(() {
         _waiting   = false;
         _timedOut  = false;
-        _statusMsg = approved ? 'Access Granted ✓' : 'Access Denied ✗';
+        _statusMsg = approved ? 'Access Granted' : 'Access Denied';
       });
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted) Navigator.of(context).pop(approved);
@@ -178,19 +180,29 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+    final mutedText = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
+    final cardColor = isDark ? UserTheme.nightCard : UserTheme.dayCard;
+    final surfaceColor = isDark ? UserTheme.nightSurface : UserTheme.daySurface;
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.08);
+    final isCameraView = !_waiting && !_scanned && !_timedOut && !_manualEntry;
+    final scanSize = (MediaQuery.sizeOf(context).shortestSide * 0.6).clamp(170.0, 240.0);
 
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Light background
-      appBar: AppBar(
-        title: const Text('Verify Owner Access'),
-        centerTitle: true,
+      backgroundColor: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
+      appBar: UserTheme.appBarGradient(
+        title: 'Verify Owner Access',
+        context: context,
       ),
       body: Stack(
         children: [
           // Live camera view
-          if (!_waiting && !_scanned && !_timedOut && !_manualEntry)
-            _isMobile 
+          if (isCameraView)
+            _isMobile
                 ? MobileScanner(
                     controller: _scannerController,
                     onDetect: _onDetect,
@@ -198,242 +210,250 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
                 : _buildMockScanner(),
 
           // Scan frame + countdown overlay
-          if (!_waiting && !_scanned && !_timedOut && !_manualEntry)
+          if (isCameraView)
             Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 240,
-                    height: 240,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        // Orange primary normally, Red when <= 10s
-                        color: _countdown <= 10 ? Colors.redAccent : primaryColor,
-                        width: 3,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: scanSize,
+                      height: scanSize,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: _countdown <= 10 ? UserTheme.statusError : UserTheme.primaryOrange,
+                          width: 2.5,
+                        ),
+                        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 12,
+                          ),
+                        ],
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          spreadRadius: 2,
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(UserTheme.radiusS),
+                      ),
+                      child: const Text(
+                        'Point camera at the QR code\non the dropbox LCD screen',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _countdown <= 10
+                            ? UserTheme.statusError.withValues(alpha: 0.9)
+                            : Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'Expires in ${_countdown}s',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 36),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        _scannerController.stop();
+                        setState(() => _manualEntry = true);
+                      },
+                      icon: const Icon(Icons.dialpad_rounded, size: 18),
+                      label: const Text(
+                        'Enter PIN Manually',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: cardColor,
+                        foregroundColor: primaryText,
+                        elevation: 2,
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
+                          side: BorderSide(color: borderColor),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Manual PIN Entry View
+          if (!_waiting && !_scanned && !_timedOut && _manualEntry)
+            Container(
+              decoration: UserUi.pageBackground(context),
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: UserUi.listPadding(context, top: 24, bottom: 24, maxWidth: 460),
+                  child: UserUi.surfaceCard(
+                    context,
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.dialpad_rounded, size: 40, color: UserTheme.primaryOrange),
+                        const SizedBox(height: 14),
+                        Text(
+                          'Enter Code Manually',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            color: primaryText,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Check the dropbox LCD screen for the verification PIN',
+                          style: TextStyle(color: secondaryText, fontSize: 13),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 22),
+                        TextField(
+                          controller: _pinController,
+                          keyboardType: TextInputType.text,
+                          textCapitalization: TextCapitalization.characters,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 22,
+                            letterSpacing: 4,
+                            fontWeight: FontWeight.w800,
+                            color: primaryText,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'e.g. OWN-123456',
+                            hintStyle: TextStyle(
+                              fontSize: 14,
+                              letterSpacing: 1,
+                              color: mutedText,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                              borderSide: BorderSide(color: borderColor),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                              borderSide: const BorderSide(color: UserTheme.primaryOrange, width: 1.5),
+                            ),
+                            filled: true,
+                            fillColor: surfaceColor,
+                            counterText: '',
+                          ),
+                          onSubmitted: (_) => _submitPin(),
+                        ),
+                        const SizedBox(height: 22),
+                        UserUi.premiumButton(
+                          label: 'Verify Access',
+                          onTap: _submitPin,
+                          icon: Icons.verified_user_rounded,
+                        ),
+                        if (_isMobile) ...[
+                          const SizedBox(height: 10),
+                          TextButton.icon(
+                            onPressed: () {
+                              setState(() => _manualEntry = false);
+                              _scannerController.start();
+                            },
+                            icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                            label: const Text('Back to Scanner', style: TextStyle(fontWeight: FontWeight.w600)),
+                            style: TextButton.styleFrom(foregroundColor: secondaryText),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        Text(
+                          'Expires in ${_countdown}s',
+                          style: TextStyle(
+                            color: _countdown <= 10 ? UserTheme.statusError : mutedText,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Point camera at the QR code\non the dropbox LCD screen',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Feature #5: Countdown pill
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _countdown <= 10
-                          ? Colors.redAccent.withOpacity(0.9)
-                          : Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      'Expires in ${_countdown}s',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 48),
-                  // Feature #6: Toggle to Manual Entry
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      _scannerController.stop();
-                      setState(() => _manualEntry = true);
-                    },
-                    icon: const Icon(Icons.dialpad, size: 20),
-                    label: const Text('Enter PIN Manually', style: TextStyle(fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black87,
-                      elevation: 2,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-
-          // Feature #6: Manual PIN Entry View
-          if (!_waiting && !_scanned && !_timedOut && _manualEntry)
-            Center(
-               child: Container(
-                 margin: const EdgeInsets.all(32),
-                 padding: const EdgeInsets.all(32),
-                 decoration: BoxDecoration(
-                   color: Colors.white,
-                   borderRadius: BorderRadius.circular(24),
-                   boxShadow: [
-                     BoxShadow(
-                       color: Colors.black.withOpacity(0.05),
-                       blurRadius: 15,
-                       offset: const Offset(0, 5),
-                     )
-                   ],
-                 ),
-                 child: Column(
-                   mainAxisSize: MainAxisSize.min,
-                   children: [
-                     Icon(Icons.dialpad, size: 48, color: primaryColor),
-                     const SizedBox(height: 16),
-                     const Text('Enter Code Manually', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
-                     const SizedBox(height: 8),
-                     const Text('Check the dropbox LCD screen for the full code or PIN', style: TextStyle(color: Colors.black54), textAlign: TextAlign.center),
-                     const SizedBox(height: 24),
-                     TextField(
-                       controller: _pinController,
-                       keyboardType: TextInputType.text,
-                       textCapitalization: TextCapitalization.characters,
-                       textAlign: TextAlign.center,
-                       style: const TextStyle(fontSize: 24, letterSpacing: 4, fontWeight: FontWeight.bold, color: Colors.black87),
-                       decoration: InputDecoration(
-                         hintText: 'e.g. OWN-123456',
-                         hintStyle: const TextStyle(fontSize: 16, letterSpacing: 1, color: Colors.black26),
-                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryColor, width: 2)),
-                         filled: true,
-                         fillColor: Colors.grey[50],
-                         counterText: '',
-                       ),
-                       onSubmitted: (_) => _submitPin(),
-                     ),
-                     const SizedBox(height: 24),
-                     Row(
-                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                       children: [
-                         TextButton(
-                           onPressed: () {
-                             setState(() => _manualEntry = false);
-                             _scannerController.start();
-                           },
-                           style: TextButton.styleFrom(foregroundColor: Colors.black54),
-                           child: const Text('Back to Scanner'),
-                         ),
-                         ElevatedButton(
-                           onPressed: _submitPin,
-                           style: ElevatedButton.styleFrom(
-                             backgroundColor: primaryColor,
-                             foregroundColor: Colors.white,
-                             elevation: 0,
-                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                           ),
-                           child: const Text('Verify', style: TextStyle(fontWeight: FontWeight.bold)),
-                         ),
-                       ],
-                     ),
-                     const SizedBox(height: 20),
-                     Text(
-                       'Expires in ${_countdown}s',
-                       style: TextStyle(
-                         color: _countdown <= 10 ? Colors.red : Colors.grey,
-                         fontWeight: FontWeight.bold,
-                         fontSize: 13,
-                       ),
-                     ),
-                   ],
-                 ),
-               ),
             ),
 
           // Status / result overlay
           if (_waiting || _scanned || _timedOut)
-            Center(
-              child: Container(
-                margin: const EdgeInsets.all(32),
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                     BoxShadow(
-                       color: Colors.black.withOpacity(0.05),
-                       blurRadius: 15,
-                       offset: const Offset(0, 5),
-                     )
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_waiting) CircularProgressIndicator(color: primaryColor),
-
-                    if (!_waiting && _statusMsg.isNotEmpty && !_timedOut)
-                      Icon(
-                        _statusMsg.contains('Granted')
-                            ? Icons.check_circle
-                            : Icons.cancel,
-                        size: 64,
-                        color: _statusMsg.contains('Granted')
-                            ? Colors.green
-                            : Colors.red,
-                      ),
-
-                    if (_timedOut)
-                      const Icon(Icons.timer_off, size: 64, color: Colors.orange),
-
-                    const SizedBox(height: 20),
-                    Text(
-                      _statusMsg,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: _statusMsg.contains('Granted')
-                            ? Colors.green[800]
-                            : _statusMsg.contains('Denied')
-                                ? Colors.red[800]
-                                : Colors.black87,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    if (_timedOut) ...[
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+            Container(
+              decoration: UserUi.pageBackground(context),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Padding(
+                    padding: EdgeInsets.all(UserUi.horizontalGutter(context)),
+                    child: UserUi.surfaceCard(
+                      context,
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          ElevatedButton.icon(
-                            onPressed: _reset,
-                            icon: const Icon(Icons.refresh, size: 20),
-                            label: const Text('Try Again', style: TextStyle(fontWeight: FontWeight.bold)),
-                            style: ElevatedButton.styleFrom(
-                               backgroundColor: primaryColor,
-                               foregroundColor: Colors.white,
-                               elevation: 0,
-                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          if (_waiting)
+                            const CircularProgressIndicator(color: UserTheme.primaryOrange),
+
+                          if (!_waiting && _statusMsg.isNotEmpty && !_timedOut)
+                            Icon(
+                              _statusMsg.contains('Granted')
+                                  ? Icons.check_circle_rounded
+                                  : Icons.cancel_rounded,
+                              size: 56,
+                              color: _statusMsg.contains('Granted')
+                                  ? UserTheme.statusSuccess
+                                  : UserTheme.statusError,
                             ),
+
+                          if (_timedOut)
+                            const Icon(Icons.timer_off_rounded, size: 56, color: UserTheme.primaryOrange),
+
+                          const SizedBox(height: 18),
+                          Text(
+                            _statusMsg,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: _statusMsg.contains('Granted')
+                                  ? UserTheme.statusSuccess
+                                  : _statusMsg.contains('Denied')
+                                      ? UserTheme.statusError
+                                      : primaryText,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
-                          const SizedBox(width: 12),
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            style: TextButton.styleFrom(foregroundColor: Colors.black54),
-                            child: const Text('Cancel'),
-                          ),
+
+                          if (_timedOut) ...[
+                            const SizedBox(height: 22),
+                            UserUi.premiumButton(
+                              label: 'Try Again',
+                              onTap: _reset,
+                              icon: Icons.refresh_rounded,
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              style: TextButton.styleFrom(foregroundColor: secondaryText),
+                              child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w600)),
+                            ),
+                          ],
                         ],
                       ),
-                    ],
-                  ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -444,17 +464,17 @@ class _OwnerVerifyScreenState extends State<OwnerVerifyScreen> {
 
   Widget _buildMockScanner() {
     return Container(
-      color: Colors.black,
-      child: const Center(
+      color: UserTheme.nightBackground,
+      child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.videocam_off, color: Colors.white54, size: 48),
-            SizedBox(height: 16),
+            Icon(Icons.videocam_off_outlined, color: Colors.white.withValues(alpha: 0.5), size: 44),
+            const SizedBox(height: 14),
             Text(
-              'Camera Disabled on Windows\nUse manual entry/serial bypass to demo',
+              'Camera preview unavailable on this device.\nUse manual PIN entry below to verify.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white70),
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 13, height: 1.5),
             ),
           ],
         ),

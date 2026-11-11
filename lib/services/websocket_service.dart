@@ -99,15 +99,15 @@ class WebSocketService {
   /// Initialize WebSocket connection for a user
   Future<void> connect(String userId) async {
     final token = await _authService.getToken();
-    
+
     if (_socket != null) {
-      if (_socket!.connected) {
+      if (_socket!.connected && _currentUserId == userId) {
         debugPrint('WebSocket already connected, joining room for $userId');
         _socket!.emit('join', userId);
-        _currentUserId = userId;
         return;
       }
       _socket!.dispose();
+      _socket = null;
     }
 
     _currentUserId = userId;

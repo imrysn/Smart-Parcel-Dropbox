@@ -1,29 +1,62 @@
+const crypto = require('crypto');
 const User = require('../models/User');
+const Dropbox = require('../models/Dropbox');
+const Tracking = require('../models/Tracking');
+const Rider = require('../models/Rider');
 const { sendResetCode } = require('../utils/emailService');
 const { generateToken } = require('../utils/auth');
 const bcrypt = require('bcryptjs');
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RESET_MAX_ATTEMPTS = 5;
+const RESET_COOLDOWN_MS = 60 * 1000;
+
+function normalizeEmail(raw) {
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim().toLowerCase();
+    return EMAIL_REGEX.test(trimmed) ? trimmed : null;
+}
+
+function sanitizeUserResponse(user) {
+    return {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName || '',
+        phoneNumber: user.phoneNumber || '',
+        address: user.address || '',
+        role: user.role || 'user'
+    };
+}
 
 // @desc    Register a new user
 // @route   POST /api/users/register
 exports.registerUser = async (req, res) => {
     try {
-        const { email, password, fullName, phoneNumber, address } = req.body;
+        const email = normalizeEmail(req.body?.email);
+        const password = typeof req.body?.password === 'string' ? req.body.password : '';
+        const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
+        const phoneNumber = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber.trim() : '';
+        const address = typeof req.body?.address === 'string' ? req.body.address.trim() : '';
+
+        if (!email) {
+            return res.status(400).json({ message: 'Please provide a valid email address' });
+        }
+        if (password.length < 6) {
+            return res.status(400).json({ message: 'Password must be at least 6 characters' });
+        }
+
         console.log(`[USER_CONTROLLER] Registering user: ${email}`);
 
-        // Check if user already exists
-        let user = await User.findOne({ email: email.toLowerCase() });
-
-        if (user) {
+        const existing = await User.findOne({ email });
+        if (existing) {
             console.log(`[USER_CONTROLLER] User already exists: ${email}`);
             return res.status(400).json({ message: 'User already exists' });
         }
 
-        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Create user
-        user = await User.create({
-            email: email.toLowerCase(),
+        const user = await User.create({
+            email,
             password: hashedPassword,
             fullName,
             phoneNumber,
@@ -31,18 +64,12 @@ exports.registerUser = async (req, res) => {
             role: 'user'
         });
 
-        // Generate JWT token
         const token = generateToken(user._id);
 
         res.status(201).json({
             message: 'User registered successfully',
             token,
-            user: {
-                id: user._id,
-                email: user.email,
-                fullName: user.fullName,
-                role: user.role
-            }
+            user: sanitizeUserResponse(user)
         });
     } catch (error) {
         console.error('[USER_CONTROLLER] Registration error:', error);
@@ -54,41 +81,49 @@ exports.registerUser = async (req, res) => {
 // @route   POST /api/users/login
 exports.loginUser = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const email = normalizeEmail(req.body?.email);
+        const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Email and password are required' });
+        }
+
         console.log(`[USER_CONTROLLER] Login attempt: ${email}`);
 
-        // Find user
-        const user = await User.findOne({ email: email.toLowerCase() });
-
+        const user = await User.findOne({ email });
         if (!user) {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
 
-        // Check password
         const isPasswordValid = await bcrypt.compare(password, user.password);
-
         if (!isPasswordValid) {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
 
-        // Generate JWT token
         const token = generateToken(user._id);
 
         console.log(`[USER_CONTROLLER] Login successful: ${user.email}`);
         res.json({
             message: 'Login successful',
             token,
-            user: {
-                id: user._id,
-                email: user.email,
-                fullName: user.fullName,
-                role: user.role,
-                phoneNumber: user.phoneNumber,
-                address: user.address
-            }
+            user: sanitizeUserResponse(user)
         });
     } catch (error) {
         console.error('[USER_CONTROLLER] Login error:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Get current authenticated user profile
+// @route   GET /api/users/me
+exports.getMe = async (req, res) => {
+    try {
+        const user = await User.findById(req.userId).select('-password -resetCode -resetCodeExpiry');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        res.json(user);
+    } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
@@ -99,12 +134,11 @@ exports.getUserProfile = async (req, res) => {
     try {
         const userId = req.params.id;
 
-        // Security check: only allow users to see their own profile
         if (userId !== req.userId) {
             return res.status(403).json({ message: 'Access denied: cannot access another user\'s profile' });
         }
 
-        const user = await User.findById(userId).select('-password');
+        const user = await User.findById(userId).select('-password -resetCode -resetCodeExpiry');
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -115,36 +149,26 @@ exports.getUserProfile = async (req, res) => {
     }
 };
 
-// @desc    Get all users (Admin only)
-// @route   GET /api/users
-exports.getAllUsers = async (req, res) => {
-    try {
-        const users = await User.find().select('-password').sort({ createdAt: -1 });
-        res.json(users);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
 // @desc    Update user profile
 // @route   PATCH /api/users/:id
 exports.updateUser = async (req, res) => {
     try {
         const userId = req.params.id;
 
-        // Security check: only allow users to update their own profile
         if (userId !== req.userId) {
             return res.status(403).json({ message: 'Access denied: cannot update another user\'s profile' });
         }
 
-        // Don't allow password or role updates through this endpoint
-        const { password, role, ...updateData } = req.body;
+        const updateData = {};
+        if (typeof req.body?.fullName === 'string') updateData.fullName = req.body.fullName.trim();
+        if (typeof req.body?.phoneNumber === 'string') updateData.phoneNumber = req.body.phoneNumber.trim();
+        if (typeof req.body?.address === 'string') updateData.address = req.body.address.trim();
 
         const user = await User.findByIdAndUpdate(
             userId,
             { $set: updateData },
             { new: true }
-        ).select('-password');
+        ).select('-password -resetCode -resetCodeExpiry');
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
@@ -156,77 +180,139 @@ exports.updateUser = async (req, res) => {
     }
 };
 
-// @desc    Delete user
+// @desc    Change password while signed in
+// @route   POST /api/users/change-password
+exports.changePassword = async (req, res) => {
+    try {
+        const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+        const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+
+        if (!currentPassword || newPassword.length < 6) {
+            return res.status(400).json({ message: 'Provide current password and a new password (min 6 characters)' });
+        }
+
+        const user = await User.findById(req.userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const matches = await bcrypt.compare(currentPassword, user.password);
+        if (!matches) {
+            return res.status(400).json({ message: 'Current password is incorrect' });
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+        await user.save();
+
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Delete own account and clean up device/parcel bindings
 // @route   DELETE /api/users/:id
 exports.deleteUser = async (req, res) => {
     try {
         const userId = req.params.id;
 
-        // Security check: only allow users to delete their own account
         if (userId !== req.userId) {
             return res.status(403).json({ message: 'Access denied: cannot delete another user\'s account' });
         }
 
         const user = await User.findByIdAndDelete(userId);
-
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        res.json({ message: 'User deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
+        // Remove user's tracking entries & owned rider badges
+        await Tracking.deleteMany({ userId });
+        await Rider.deleteMany({ userId });
 
-// @desc    Check if user exists by email
-// @route   GET /api/users/check-email/:email
-exports.checkUserByEmail = async (req, res) => {
-    try {
-        const { email } = req.params;
-        console.log(`[USER_CONTROLLER] Checking existence for email: ${email}`);
-        const user = await User.findOne({ email: email.toLowerCase() });
+        // Clean up any dropbox memberships
+        const boxes = await Dropbox.find({
+            $or: [{ userIds: userId }, { primaryUserId: userId }, { userId }]
+        });
+        const io = req.app.get('io');
 
-        if (!user) {
-            return res.status(404).json({ exists: false, message: 'User not found' });
+        for (const box of boxes) {
+            const remaining = (box.userIds || []).filter((id) => id !== userId);
+            if (remaining.length === 0) {
+                await Dropbox.updateOne(
+                    { _id: box._id },
+                    {
+                        $set: {
+                            userIds: [],
+                            primaryUserId: null,
+                            userId: null,
+                            isRegistered: false,
+                            name: 'Unregistered Device',
+                            status: 'unregistered',
+                            wifiSSID: null,
+                        }
+                    }
+                );
+                if (io) {
+                    io.to('esp32_device').emit('deviceUnregistered', { deviceId: box.deviceId });
+                }
+            } else {
+                const nextPrimary = box.primaryUserId === userId ? remaining[0] : box.primaryUserId;
+                await Dropbox.updateOne(
+                    { _id: box._id },
+                    {
+                        $set: {
+                            userIds: remaining,
+                            primaryUserId: nextPrimary,
+                            ...(box.userId === userId ? { userId: nextPrimary } : {})
+                        }
+                    }
+                );
+            }
         }
 
-        res.json({ exists: true, id: user._id });
+        res.json({ message: 'Account deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
 
-// @desc    Request password reset - generates and sends reset code
+// @desc    Request password reset - generates and sends reset code without user enumeration
 // @route   POST /api/users/request-reset
 exports.requestPasswordReset = async (req, res) => {
     try {
-        const { email } = req.body;
-        const user = await User.findOne({ email: email.toLowerCase() });
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+        const email = normalizeEmail(req.body?.email);
+        if (!email) {
+            return res.status(400).json({ message: 'Please provide a valid email address' });
         }
 
-        // Generate 6-digit reset code
-        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const genericResponse = {
+            message: 'If an account exists for that email, a reset code has been sent.'
+        };
 
-        // Set expiry to 15 minutes from now
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.json(genericResponse);
+        }
+
+        if (user.resetCodeLastSentAt && (Date.now() - user.resetCodeLastSentAt.getTime()) < RESET_COOLDOWN_MS) {
+            return res.status(429).json({ message: 'Please wait a minute before requesting another code' });
+        }
+
+        const resetCode = crypto.randomInt(100000, 1000000).toString();
         const resetCodeExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
-        // Save reset code to MongoDB
         user.resetCode = resetCode;
         user.resetCodeExpiry = resetCodeExpiry;
+        user.resetCodeAttempts = 0;
+        user.resetCodeLastSentAt = new Date();
         await user.save();
 
-        // Send email with reset code
         const emailSent = await sendResetCode(user.email, user.fullName, resetCode);
-
-        if (emailSent) {
-            res.json({ message: 'Reset code sent to your email' });
-        } else {
-            res.status(500).json({ message: 'Failed to send email' });
+        if (!emailSent) {
+            return res.status(500).json({ message: 'Failed to send reset email' });
         }
+
+        res.json(genericResponse);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -236,15 +322,24 @@ exports.requestPasswordReset = async (req, res) => {
 // @route   POST /api/users/verify-reset-code
 exports.verifyResetCode = async (req, res) => {
     try {
-        const { email, code } = req.body;
-        const user = await User.findOne({ email: email.toLowerCase() });
+        const email = normalizeEmail(req.body?.email);
+        const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
 
+        if (!email || !code) {
+            return res.status(400).json({ message: 'Email and reset code are required' });
+        }
+
+        const user = await User.findOne({ email });
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(400).json({ message: 'Invalid or expired reset code' });
+        }
+
+        if (user.resetCodeAttempts >= RESET_MAX_ATTEMPTS) {
+            return res.status(429).json({ message: 'Too many invalid attempts. Request a new reset code.' });
         }
 
         if (!user.resetCode || !user.resetCodeExpiry) {
-            return res.status(400).json({ message: 'No reset code requested' });
+            return res.status(400).json({ message: 'Invalid or expired reset code' });
         }
 
         if (new Date() > user.resetCodeExpiry) {
@@ -252,6 +347,12 @@ exports.verifyResetCode = async (req, res) => {
         }
 
         if (user.resetCode !== code) {
+            user.resetCodeAttempts = (user.resetCodeAttempts || 0) + 1;
+            if (user.resetCodeAttempts >= RESET_MAX_ATTEMPTS) {
+                user.resetCode = null;
+                user.resetCodeExpiry = null;
+            }
+            await user.save();
             return res.status(400).json({ message: 'Invalid reset code' });
         }
 
@@ -265,15 +366,25 @@ exports.verifyResetCode = async (req, res) => {
 // @route   POST /api/users/reset-password
 exports.resetPassword = async (req, res) => {
     try {
-        const { email, code, newPassword } = req.body;
-        const user = await User.findOne({ email: email.toLowerCase() });
+        const email = normalizeEmail(req.body?.email);
+        const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+        const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
 
+        if (!email || !code || newPassword.length < 6) {
+            return res.status(400).json({ message: 'Valid email, 6-digit code, and password (min 6 chars) are required' });
+        }
+
+        const user = await User.findOne({ email });
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(400).json({ message: 'Invalid or expired reset code' });
+        }
+
+        if (user.resetCodeAttempts >= RESET_MAX_ATTEMPTS) {
+            return res.status(429).json({ message: 'Too many invalid attempts. Request a new reset code.' });
         }
 
         if (!user.resetCode || !user.resetCodeExpiry) {
-            return res.status(400).json({ message: 'No reset code requested' });
+            return res.status(400).json({ message: 'Invalid or expired reset code' });
         }
 
         if (new Date() > user.resetCodeExpiry) {
@@ -281,16 +392,19 @@ exports.resetPassword = async (req, res) => {
         }
 
         if (user.resetCode !== code) {
+            user.resetCodeAttempts = (user.resetCodeAttempts || 0) + 1;
+            if (user.resetCodeAttempts >= RESET_MAX_ATTEMPTS) {
+                user.resetCode = null;
+                user.resetCodeExpiry = null;
+            }
+            await user.save();
             return res.status(400).json({ message: 'Invalid reset code' });
         }
 
-        // Hash new password
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        user.password = hashedPassword;
-
-        // Clear reset code
+        user.password = await bcrypt.hash(newPassword, 10);
         user.resetCode = null;
         user.resetCodeExpiry = null;
+        user.resetCodeAttempts = 0;
         await user.save();
 
         res.json({ message: 'Password reset successfully' });

@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../config/user_theme.dart';
+import '../models/dropbox_model.dart';
 import '../widgets/user_ui.dart';
 import '../services/service_locator.dart';
 import '../services/websocket_service.dart';
 import '../services/auth_service.dart';
 import '../services/dropbox_service.dart';
+import '../services/input_validator.dart';
 import 'hardware_registration_screen.dart';
 import '../presentation/components/qr_access_badge_card.dart';
 
@@ -30,6 +34,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   late final WebSocketService _ws;
   StreamSubscription<Map<String, dynamic>>? _esp32Sub;
   StreamSubscription<Map<String, dynamic>>? _binSub;
+  StreamSubscription<Map<String, dynamic>>? _regSub;
   StreamSubscription<Map<String, dynamic>>? _unregSub;
   StreamSubscription<Map<String, dynamic>>? _doorSub;
 
@@ -42,6 +47,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   int _logicalPickupCount = 0;
   int _logicalDropoffCount = 0;
   String? _userId;
+  Dropbox? _dropbox;
   bool _hasDropbox = false;
   bool _registrationChecked = false;
   int _registeredUserCount = 0; // how many users share this device
@@ -63,24 +69,30 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
       final dropbox = await dropboxService.getUserDropbox(_userId!);
       if (mounted) {
         setState(() {
+          _dropbox = dropbox;
           _hasDropbox = dropbox != null;
           _registrationChecked = true;
           if (dropbox != null) {
             _registeredUserCount = dropbox.registeredUserCount;
-            _logicalPickupCount = (dropbox as dynamic).pickupCount ?? 0;
-            _logicalDropoffCount = (dropbox as dynamic).dropoffCount ?? 0;
+            _logicalPickupCount = dropbox.pickupCount;
+            _logicalDropoffCount = dropbox.dropoffCount;
             // Pre-fill percentages based on initial logical counts (10% per parcel)
             _pickupFill = (_logicalPickupCount / 10).clamp(0.0, 1.0);
             _dropoffFill = (_logicalDropoffCount / 10).clamp(0.0, 1.0);
+          } else {
+            _registeredUserCount = 0;
           }
         });
       }
     } else {
       if (mounted) setState(() => _registrationChecked = true);
     }
-    _esp32Sub?.cancel(); _binSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
+    _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
     _esp32Sub = _ws.esp32StatusUpdates.listen((data) { if (mounted) setState(() => _esp32Connected = data['connected'] == true); });
-    _unregSub = getIt<DropboxService>().deviceUnregisteredStream.listen((data) { if (data['success'] == true) _init(); });
+    _regSub = getIt<DropboxService>().deviceRegisteredStream.listen((_) => _init());
+    _unregSub = getIt<DropboxService>().deviceUnregisteredStream.listen((data) {
+      if (data['success'] == true || data['removedByOwner'] == true) _init();
+    });
     _doorSub = _ws.doorStateUpdates.listen((data) {
       if (!mounted) return;
       setState(() {
@@ -125,7 +137,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
 
   @override
   void dispose() {
-    _esp32Sub?.cancel(); _binSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
+    _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
     super.dispose();
   }
 
@@ -221,7 +233,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
             : null,
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 120),
+            padding: UserUi.listPadding(context, top: 14, bottom: 120),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -244,9 +256,9 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                   const SizedBox(height: 10),
                   _buildDoorCard(kDoorTop, 'Parcel Entry', 'Top slot for courier deliveries', Icons.local_shipping_rounded, 'REED_TOP', UserTheme.primaryOrange),
                   const SizedBox(height: 12),
-                  _buildDoorCard(kDoorPickup, 'Pickup Door', 'Front compartment for collecting deliveries', Icons.inventory_2_rounded, 'REED_PICKUP', UserTheme.accentAmberDark),
+                  _buildDoorCard(kDoorPickup, 'Pickup Door', 'Front compartment for collecting deliveries', Icons.inventory_2_rounded, 'REED_PICKUP', UserTheme.primaryOrange),
                   const SizedBox(height: 12),
-                  _buildDoorCard(kDoorReceived, 'Drop-off Door', 'Rear compartment for outgoing pickups', Icons.move_to_inbox_rounded, 'REED_RECEIVED', UserTheme.sunsetEnd),
+                  _buildDoorCard(kDoorReceived, 'Drop-off Door', 'Rear compartment for outgoing pickups', Icons.move_to_inbox_rounded, 'REED_RECEIVED', UserTheme.primaryOrange),
                   const SizedBox(height: 28),
                   UserUi.sectionTitle(context, 'Storage Bins', subtitle: 'Live compartment capacity'),
                   const SizedBox(height: 10),
@@ -254,7 +266,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                     children: [
                       Expanded(child: _buildBinCard('Pickup Bin', 'Awaiting courier', _pickupFill, _logicalPickupCount, UserTheme.primaryOrange, Icons.inventory_2_rounded)),
                       const SizedBox(width: 12),
-                      Expanded(child: _buildBinCard('Delivery Bin', 'Incoming parcels', _dropoffFill, _logicalDropoffCount, UserTheme.accentAmberDark, Icons.shopping_bag_rounded)),
+                      Expanded(child: _buildBinCard('Delivery Bin', 'Incoming parcels', _dropoffFill, _logicalDropoffCount, UserTheme.primaryOrange, Icons.shopping_bag_rounded)),
                     ],
                   ),
                 ] else if (_registrationChecked)
@@ -342,9 +354,106 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            Divider(
+              height: 1,
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06),
+            ),
+            const SizedBox(height: 8),
+            _buildUnitSettingRow(
+              icon: Icons.group_outlined,
+              title: 'Household members',
+              subtitle: '$_registeredUserCount ${_registeredUserCount == 1 ? 'person paired' : 'people paired'}',
+              onTap: _showHouseholdMembersSheet,
+            ),
+            _buildUnitSettingRow(
+              icon: Icons.badge_outlined,
+              title: 'Trusted courier passes',
+              subtitle: 'Manage recurring rider barcodes & QR badges',
+              onTap: _showTrustedCouriersSheet,
+            ),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildUnitSettingRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showHouseholdMembersSheet() {
+    final deviceId = _dropbox?.deviceId;
+    if (deviceId == null || deviceId.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _HouseholdMembersSheet(
+        deviceId: deviceId,
+        currentUserId: _userId ?? '',
+        onChanged: _init,
+      ),
+    );
+  }
+
+  void _showTrustedCouriersSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _TrustedCouriersSheet(),
     );
   }
 
@@ -499,16 +608,22 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
             children: [
               Text(
                 '$count $unitLabel',
-                style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 13.5),
+                style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 13),
               ),
-              Text(
-                statusLabel,
-                style: TextStyle(
-                  color: fill != null && fill > 0.85
-                      ? UserTheme.statusError
-                      : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  statusLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: fill != null && fill > 0.85
+                        ? UserTheme.statusError
+                        : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -707,5 +822,763 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
     if (success == true && mounted) {
       Navigator.pop(context);
     }
+  }
+}
+
+class _HouseholdMembersSheet extends StatefulWidget {
+  final String deviceId;
+  final String currentUserId;
+  final VoidCallback onChanged;
+
+  const _HouseholdMembersSheet({
+    required this.deviceId,
+    required this.currentUserId,
+    required this.onChanged,
+  });
+
+  @override
+  State<_HouseholdMembersSheet> createState() => _HouseholdMembersSheetState();
+}
+
+class _HouseholdMembersSheetState extends State<_HouseholdMembersSheet> {
+  final _dropboxService = getIt<DropboxService>();
+  bool _loading = true;
+  bool _creatingInvite = false;
+  bool _isPrimaryOwner = false;
+  List<Map<String, dynamic>> _members = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final res = await _dropboxService.getDeviceMembers(widget.deviceId);
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _isPrimaryOwner = res?['isPrimaryOwner'] == true;
+      final list = res?['members'];
+      _members = list is List ? list.cast<Map<String, dynamic>>() : [];
+    });
+  }
+
+  Future<void> _showAddMemberDialog() async {
+    final formKey = GlobalKey<FormState>();
+    final emailCtrl = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final messenger = ScaffoldMessenger.of(context);
+
+    final added = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) {
+        bool saving = false;
+        String? errorText;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
+            title: const Text('Add Household Member', style: TextStyle(fontWeight: FontWeight.w800)),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Enter the email of the family member\'s account. They will get instant access without needing to touch the physical box.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: emailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Member Email Address',
+                        prefixIcon: Icon(Icons.alternate_email_rounded),
+                      ),
+                      validator: InputValidator.validateEmail,
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        errorText!,
+                        style: const TextStyle(
+                          color: UserTheme.statusError,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogCtx, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        setDialogState(() {
+                          saving = true;
+                          errorText = null;
+                        });
+                        try {
+                          await _dropboxService.addDeviceMember(
+                            deviceId: widget.deviceId,
+                            email: emailCtrl.text.trim(),
+                          );
+                          if (dialogCtx.mounted) Navigator.pop(dialogCtx, true);
+                        } catch (e) {
+                          setDialogState(() {
+                            saving = false;
+                            errorText = e.toString();
+                          });
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: UserTheme.primaryOrange,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(saving ? 'Adding...' : 'Add Member'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    emailCtrl.dispose();
+    if (added == true && mounted) {
+      widget.onChanged();
+      await _load();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Household member added!'),
+          backgroundColor: UserTheme.statusSuccess,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showInviteCodeDialog() async {
+    if (_creatingInvite) return;
+    setState(() => _creatingInvite = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final invite = await _dropboxService.createHouseholdInvite(deviceId: widget.deviceId);
+      if (!mounted) return;
+      setState(() => _creatingInvite = false);
+
+      final token = (invite['token'] ?? '').toString();
+      final pin = (invite['pin'] ?? '').toString();
+      final deviceName = (invite['deviceName'] ?? 'Smart Parcel Dropbox').toString();
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
+          title: const Text('Household Invite Code', style: TextStyle(fontWeight: FontWeight.w800)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Have your family member open Register Dropbox on their phone and scan this QR or enter the 6-digit PIN for "$deviceName".',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                  ),
+                  child: QrImageView(
+                    data: token,
+                    version: QrVersions.auto,
+                    size: 164,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isDark ? UserTheme.nightSurface : UserTheme.daySurface,
+                    borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                  ),
+                  child: Text(
+                    pin,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 6,
+                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Expires in 15 minutes · Single-use',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: pin.isNotEmpty ? pin : token));
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Invite PIN copied to clipboard'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.copy_rounded, size: 17),
+              label: const Text('Copy PIN'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      );
+      if (mounted) {
+        widget.onChanged();
+        await _load();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _creatingInvite = false);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: UserTheme.statusError,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeMember(String memberId, String label) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _dropboxService.removeDeviceMember(
+        deviceId: widget.deviceId,
+        memberId: memberId,
+      );
+      widget.onChanged();
+      await _load();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Removed $label from household access'),
+          backgroundColor: UserTheme.statusSuccess,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: UserTheme.statusError,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+    final cardColor = isDark ? UserTheme.nightCard : UserTheme.dayCard;
+    final surfaceColor = isDark ? UserTheme.nightSurface : UserTheme.daySurface;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(UserTheme.radiusXL)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        UserUi.horizontalGutter(context),
+        16,
+        UserUi.horizontalGutter(context),
+        MediaQuery.of(context).padding.bottom + 24,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.78),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white24 : Colors.black12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Household Members',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: primaryText),
+            ),
+            const SizedBox(height: 10),
+            if (!_loading && _isPrimaryOwner) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _showAddMemberDialog,
+                      icon: const Icon(Icons.person_add_alt_1_rounded, size: 17),
+                      label: const Text('Add by Email', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: UserTheme.primaryOrange,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _creatingInvite ? null : _showInviteCodeDialog,
+                      icon: _creatingInvite
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.qr_code_2_rounded, size: 18),
+                      label: const Text('Invite QR / PIN', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Pair family members directly from your phone without walking out to the box.',
+                style: TextStyle(fontSize: 12, color: secondaryText, height: 1.35),
+              ),
+            ] else if (!_loading) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: surfaceColor,
+                  borderRadius: BorderRadius.circular(UserTheme.radiusM),
+                ),
+                child: Text(
+                  'Only the primary owner can add or remove household members in the app.',
+                  style: TextStyle(fontSize: 12.5, color: secondaryText, height: 1.4),
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 28),
+                child: Center(child: CircularProgressIndicator(color: UserTheme.primaryOrange)),
+              )
+            else if (_members.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  'No household members found.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: secondaryText),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _members.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    color: isDark ? Colors.white10 : Colors.black12,
+                  ),
+                  itemBuilder: (context, index) {
+                    final member = _members[index];
+                    final id = (member['id'] ?? '').toString();
+                    final name = (member['fullName'] ?? '').toString().trim();
+                    final email = (member['email'] ?? '').toString();
+                    final isPrimary = member['isPrimaryOwner'] == true;
+                    final isSelf = id == widget.currentUserId;
+                    final displayName = name.isNotEmpty ? name : (email.isNotEmpty ? email : 'Member');
+
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                      leading: CircleAvatar(
+                        backgroundColor: UserTheme.primaryOrange.withValues(alpha: 0.12),
+                        child: Text(
+                          displayName[0].toUpperCase(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: UserTheme.primaryOrange,
+                          ),
+                        ),
+                      ),
+                      title: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              isSelf ? '$displayName (You)' : displayName,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                color: primaryText,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isPrimary) ...[
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Owner',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: UserTheme.primaryOrange,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: email.isNotEmpty
+                          ? Text(email, style: TextStyle(fontSize: 12, color: secondaryText))
+                          : null,
+                      trailing: (_isPrimaryOwner && !isPrimary && !isSelf)
+                          ? IconButton(
+                              icon: const Icon(Icons.person_remove_outlined, color: UserTheme.statusError, size: 20),
+                              tooltip: 'Remove member',
+                              onPressed: () => _removeMember(id, displayName),
+                            )
+                          : null,
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TrustedCouriersSheet extends StatefulWidget {
+  const _TrustedCouriersSheet();
+
+  @override
+  State<_TrustedCouriersSheet> createState() => _TrustedCouriersSheetState();
+}
+
+class _TrustedCouriersSheetState extends State<_TrustedCouriersSheet> {
+  final _dropboxService = getIt<DropboxService>();
+  bool _loading = true;
+  List<Map<String, dynamic>> _passes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final items = await _dropboxService.getTrustedCouriers();
+    if (!mounted) return;
+    setState(() {
+      _passes = items;
+      _loading = false;
+    });
+  }
+
+  void _showAddPassDialog() {
+    final nameCtrl = TextEditingController();
+    final idCtrl = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    bool saving = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add Trusted Courier Pass'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Register a recurring courier badge or manifest ID so your rider can unlock the dropbox directly.',
+                  style: TextStyle(fontSize: 12.5),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Courier / Rider Name',
+                    hintText: 'e.g. J&T Express · Regular Rider',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: idCtrl,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: 'Pass / Badge ID',
+                    hintText: 'e.g. RIDER-JNT-01',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      if (nameCtrl.text.trim().isEmpty || idCtrl.text.trim().length < 3) return;
+                      setDialogState(() => saving = true);
+                      final nav = Navigator.of(dialogContext);
+                      try {
+                        await _dropboxService.addTrustedCourier(
+                          riderId: idCtrl.text,
+                          name: nameCtrl.text,
+                        );
+                        if (dialogContext.mounted) nav.pop();
+                        await _load();
+                      } catch (e) {
+                        setDialogState(() => saving = false);
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text(e.toString()),
+                            backgroundColor: UserTheme.statusError,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+              child: Text(saving ? 'Adding...' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showQrModal(String riderId, String name) {
+    final qrSize = (MediaQuery.sizeOf(context).shortestSide * 0.5).clamp(160.0, 210.0);
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(name),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: QrImageView(
+                data: riderId,
+                version: QrVersions.auto,
+                size: qrSize,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SelectableText(
+              riderId,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'monospace'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deletePass(String id) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _dropboxService.removeTrustedCourier(id);
+      await _load();
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: UserTheme.statusError,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+    final cardColor = isDark ? UserTheme.nightCard : UserTheme.dayCard;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(UserTheme.radiusXL)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        UserUi.horizontalGutter(context),
+        16,
+        UserUi.horizontalGutter(context),
+        MediaQuery.of(context).padding.bottom + 24,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.74),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white24 : Colors.black12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Trusted Courier Passes',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: primaryText),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _showAddPassDialog,
+                  icon: const Icon(Icons.add_rounded, size: 18, color: UserTheme.primaryOrange),
+                  label: const Text(
+                    'Add Pass',
+                    style: TextStyle(color: UserTheme.primaryOrange, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 28),
+                child: Center(child: CircularProgressIndicator(color: UserTheme.primaryOrange)),
+              )
+            else if (_passes.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  'No recurring courier passes yet. Tap Add Pass to register one.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: secondaryText, fontSize: 13),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _passes.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    color: isDark ? Colors.white10 : Colors.black12,
+                  ),
+                  itemBuilder: (context, index) {
+                    final pass = _passes[index];
+                    final id = (pass['_id'] ?? '').toString();
+                    final riderId = (pass['riderId'] ?? '').toString();
+                    final name = (pass['name'] ?? 'Courier').toString();
+
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                      leading: const Icon(Icons.motorcycle_rounded, color: UserTheme.primaryOrange, size: 22),
+                      title: Text(
+                        name,
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: primaryText),
+                      ),
+                      subtitle: Text(
+                        riderId,
+                        style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: secondaryText),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.qr_code_rounded, color: UserTheme.primaryOrange, size: 20),
+                            tooltip: 'Show QR Pass',
+                            onPressed: () => _showQrModal(riderId, name),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: UserTheme.statusError, size: 20),
+                            tooltip: 'Revoke Pass',
+                            onPressed: () => _deletePass(id),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

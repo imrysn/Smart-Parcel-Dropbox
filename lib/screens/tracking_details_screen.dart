@@ -63,7 +63,7 @@ class TrackingDetailsScreen extends StatelessWidget {
                 child: QrImageView(
                   data: tracking.trackingId,
                   version: QrVersions.auto,
-                  size: 210.0,
+                  size: (MediaQuery.sizeOf(context).shortestSide * 0.52).clamp(160.0, 220.0),
                   eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
                   dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
                 ),
@@ -111,7 +111,7 @@ class TrackingDetailsScreen extends StatelessWidget {
           ),
         ),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+          padding: UserUi.listPadding(context, top: 16, bottom: 40),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

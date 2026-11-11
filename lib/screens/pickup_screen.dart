@@ -13,13 +13,11 @@ import 'add_pickup_screen.dart';
 class PickupScreen extends StatefulWidget {
   final String userId;
   final DatabaseService databaseService;
-  final bool isAdmin;
 
   const PickupScreen({
     super.key,
     required this.userId,
     required this.databaseService,
-    this.isAdmin = false,
   });
 
   @override
@@ -75,14 +73,7 @@ class _PickupScreenState extends State<PickupScreen> {
                 ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
                     .contains(t.status))
             .toList(),
-        stream: widget.isAdmin
-            ? widget.databaseService.getAllTrackingIds().map((list) => list
-                .where((t) =>
-                    (t.mode == 'pickup' || t.mode == 'pick_up') &&
-                    ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
-                        .contains(t.status))
-                .toList())
-            : widget.databaseService.getActivePickups(widget.userId),
+        stream: widget.databaseService.getActivePickups(widget.userId),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return UserUi.emptyState(
@@ -124,18 +115,16 @@ class _PickupScreenState extends State<PickupScreen> {
                 icon: Icons.outbox_rounded,
                 title: 'No Pickups Scheduled',
                 subtitle: 'Parcels staged in your Dropbox for courier collection will appear here.',
-                actionLabel: widget.isAdmin ? null : 'Schedule Pickup',
-                onActionTap: widget.isAdmin
-                    ? null
-                    : () => Navigator.of(context)
-                        .push(MaterialPageRoute(builder: (_) => const AddPickupScreen()))
-                        .then((_) => widget.databaseService.refreshTracking(widget.userId)),
+                actionLabel: 'Schedule Pickup',
+                onActionTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const AddPickupScreen()))
+                    .then((_) => widget.databaseService.refreshTracking(widget.userId)),
               ),
             );
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.only(left: 20, right: 20, top: 12, bottom: 120),
+            padding: UserUi.listPadding(context, top: 12, bottom: 120),
             itemCount: pickups.length,
             itemBuilder: (context, index) => _buildPickupCard(pickups[index]),
           );
@@ -152,7 +141,7 @@ class _PickupScreenState extends State<PickupScreen> {
 
   Widget _buildPickupCard(TrackingModel pickup) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final statusColor = _getStatusColor(pickup.status);
+    final statusColor = UserTheme.getStatusColor(pickup.status);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -232,17 +221,6 @@ class _PickupScreenState extends State<PickupScreen> {
         ),
       ),
     );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'awaiting_pickup': return Colors.indigo;
-      case 'ready_for_pickup': return Colors.deepPurple;
-      case 'pending': return UserTheme.primaryOrange;
-      case 'retrieved': return Colors.grey;
-      case 'done': return UserTheme.statusSuccess;
-      default: return Colors.grey;
-    }
   }
 
   String _formatDate(DateTime? date) {

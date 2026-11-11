@@ -234,6 +234,14 @@ app.get('/pass/:trackingId', async (req, res) => {
 // Socket.IO middleware for authentication
 const { verifyToken } = require('./utils/auth');
 
+async function getPairedDropboxForUser(userId) {
+  if (!userId) return null;
+  return Dropbox.findOne({
+    isRegistered: true,
+    $or: [{ userIds: userId }, { primaryUserId: userId }, { userId }]
+  });
+}
+
 io.use((socket, next) => {
   const token = socket.handshake.auth.token || socket.handshake.query.token;
 
@@ -304,9 +312,12 @@ io.on('connection', (socket) => {
   // ── Phase 1: Remote ID Registration (mobile app → ESP32) ──────────────────
   // Flutter app emits this when a user schedules a delivery/pickup
   // Payload: { trackingId: "ABC123", mode: "drop_off" | "pick_up" }
-  socket.on('registerTracking', ({ trackingId, mode }) => {
+  socket.on('registerTracking', async ({ trackingId, mode }) => {
+    if (!socket.userId || !(await getPairedDropboxForUser(socket.userId))) {
+      console.log(`❌ BLOCK: unauthorized registerTracking from ${socket.id}`);
+      return;
+    }
     console.log(`📋 registerTracking → ${trackingId}, mode: ${mode}`);
-    // Forward directly to the ESP32 hardware device
     io.to('esp32_device').emit('registerTracking', { trackingId, mode });
     console.log(`  ✅ Forwarded to ESP32: ${trackingId} (${mode})`);
   });
@@ -314,8 +325,12 @@ io.on('connection', (socket) => {
   // ── Door Control (mobile app → ESP32) ─────────────────────────────────────
   // Replaces ESP32_DoorControl.ino's POST /door HTTP endpoint.
   // Payload: { type: "top"|"pickup"|"received", action: "open"|"close" }
-  socket.on('controlDoor', ({ type, action }) => {
-    console.log(`🚪 controlDoor → ${type} door: ${action}`);
+  socket.on('controlDoor', async ({ type, action }) => {
+    if (!socket.userId || !(await getPairedDropboxForUser(socket.userId))) {
+      console.log(`❌ BLOCK: unauthorized controlDoor from ${socket.id}`);
+      return;
+    }
+    console.log(`🚪 controlDoor → ${type} door: ${action} (user: ${socket.userId})`);
     io.to('esp32_device').emit('controlDoor', { type, action });
   });
 
@@ -323,6 +338,7 @@ io.on('connection', (socket) => {
   // Replaces ESP32_DoorControl.ino's GET /status HTTP endpoint.
   // ESP32 responds by emitting a 'doorStateUpdate' event back to all clients.
   socket.on('getStatus', () => {
+    if (!socket.userId && !socket.isHardware) return;
     console.log(`📊 getStatus requested`);
     io.to('esp32_device').emit('getStatus');
   });
@@ -389,8 +405,10 @@ io.on('connection', (socket) => {
       if (!tracking) {
         if (autoAcceptMode) {
           console.log(`  ✨ AUTO-REGISTER (TEST MODE): Creating new tracking for ${trackingId}`);
-          const adminUser = await User.findOne({ role: 'admin' });
-          const userId = adminUser ? adminUser._id.toString() : 'hardware_auto_accepted';
+          const primaryBox = await Dropbox.findOne({ isRegistered: true }).select('primaryUserId userId userIds');
+          const userId = primaryBox
+            ? (primaryBox.primaryUserId || primaryBox.userId || (primaryBox.userIds && primaryBox.userIds[0]) || 'hardware_auto_accepted')
+            : 'hardware_auto_accepted';
           
           tracking = await Tracking.create({
             trackingId,
@@ -562,30 +580,37 @@ io.on('connection', (socket) => {
     setTimeout(() => ownerSessions.delete(token), 70000); // auto-cleanup
 
     try {
-      // Feature #1 — Find admin user, emit only to their room
-      const owner = await User.findOne({ role: 'admin' }).select('_id');
-      if (owner) {
-        const ownerRoom = owner._id.toString();
-        io.to(ownerRoom).emit('ownerAccessAlert', { timestamp: new Date() });
-        console.log(`🔔 ownerAccessAlert → room: ${ownerRoom}`);
+      // Find paired owners/household members of registered dropbox units
+      const boxes = await Dropbox.find({ isRegistered: true }).select('deviceId primaryUserId userId userIds');
+      const recipientIds = Array.from(new Set(boxes.flatMap((box) => [
+        ...(box.userIds || []),
+        ...(box.primaryUserId ? [box.primaryUserId] : []),
+        ...(box.userId ? [box.userId] : []),
+      ]))).filter(Boolean);
 
-        // Feature #9 — Store pending alert so reconnecting owner still gets it
-        pendingOwnerAlerts.set(ownerRoom, expiresAt);
-        setTimeout(() => pendingOwnerAlerts.delete(ownerRoom), 70000);
+      if (recipientIds.length > 0) {
+        for (const ownerRoom of recipientIds) {
+          io.to(ownerRoom).emit('ownerAccessAlert', { timestamp: new Date() });
+          console.log(`🔔 ownerAccessAlert → room: ${ownerRoom}`);
+          pendingOwnerAlerts.set(ownerRoom, expiresAt);
+          setTimeout(() => pendingOwnerAlerts.delete(ownerRoom), 70000);
+        }
       } else {
-        // Fallback: no admin user found — broadcast to all app clients
         socket.broadcast.emit('ownerAccessAlert', { timestamp: new Date() });
-        console.log('⚠️  No admin user found; ownerAccessAlert broadcast to all clients');
+        console.log('⚠️  No registered owners found; ownerAccessAlert broadcast to connected clients');
       }
+
+      const primaryOwnerId = recipientIds[0] || 'unknown';
 
       // Feature #3 — Audit log: record the access attempt
       await ScanLog.create({
+        deviceId: boxes[0]?.deviceId || null,
         scannedId: token,
         accessGranted: null,
         mode: 'owner_verify',
         status: 'pending',
         reason: 'owner_qr_requested',
-        userId: owner ? owner._id.toString() : 'unknown'
+        userId: primaryOwnerId
       });
     } catch (err) {
       console.error('❌ requestOwnerSession DB error:', err.message);
@@ -597,7 +622,12 @@ io.on('connection', (socket) => {
   // Flutter app scans the QR code on the LCD and emits this event.
   // Feature #3: Updates the audit log with the outcome.
   socket.on('verifyOwnerQR', async ({ token }) => {
-    console.log(`🔑 verifyOwnerQR → token: ${token}`);
+    if (!socket.userId || !(await getPairedDropboxForUser(socket.userId))) {
+      console.log(`❌ BLOCK: unauthorized verifyOwnerQR from ${socket.id}`);
+      socket.emit('ownerVerifyAck', { approved: false, token, reason: 'unauthorized' });
+      return;
+    }
+    console.log(`🔑 verifyOwnerQR → token: ${token} (user: ${socket.userId})`);
     const expiresAt = ownerSessions.get(token);
     const approved = !!(expiresAt && Date.now() < expiresAt);
     ownerSessions.delete(token); // one-time use
@@ -605,11 +635,12 @@ io.on('connection', (socket) => {
     io.to('esp32_device').emit('ownerVerifyResult', { approved });
     socket.emit('ownerVerifyAck', { approved, token });
 
-    // Feature #3 — Update the audit log entry with the result
+    // Feature #3 — Update the audit log entry with verifying user & result
     try {
       await ScanLog.findOneAndUpdate(
         { scannedId: token, mode: 'owner_verify' },
         { $set: {
+            userId: socket.userId,
             accessGranted: approved,
             status: approved ? 'authorized' : 'rejected',
             reason: approved ? 'owner_qr_approved' : 'owner_qr_denied_or_expired'
@@ -810,8 +841,14 @@ io.on('connection', (socket) => {
   // App emits this after scanning the QR code shown on the LCD.
   // Multi-user: subsequent scans ADD the user to userIds without removing others.
   // Payload: { token: "SPDB-REG-123456", userId: "...", deviceName: "Home" }
-  socket.on('registerDevice', async ({ token, userId, deviceName }) => {
-    console.log(`📱 registerDevice → token: ${token}, userId: ${userId}`);
+  socket.on('registerDevice', async ({ token, userId: payloadUserId, deviceName }) => {
+    const effectiveUserId = socket.userId;
+    if (!effectiveUserId) {
+      console.log('❌ registerDevice rejected: unauthenticated socket');
+      socket.emit('deviceRegistrationFailed', { reason: 'unauthorized' });
+      return;
+    }
+    console.log(`📱 registerDevice → token: ${token}, userId: ${effectiveUserId}`);
     const entry = pendingRegistrations.get(token);
     const expiresAt = entry?.expiresAtMs || entry?.expiresAt;
     if (!entry || (expiresAt && Date.now() > expiresAt)) {
@@ -824,33 +861,45 @@ io.on('connection', (socket) => {
     try {
       // Check if this user is already registered to this device
       const existing = await Dropbox.findOne({ deviceId });
-      const alreadyRegisteredByUser = existing && (existing.userIds || []).includes(userId);
+      const wasAlreadyRegistered = Boolean(existing && existing.isRegistered);
+      const skipWifiSetup = Boolean(
+        entry.alreadyConnected ||
+        entry.isHouseholdInvite ||
+        (wasAlreadyRegistered && (existing.wifiSSID || existing.status === 'online'))
+      );
+      const alreadyRegisteredByUser = existing && (existing.userIds || []).includes(effectiveUserId);
 
       if (alreadyRegisteredByUser) {
-        console.log(`  ℹ️  User ${userId} is already registered to device ${deviceId}`);
+        console.log(`  ℹ️  User ${effectiveUserId} is already registered to device ${deviceId}`);
         socket.emit('deviceRegistered', {
           deviceId,
           dropbox: existing,
-          alreadyConnected: !!entry.alreadyConnected,
+          alreadyConnected: skipWifiSetup,
         });
-        io.to('esp32_device').emit('deviceRegistered', { deviceId });
+        if (!entry.isHouseholdInvite) {
+          io.to('esp32_device').emit('deviceRegistered', { deviceId });
+        }
         return;
       }
+
+      const preservedName = (wasAlreadyRegistered && existing.name)
+        ? existing.name
+        : (deviceName || 'My Smart Parcel Dropbox');
 
       // $addToSet ensures the userId is added only once even if called multiple times
       // $setOnInsert only runs when a brand-new document is created (upsert)
       const dropbox = await Dropbox.findOneAndUpdate(
         { deviceId },
         {
-          $addToSet: { userIds: userId },
+          $addToSet: { userIds: effectiveUserId },
           $set: {
-            name: deviceName || 'My Smart Parcel Dropbox',
+            name: preservedName,
             isRegistered: true,
-            status: 'offline',
-            registeredAt: new Date(),
+            status: wasAlreadyRegistered ? (existing.status || 'offline') : 'offline',
+            registeredAt: wasAlreadyRegistered ? (existing.registeredAt || new Date()) : new Date(),
           },
           $setOnInsert: {
-            primaryUserId: userId,
+            primaryUserId: effectiveUserId,
           },
         },
         { upsert: true, new: true }
@@ -858,20 +907,22 @@ io.on('connection', (socket) => {
 
       // Promote to primaryUserId if field is still unset (legacy migration path)
       if (!dropbox.primaryUserId) {
-        await Dropbox.updateOne({ _id: dropbox._id }, { $set: { primaryUserId: userId } });
+        await Dropbox.updateOne({ _id: dropbox._id }, { $set: { primaryUserId: effectiveUserId } });
       }
 
       const registeredUserCount = dropbox.userIds ? dropbox.userIds.length : 1;
-      console.log(`  ✅ Device registered: ${deviceId} → user: ${userId} (total users: ${registeredUserCount})`);
+      console.log(`  ✅ Device registered: ${deviceId} → user: ${effectiveUserId} (total users: ${registeredUserCount})`);
 
       // Notify the registering app client
       socket.emit('deviceRegistered', {
         deviceId,
         dropbox,
-        alreadyConnected: !!entry.alreadyConnected,
+        alreadyConnected: skipWifiSetup,
       });
-      // Notify hardware to save registered flag
-      io.to('esp32_device').emit('deviceRegistered', { deviceId });
+      if (!entry.isHouseholdInvite) {
+        // Notify hardware to save registered flag
+        io.to('esp32_device').emit('deviceRegistered', { deviceId });
+      }
     } catch (err) {
       console.error('❌ registerDevice DB error:', err.message);
       socket.emit('deviceRegistrationFailed', { reason: 'server_error' });
@@ -882,17 +933,20 @@ io.on('connection', (socket) => {
   // App emits this to remove a user's own access to the dropbox.
   // Multi-user: only pulls this userId out of userIds. The device stays registered
   // for other users. Hardware is notified only when the LAST user unregisters.
-  // Payload: { userId: "..." }
-  socket.on('unregisterDevice', async ({ userId }) => {
-    console.log(`📱 unregisterDevice → userId: ${userId}`);
-    if (!userId) return;
+  socket.on('unregisterDevice', async () => {
+    const effectiveUserId = socket.userId;
+    if (!effectiveUserId) {
+      socket.emit('deviceUnregistrationFailed', { reason: 'unauthorized' });
+      return;
+    }
+    console.log(`📱 unregisterDevice → userId: ${effectiveUserId}`);
     try {
       // Support both new (userIds array) and legacy (userId) documents
-      let dropbox = await Dropbox.findOne({ userIds: userId });
-      if (!dropbox) dropbox = await Dropbox.findOne({ userId });
+      let dropbox = await Dropbox.findOne({ userIds: effectiveUserId });
+      if (!dropbox) dropbox = await Dropbox.findOne({ userId: effectiveUserId });
 
       if (!dropbox) {
-        console.log(`  ❌ No dropbox found for userId: ${userId}`);
+        console.log(`  ❌ No dropbox found for userId: ${effectiveUserId}`);
         socket.emit('deviceUnregistrationFailed', { reason: 'no_device_found' });
         return;
       }
@@ -902,7 +956,7 @@ io.on('connection', (socket) => {
       // 1. Pull this user out of userIds
       await Dropbox.updateOne(
         { _id: dropbox._id },
-        { $pull: { userIds: userId } }
+        { $pull: { userIds: effectiveUserId } }
       );
 
       // 2. Reload to count remaining users
@@ -928,7 +982,18 @@ io.on('connection', (socket) => {
         // Notify hardware to revert to setup mode
         io.to('esp32_device').emit('deviceUnregistered', { deviceId });
       } else {
-        console.log(`  ✅ User ${userId} removed from device ${deviceId} (${remainingUsers.length} user(s) remaining)`);
+        if (dropbox.primaryUserId === effectiveUserId || dropbox.userId === effectiveUserId) {
+          await Dropbox.updateOne(
+            { _id: dropbox._id },
+            {
+              $set: {
+                primaryUserId: remainingUsers[0],
+                ...(dropbox.userId === effectiveUserId ? { userId: remainingUsers[0] } : {}),
+              }
+            }
+          );
+        }
+        console.log(`  ✅ User ${effectiveUserId} removed from device ${deviceId} (${remainingUsers.length} user(s) remaining)`);
       }
 
       // 3. Notify requesting app client
@@ -944,20 +1009,27 @@ io.on('connection', (socket) => {
   // App emits this after registration to send WiFi credentials to the device.
   // Payload: { ssid: "HomeWiFi", password: "secret" }
   socket.on('pushHardwareConfig', async ({ ssid, password }) => {
+    const pairedBox = socket.userId ? await getPairedDropboxForUser(socket.userId) : null;
+    if (!pairedBox) {
+      console.log(`❌ BLOCK: unauthorized pushHardwareConfig from ${socket.id}`);
+      return;
+    }
     console.log(`⚙️  pushHardwareConfig → ssid: ${ssid}`);
     // Forward to hardware
     io.to('esp32_device').emit('applyHardwareConfig', { ssid, password });
     // Update MongoDB with last known SSID
-    if (socket.userId) {
-      await Dropbox.findOneAndUpdate(
-        { $or: [{ userIds: socket.userId }, { primaryUserId: socket.userId }, { userId: socket.userId }] },
-        { $set: { wifiSSID: ssid } }
-      ).catch(() => {});
-    }
+    await Dropbox.updateOne(
+      { _id: pairedBox._id },
+      { $set: { wifiSSID: ssid } }
+    ).catch(() => {});
   });
 
   // ── WiFi Scanning (app ↔ backend ↔ hardware) ─────────────────────────────
-  socket.on('requestWiFiScan', () => {
+  socket.on('requestWiFiScan', async () => {
+    if (!socket.userId || !(await getPairedDropboxForUser(socket.userId))) {
+      console.log(`❌ BLOCK: unauthorized requestWiFiScan from ${socket.id}`);
+      return;
+    }
     console.log(`📡 requestWiFiScan requested by ${socket.id}`);
     io.to('esp32_device').emit('requestWiFiScan');
   });

@@ -3,7 +3,6 @@ import 'dart:async';
 import '../models/tracking_model.dart';
 import '../models/scan_log_model.dart';
 import '../models/notification_model.dart';
-import '../models/user_model.dart';
 import 'service_locator.dart';
 import 'websocket_service.dart';
 import 'tracking_service.dart';
@@ -76,9 +75,6 @@ class DatabaseService {
 
       // 1. Refresh the tracking lists so the UI updates immediately
       _tracking.refreshTracking(userId);
-      
-      // If admin, also refresh all tracking
-      _tracking.getAllTrackingIds();
 
       // 2. Show a local system tray/push notification
       _notification.showDeliveryNotification(
@@ -146,10 +142,6 @@ class DatabaseService {
   }) =>
       _tracking.updateTrackingStatus(trackingId: trackingId, status: status);
 
-  Stream<List<TrackingModel>> getAllTrackingIds() => _tracking.allTrackingStream;
-
-  Future<List<TrackingModel>> refreshAllTrackingIds() => _tracking.getAllTrackingIds();
-
   Future<void> simulateTracking(String trackingId) => _tracking.simulateTracking(trackingId);
 
   Future<void> resetTracking(String trackingId) => _tracking.resetTracking(trackingId);
@@ -168,6 +160,9 @@ class DatabaseService {
 
   // ========== User Methods ==========
 
+  Future<Map<String, dynamic>?> getMe({Duration timeout = const Duration(seconds: 10)}) =>
+      _user.getMe(timeout: timeout);
+
   Future<Map<String, dynamic>?> getUserData(String userId) =>
       _user.getUserData(userId);
 
@@ -184,27 +179,16 @@ class DatabaseService {
         address: address,
       );
 
-  Stream<List<UserModel>> getAllUsers() => _user.getAllUsers();
-
-  Future<void> refreshAllUsers() => _user.refreshAllUsers();
-
-  Future<void> updateUserRole({
-    required String userId,
-    required String role,
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
   }) =>
-      _user.updateUserRole(userId: userId, role: role);
-
-  Future<String?> getUserRole(String userId) => _user.getUserRole(userId);
+      _user.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
 
   Future<void> deleteUser(String userId) => _user.deleteUser(userId);
-
-  Future<List<UserModel>> getPendingUsers() => _user.getPendingUsers();
-
-  Future<void> approveUser(String userId) => _user.approveUser(userId);
-
-  Future<void> rejectUser(String userId) => _user.rejectUser(userId);
-
-  Future<bool> checkEmailExists(String email) => _user.checkEmailExists(email);
 
   Future<void> requestPasswordReset(String email) =>
       _user.requestPasswordReset(email);

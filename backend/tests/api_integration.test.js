@@ -71,21 +71,19 @@ test('REST API Integration Suite', async (t) => {
     }
   });
 
-  await t.test('POST /api/users/login without body should fail validation', async () => {
+  await t.test('POST /api/users/login without body should fail validation with 400', async () => {
     try {
       const res = await makeRequest('/api/users/login', 'POST', {});
-      assert.ok(res.statusCode >= 400);
+      assert.equal(res.statusCode, 400);
     } catch (err) {
       t.diagnostic(`Server not running at ${BASE_URL}. Skipping validation test.`);
     }
   });
 
-  await t.test('GET /device-control should return initial door state structure', async () => {
+  await t.test('GET /device-control without auth token should return 401', async () => {
     try {
       const res = await makeRequest('/device-control');
-      assert.equal(res.statusCode, 200);
-      assert.ok('parcelDoorOpen' in res.body);
-      assert.ok('userDoorOpen' in res.body);
+      assert.equal(res.statusCode, 401);
     } catch (err) {
       t.diagnostic(`Server not running at ${BASE_URL}. Skipping device-control test.`);
     }

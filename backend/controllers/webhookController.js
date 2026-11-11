@@ -1,5 +1,16 @@
 const Task = require('../models/Task');
-const User = require('../models/User');
+const Dropbox = require('../models/Dropbox');
+
+async function resolveDefaultOwnerId(fallback) {
+  if (process.env.DEFAULT_OWNER_USER_ID) {
+    return process.env.DEFAULT_OWNER_USER_ID;
+  }
+  const primaryBox = await Dropbox.findOne({ isRegistered: true }).select('primaryUserId userId userIds');
+  if (primaryBox) {
+    return primaryBox.primaryUserId || primaryBox.userId || (primaryBox.userIds && primaryBox.userIds[0]) || fallback;
+  }
+  return fallback;
+}
 
 /**
  * POST /api/webhooks/shopee
@@ -10,8 +21,7 @@ exports.handleShopeeWebhook = async (req, res) => {
     console.log('🛍️ Shopee Webhook Received:', JSON.stringify(req.body));
     const { order_sn, buyer_username, item_list, tracking_no, courier_name } = req.body;
 
-    const owner = await User.findOne({ role: 'admin' });
-    const userId = owner ? owner._id.toString() : 'shopee_auto_sync';
+    const userId = await resolveDefaultOwnerId('shopee_auto_sync');
 
     const itemNames = (item_list || []).map(i => i.item_name).join(', ') || 'Shopee Order';
 
@@ -45,8 +55,7 @@ exports.handleTikTokWebhook = async (req, res) => {
     console.log('🎵 TikTok Shop Webhook Received:', JSON.stringify(req.body));
     const { order_id, buyer_name, product_name, tracking_number } = req.body;
 
-    const owner = await User.findOne({ role: 'admin' });
-    const userId = owner ? owner._id.toString() : 'tiktok_auto_sync';
+    const userId = await resolveDefaultOwnerId('tiktok_auto_sync');
 
     const task = await Task.create({
       userId,
@@ -78,8 +87,7 @@ exports.handleInstagramWebhook = async (req, res) => {
     console.log('📸 Instagram Webhook Received:', JSON.stringify(req.body));
     const { sender_name, message_text, phone } = req.body;
 
-    const owner = await User.findOne({ role: 'admin' });
-    const userId = owner ? owner._id.toString() : 'ig_auto_sync';
+    const userId = await resolveDefaultOwnerId('ig_auto_sync');
 
     const task = await Task.create({
       userId,

@@ -12,13 +12,11 @@ import '../presentation/components/delivery_timeline.dart';
 class DropOffScreen extends StatelessWidget {
   final String userId;
   final DatabaseService databaseService;
-  final bool isAdmin;
 
   const DropOffScreen({
     super.key,
     required this.userId,
     required this.databaseService,
-    this.isAdmin = false,
   });
 
   @override
@@ -41,32 +39,10 @@ class DropOffScreen extends StatelessWidget {
               )
             : null,
         body: RefreshIndicator(
-          onRefresh: () async {
-            if (isAdmin) {
-              await databaseService.refreshAllTrackingIds();
-            } else {
-              await databaseService.refreshTracking(userId);
-            }
-          },
+          onRefresh: () => databaseService.refreshTracking(userId),
           color: UserTheme.primaryOrange,
           child: StreamBuilder<List<TrackingModel>>(
-            stream: isAdmin
-                ? databaseService.getAllTrackingIds().map(
-                      (list) => list
-                          .where(
-                            (t) =>
-                                t.mode == 'drop_off' &&
-                                [
-                                  'pending',
-                                  'in_transit',
-                                  'delivered',
-                                  'awaiting_pickup',
-                                  'done',
-                                ].contains(t.status),
-                          )
-                          .toList(),
-                    )
-                : databaseService.getActiveOrders(userId),
+            stream: databaseService.getActiveOrders(userId),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return UserUi.emptyState(
@@ -84,7 +60,7 @@ class DropOffScreen extends StatelessWidget {
                   icon: Icons.inventory_2_outlined,
                   title: 'No drop offs',
                   subtitle: 'Incoming drop-off parcels will appear here.',
-                  actionLabel: 'ADD TRACKING',
+                  actionLabel: 'Add Tracking',
                   onActionTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const AddTrackingScreen()),
                   ),
@@ -92,8 +68,7 @@ class DropOffScreen extends StatelessWidget {
               }
 
               return ListView.builder(
-                padding:
-                    const EdgeInsets.only(left: 20, right: 20, top: 16, bottom: 120),
+                padding: UserUi.listPadding(context, top: 16, bottom: 120),
                 itemCount: orders.length,
                 itemBuilder: (context, index) => _DropOffCard(order: orders[index]),
               );

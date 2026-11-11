@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
@@ -14,6 +13,50 @@ class UserUi {
   static const double sM = 16.0;
   static const double sL = 24.0;
   static const double sXL = 32.0;
+
+  /// Responsive horizontal page gutter prioritizing mobile viewports.
+  static double horizontalGutter(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 390) return 16.0;
+    if (width < 600) return 20.0;
+    return 24.0;
+  }
+
+  /// Computes scrollable content padding that stays full-width on mobile
+  /// and automatically centers content up to [maxWidth] on wider screens
+  /// without clipping edge scrollbars or pull-to-refresh gestures.
+  static EdgeInsets listPadding(
+    BuildContext context, {
+    double top = 12,
+    double bottom = 32,
+    double maxWidth = 600,
+  }) {
+    final width = MediaQuery.sizeOf(context).width;
+    final base = horizontalGutter(context);
+    final horizontal = width > maxWidth + (base * 2) ? (width - maxWidth) / 2 : base;
+    return EdgeInsets.fromLTRB(horizontal, top, horizontal, bottom);
+  }
+
+  /// Constrains and centers body content on wider viewports while staying
+  /// full-width on mobile phones.
+  static Widget responsiveContainer(
+    BuildContext context, {
+    required Widget child,
+    double maxWidth = 560,
+    EdgeInsetsGeometry? padding,
+  }) {
+    Widget content = SizedBox(width: double.infinity, child: child);
+    if (padding != null) {
+      content = Padding(padding: padding, child: content);
+    }
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: content,
+      ),
+    );
+  }
 
   /// Theme-aware page background.
   static BoxDecoration pageBackground(BuildContext context) {
@@ -88,17 +131,17 @@ class UserUi {
     EdgeInsetsGeometry? padding,
     bool isLoading = false,
   }) {
+    final effectiveColor = color ?? UserTheme.primaryOrange;
     return Container(
       width: fullWidth ? double.infinity : null,
       decoration: BoxDecoration(
-        gradient: color == null ? UserTheme.sunsetGradient : null,
-        color: color,
+        color: effectiveColor,
         borderRadius: BorderRadius.circular(UserTheme.radiusM),
         boxShadow: [
           BoxShadow(
-            color: (color ?? UserTheme.sunsetMid).withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: effectiveColor.withValues(alpha: 0.14),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -192,7 +235,7 @@ class UserUi {
     return StatusPill(label: label, color: color);
   }
 
-  /// Premium Empty State with optional action button.
+  /// Responsive empty state with optional action button.
   static Widget emptyState(BuildContext context, {
     required IconData icon,
     required String title,
@@ -203,51 +246,61 @@ class UserUi {
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(sXL),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(sL),
-              decoration: BoxDecoration(
-                color: (isDark ? UserTheme.nightCard : UserTheme.daySurface).withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 48, color: UserTheme.primaryOrange.withValues(alpha: 0.85)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: SizedBox(
+          width: double.infinity,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: horizontalGutter(context),
+              vertical: sL,
             ),
-            const SizedBox(height: sL),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-            ),
-            if (subtitle != null) ...[
-              const SizedBox(height: sS),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
-                  height: 1.5,
-                  fontSize: 13,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: (isDark ? UserTheme.nightCard : UserTheme.daySurface).withValues(alpha: 0.6),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, size: 42, color: UserTheme.primaryOrange.withValues(alpha: 0.85)),
                 ),
-              ),
-            ],
-            if (action != null) ...[
-              const SizedBox(height: sL),
-              action,
-            ] else if (actionLabel != null && onActionTap != null) ...[
-              const SizedBox(height: sL),
-              premiumButton(
-                label: actionLabel,
-                onTap: onActionTap,
-                fullWidth: false,
-                fontSize: 13,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
-            ],
-          ],
+                const SizedBox(height: sM),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: sS),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                      height: 1.5,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+                if (action != null) ...[
+                  const SizedBox(height: sL),
+                  action,
+                ] else if (actionLabel != null && onActionTap != null) ...[
+                  const SizedBox(height: sL),
+                  premiumButton(
+                    label: actionLabel,
+                    onTap: onActionTap,
+                    fullWidth: false,
+                    fontSize: 13,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

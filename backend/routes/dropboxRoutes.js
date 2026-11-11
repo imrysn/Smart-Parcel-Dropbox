@@ -1,9 +1,18 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const Dropbox = require('../models/Dropbox');
+const User = require('../models/User');
 const { authMiddleware } = require('../utils/auth');
 
 const { pendingRegistrations } = require('../controllers/hardwareController');
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function resolvePrimaryOwnerId(dropbox) {
+  if (!dropbox) return null;
+  return dropbox.primaryUserId || dropbox.userId || (dropbox.userIds && dropbox.userIds[0]) || null;
+}
 
 // All dropbox routes are protected
 router.use(authMiddleware);
@@ -14,28 +23,26 @@ router.use(authMiddleware);
  */
 router.post('/claim', async (req, res) => {
   try {
-    const { token, deviceId, name, buttonConfirmed } = req.body;
+    const { token, name } = req.body;
+    const formattedToken = typeof token === 'string' ? token.trim().toUpperCase() : '';
 
-    if (!token && !deviceId) {
-      return res.status(400).json({ message: 'Token or deviceId is required to claim hardware' });
+    if (!formattedToken) {
+      return res.status(400).json({ message: 'Pairing token from the Dropbox LCD is required' });
     }
 
-    let targetDeviceId = deviceId;
-
-    // Validate token if provided
-    if (token) {
-      const formattedToken = token.trim().toUpperCase();
-      const pending = pendingRegistrations.get(formattedToken);
-      if (pending) {
-        const expiry = pending.expiresAtMs || pending.expiresAt;
-        if (expiry && expiry < Date.now()) {
-          pendingRegistrations.delete(formattedToken);
-          return res.status(400).json({ message: 'Pairing token has expired. Please refresh on physical box LCD.' });
-        }
-        targetDeviceId = pending.deviceId;
-        pendingRegistrations.delete(formattedToken);
-      }
+    const pending = pendingRegistrations.get(formattedToken);
+    if (!pending) {
+      return res.status(400).json({ message: 'Invalid or expired pairing token. Please scan the QR code on your physical box LCD.' });
     }
+
+    const expiry = pending.expiresAtMs || pending.expiresAt;
+    if (expiry && expiry < Date.now()) {
+      pendingRegistrations.delete(formattedToken);
+      return res.status(400).json({ message: 'Pairing token has expired. Please refresh on physical box LCD.' });
+    }
+
+    const targetDeviceId = pending.deviceId;
+    pendingRegistrations.delete(formattedToken);
 
     if (!targetDeviceId) {
       return res.status(400).json({ message: 'Invalid pairing token or device ID' });
@@ -43,6 +50,7 @@ router.post('/claim', async (req, res) => {
 
     // Find existing device document or create new active device record
     let dropbox = await Dropbox.findOne({ deviceId: targetDeviceId });
+    const wasAlreadyRegistered = Boolean(dropbox && dropbox.isRegistered);
 
     if (!dropbox) {
       dropbox = new Dropbox({
@@ -51,7 +59,8 @@ router.post('/claim', async (req, res) => {
         userIds: [req.userId],
         name: name || 'My Smart Parcel Dropbox',
         isRegistered: true,
-        status: 'online'
+        status: pending.alreadyConnected ? 'online' : 'offline',
+        registeredAt: new Date(),
       });
     } else {
       // Add user to userIds array if not already present
@@ -62,20 +71,34 @@ router.post('/claim', async (req, res) => {
         dropbox.primaryUserId = req.userId;
       }
       dropbox.isRegistered = true;
-      dropbox.status = 'online';
-      if (name) dropbox.name = name;
+      if (!wasAlreadyRegistered) {
+        dropbox.status = pending.alreadyConnected ? 'online' : dropbox.status || 'offline';
+        dropbox.registeredAt = new Date();
+        if (name) dropbox.name = name;
+      } else if (!dropbox.name && name) {
+        dropbox.name = name;
+      }
     }
 
     await dropbox.save();
 
-    // Broadcast WebSocket notification to hardware box
+    const skipWifiSetup = Boolean(
+      pending.alreadyConnected ||
+      pending.isHouseholdInvite ||
+      (wasAlreadyRegistered && (dropbox.wifiSSID || dropbox.status === 'online'))
+    );
+
+    // Notify the claiming owner and hardware unit via Socket.IO
     const io = req.app.get('io');
     if (io) {
-      io.emit('deviceRegistered', {
+      io.to(req.userId).emit('deviceRegistered', {
         deviceId: targetDeviceId,
-        primaryUserId: dropbox.primaryUserId,
-        userIds: dropbox.userIds
+        alreadyConnected: skipWifiSetup,
+        dropbox,
       });
+      if (!pending.isHouseholdInvite) {
+        io.to('esp32_device').emit('deviceRegistered', { deviceId: targetDeviceId });
+      }
     }
 
     console.log(`✅ [DEVICE-CLAIMED] Device: ${targetDeviceId} claimed by User: ${req.userId}`);
@@ -83,7 +106,9 @@ router.post('/claim', async (req, res) => {
     res.json({
       success: true,
       message: 'Dropbox paired successfully',
-      dropbox
+      deviceId: targetDeviceId,
+      alreadyConnected: skipWifiSetup,
+      dropbox,
     });
   } catch (error) {
     console.error('Error claiming dropbox:', error);
@@ -205,9 +230,237 @@ router.delete('/:userId', async (req, res) => {
       if (io) {
         io.to('esp32_device').emit('deviceUnregistered', { deviceId });
       }
+    } else if (dropbox.primaryUserId === uid || dropbox.userId === uid) {
+      // Promote next remaining household member cleanly
+      await Dropbox.updateOne(
+        { _id: dropbox._id },
+        {
+          $set: {
+            primaryUserId: remainingUsers[0],
+            ...(dropbox.userId === uid ? { userId: remainingUsers[0] } : {}),
+          }
+        }
+      );
     }
 
     res.json({ message: 'Dropbox unregistered successfully', deviceId, remainingUsers: remainingUsers.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+/**
+ * GET /api/dropbox/:deviceId/members
+ * List household members paired to this device (must already belong to device).
+ */
+router.get('/:deviceId/members', async (req, res) => {
+  try {
+    const dropbox = await Dropbox.findOne({
+      deviceId: req.params.deviceId,
+      isRegistered: true,
+      $or: [{ userIds: req.userId }, { primaryUserId: req.userId }, { userId: req.userId }]
+    });
+
+    if (!dropbox) {
+      return res.status(403).json({ message: 'Access denied: you are not paired to this device' });
+    }
+
+    const memberIds = Array.from(new Set([
+      ...(dropbox.userIds || []),
+      ...(dropbox.primaryUserId ? [dropbox.primaryUserId] : []),
+      ...(dropbox.userId ? [dropbox.userId] : []),
+    ])).filter(Boolean);
+
+    const users = await User.find({ _id: { $in: memberIds } }).select('fullName email');
+    const byId = new Map(users.map((u) => [u._id.toString(), u]));
+
+    const primaryId = resolvePrimaryOwnerId(dropbox);
+    const members = memberIds.map((id) => {
+      const user = byId.get(id);
+      return {
+        id,
+        fullName: user?.fullName || 'Household Member',
+        email: user?.email || '',
+        isPrimaryOwner: id === primaryId,
+      };
+    });
+
+    res.json({
+      deviceId: dropbox.deviceId,
+      name: dropbox.name,
+      primaryUserId: primaryId,
+      isPrimaryOwner: req.userId === primaryId,
+      members,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+/**
+ * DELETE /api/dropbox/:deviceId/members/:memberId
+ * Remove a household member from a paired dropbox (primary owner only).
+ */
+router.delete('/:deviceId/members/:memberId', async (req, res) => {
+  try {
+    const { deviceId, memberId } = req.params;
+    const dropbox = await Dropbox.findOne({ deviceId, isRegistered: true });
+
+    if (!dropbox) {
+      return res.status(404).json({ message: 'Dropbox not found' });
+    }
+
+    const primaryId = resolvePrimaryOwnerId(dropbox);
+    if (req.userId !== primaryId) {
+      return res.status(403).json({ message: 'Only the primary owner can remove household members' });
+    }
+
+    if (memberId === primaryId) {
+      return res.status(400).json({ message: 'Use Unlink Hardware to remove yourself as primary owner' });
+    }
+
+    await Dropbox.updateOne(
+      { _id: dropbox._id },
+      { $pull: { userIds: memberId } }
+    );
+
+    const updated = await Dropbox.findById(dropbox._id);
+    const remaining = updated?.userIds || [];
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(memberId).emit('deviceUnregistered', { deviceId, removedByOwner: true });
+    }
+
+    res.json({
+      message: 'Member removed successfully',
+      deviceId,
+      remainingUsers: remaining.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+/**
+ * POST /api/dropbox/:deviceId/members
+ * Directly pair a household member by their registered account email (primary owner only).
+ */
+router.post('/:deviceId/members', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const rawEmail = req.body?.email;
+    const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
+
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ message: 'Please enter a valid email address' });
+    }
+
+    const dropbox = await Dropbox.findOne({ deviceId, isRegistered: true });
+    if (!dropbox) {
+      return res.status(404).json({ message: 'Dropbox not found' });
+    }
+
+    const primaryId = resolvePrimaryOwnerId(dropbox);
+    if (req.userId !== primaryId) {
+      return res.status(403).json({ message: 'Only the primary owner can add household members' });
+    }
+
+    const targetUser = await User.findOne({ email }).select('fullName email');
+    if (!targetUser) {
+      return res.status(404).json({
+        message: 'No account found for that email. Ask them to create an account in the app first.',
+      });
+    }
+
+    const targetUserId = targetUser._id.toString();
+    if ((dropbox.userIds || []).includes(targetUserId) || primaryId === targetUserId) {
+      return res.status(400).json({ message: 'This person is already paired to this dropbox' });
+    }
+
+    const otherDropbox = await Dropbox.findOne({
+      isRegistered: true,
+      deviceId: { $ne: dropbox.deviceId },
+      $or: [{ userIds: targetUserId }, { primaryUserId: targetUserId }, { userId: targetUserId }],
+    });
+    if (otherDropbox) {
+      return res.status(400).json({ message: 'That account is already paired to another dropbox' });
+    }
+
+    await Dropbox.updateOne(
+      { _id: dropbox._id },
+      { $addToSet: { userIds: targetUserId } }
+    );
+
+    const updated = await Dropbox.findById(dropbox._id);
+    const io = req.app.get('io');
+    if (io) {
+      io.to(targetUserId).emit('deviceRegistered', {
+        deviceId: dropbox.deviceId,
+        alreadyConnected: true,
+        addedByOwner: true,
+        dropbox: updated,
+      });
+    }
+
+    res.status(201).json({
+      message: 'Household member added successfully',
+      member: {
+        id: targetUserId,
+        fullName: targetUser.fullName || 'Household Member',
+        email: targetUser.email,
+        isPrimaryOwner: false,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+/**
+ * POST /api/dropbox/:deviceId/invite
+ * Generate an in-app 15-minute QR/PIN pairing token for a household member (primary owner only).
+ */
+router.post('/:deviceId/invite', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const dropbox = await Dropbox.findOne({ deviceId, isRegistered: true });
+    if (!dropbox) {
+      return res.status(404).json({ message: 'Dropbox not found' });
+    }
+
+    const primaryId = resolvePrimaryOwnerId(dropbox);
+    if (req.userId !== primaryId) {
+      return res.status(403).json({ message: 'Only the primary owner can generate pairing invites' });
+    }
+
+    const now = Date.now();
+    for (const [key, val] of pendingRegistrations.entries()) {
+      const exp = val?.expiresAtMs || val?.expiresAt || 0;
+      if (exp < now) pendingRegistrations.delete(key);
+    }
+
+    const pin = crypto.randomInt(100000, 1000000).toString();
+    const token = `SPDB-REG-${pin}`;
+    const ttlMs = 15 * 60 * 1000;
+    const expiresAtMs = now + ttlMs;
+
+    pendingRegistrations.set(token, {
+      deviceId: dropbox.deviceId,
+      expiresAt: expiresAtMs,
+      expiresAtMs,
+      alreadyConnected: true,
+      isHouseholdInvite: true,
+      invitedBy: req.userId,
+    });
+
+    res.status(201).json({
+      token,
+      pin,
+      expiresInSeconds: 900,
+      expiresAt: new Date(expiresAtMs).toISOString(),
+      deviceName: dropbox.name || 'My Smart Parcel Dropbox',
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

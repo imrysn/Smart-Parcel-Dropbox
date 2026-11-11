@@ -21,29 +21,16 @@ class QrAccessBadgeCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isDark
-              ? [
-                  Color.alphaBlend(
-                      primary.withValues(alpha: 0.12), UserTheme.nightCard),
-                  UserTheme.nightCard,
-                ]
-              : [
-                  const Color(0xFFFFF8F1),
-                  UserTheme.dayCard,
-                ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
         borderRadius: BorderRadius.circular(UserTheme.radiusL),
         border: Border.all(
-          color: primary.withValues(alpha: isDark ? 0.3 : 0.24),
+          color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.07),
         ),
         boxShadow: [
           BoxShadow(
-            color: primary.withValues(alpha: isDark ? 0.08 : 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
           ),
         ],
       ),

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import '../config/api_config.dart';
+import 'auth_service.dart';
 import 'service_locator.dart';
 import 'biometric_service.dart';
 
@@ -48,9 +49,10 @@ class DeviceControlService {
     }
 
     try {
+      final headers = await getIt<AuthService>().getAuthHeaders();
       await http.post(
         Uri.parse(ApiConfig.deviceControl),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           'userId': userId,
           'command': open ? 'open' : 'close',
@@ -81,7 +83,11 @@ class DeviceControlService {
 
   Future<Map<String, dynamic>?> _fetchDoorState() async {
     try {
-      final response = await http.get(Uri.parse(ApiConfig.deviceControl));
+      final headers = await getIt<AuthService>().getAuthHeaders();
+      final response = await http.get(
+        Uri.parse(ApiConfig.deviceControl),
+        headers: headers,
+      );
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }

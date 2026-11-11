@@ -9,6 +9,8 @@ import 'package:smart_parcel_dropbox/services/connectivity_service.dart';
 import 'package:smart_parcel_dropbox/services/cache_service.dart';
 import 'package:smart_parcel_dropbox/services/auth_service.dart';
 import 'package:smart_parcel_dropbox/services/database_service.dart';
+import 'package:smart_parcel_dropbox/widgets/notification_badge.dart';
+import 'package:smart_parcel_dropbox/screens/notifications_screen.dart';
 import 'dart:async';
 
 // Manual mocks for simplicity in this smoke test.
@@ -44,13 +46,38 @@ class MockCacheService extends Mock implements CacheService {
 }
 
 class MockAuthService extends Mock implements AuthService {
+  bool _loggedIn = false;
+  bool _expired = false;
+  bool signedOutCalled = false;
+
+  void configure({bool loggedIn = false, bool expired = false}) {
+    _loggedIn = loggedIn;
+    _expired = expired;
+    signedOutCalled = false;
+  }
+
   @override
-  Future<bool> get isLoggedIn async => false;
+  Future<bool> get isLoggedIn async => _loggedIn;
   @override
-  Future<void> signOut() async {}
+  Future<bool> isTokenExpired() async => _expired;
+  @override
+  Future<bool> isBiometricLockEnabled() async => false;
+  @override
+  Future<String?> get currentUserId async => _loggedIn ? 'user-1' : null;
+  @override
+  Future<void> signOut() async {
+    signedOutCalled = true;
+    _loggedIn = false;
+  }
 }
 
-class MockDatabaseService extends Mock implements DatabaseService {}
+class MockDatabaseService extends Mock implements DatabaseService {
+  @override
+  Future<Map<String, dynamic>?> getMe({Duration timeout = const Duration(seconds: 10)}) async => null;
+
+  @override
+  Stream<int> getUnreadNotificationsCount(String userId) => Stream<int>.value(14);
+}
 
 void main() {
   final getIt = GetIt.instance;
@@ -65,16 +92,62 @@ void main() {
     getIt.registerLazySingleton<DatabaseService>(() => MockDatabaseService());
   });
 
-  testWidgets('App smoke test', (WidgetTester tester) async {
+  testWidgets('App smoke test verifies responsive mobile centering', (WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     // Build our app and trigger a frame.
     await tester.pumpWidget(const SmartParcelDropBoxApp());
 
-    // Verify that the app builds and shows the splash screen (initial state)
+    // Verify that the app builds and SplashScreen content is horizontally centered on mobile
     expect(find.byType(SmartParcelDropBoxApp), findsOneWidget);
+    final splashScaffoldCenter = tester.getCenter(find.byType(Scaffold).first);
+    final splashTitleCenter = tester.getCenter(find.text('Smart Parcel Drop Box'));
+    expect((splashTitleCenter.dx - splashScaffoldCenter.dx).abs(), lessThan(1.0));
 
-    // Advanced: Handle the splash screen timer to prevent "Timer still pending" error
-    // SplashScreen has a 800ms delay.
+    // Advance past SplashScreen delay and verify LoginScreen renders cleanly without overflow
     await tester.pump(const Duration(milliseconds: 1000));
     await tester.pumpAndSettle();
+    expect(find.text('Welcome back'), findsOneWidget);
+  });
+
+  testWidgets('Expired token triggers clean signOut and routes to LoginScreen', (WidgetTester tester) async {
+    final mockAuth = getIt<AuthService>() as MockAuthService;
+    mockAuth.configure(loggedIn: true, expired: true);
+
+    await tester.pumpWidget(const SmartParcelDropBoxApp());
+    await tester.pump(const Duration(milliseconds: 1000));
+    await tester.pumpAndSettle();
+
+    expect(mockAuth.signedOutCalled, isTrue);
+    expect(find.text('Welcome back'), findsOneWidget);
+  });
+
+  testWidgets('Tapping directly on notification count badge opens NotificationsScreen', (WidgetTester tester) async {
+    final mockDb = getIt<DatabaseService>() as MockDatabaseService;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(
+            actions: [
+              NotificationBadge(
+                userId: 'user-1',
+                databaseService: mockDb,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('14'), findsOneWidget);
+    // Tap dead center on the '14' badge itself (previously blocked by Positioned overlay)
+    await tester.tap(find.text('14'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(NotificationsScreen), findsOneWidget);
   });
 }

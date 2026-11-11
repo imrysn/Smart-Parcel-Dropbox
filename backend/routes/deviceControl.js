@@ -6,7 +6,9 @@
 const express = require('express');
 const router = express.Router();
 const DoorState = require('../models/DoorState');
+const Dropbox = require('../models/Dropbox');
 const esp32Controller = require('../hardware/esp32Controller');
+const { authMiddleware } = require('../utils/auth');
 
 // Global socket.io instance (set by server.js)
 let io = null;
@@ -15,18 +17,34 @@ function setSocketIO(socketIO) {
   io = socketIO;
 }
 
+async function findPairedDropbox(userId) {
+  return Dropbox.findOne({
+    isRegistered: true,
+    $or: [{ userIds: userId }, { primaryUserId: userId }, { userId }]
+  });
+}
+
 /**
  * POST /device-control
- * Control a specific door (parcel or user)
+ * Control a specific door (parcel or user) — requires authenticated paired owner/member
  */
-router.post('/', async (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
   try {
-    const { userId, command, doorType } = req.body;
+    const userId = req.userId;
+    const { command, doorType } = req.body;
 
-    if (!userId || !command || !doorType) {
+    if (!command || !doorType) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: userId, command, doorType'
+        message: 'Missing required fields: command, doorType'
+      });
+    }
+
+    const dropbox = await findPairedDropbox(userId);
+    if (!dropbox) {
+      return res.status(403).json({
+        success: false,
+        message: 'No paired dropbox found for this account'
       });
     }
 
@@ -121,10 +139,18 @@ router.post('/', async (req, res) => {
 
 /**
  * GET /device-control
- * Get current door states
+ * Get current door states — requires authenticated paired owner/member
  */
-router.get('/', async (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   try {
+    const dropbox = await findPairedDropbox(req.userId);
+    if (!dropbox) {
+      return res.status(403).json({
+        success: false,
+        message: 'No paired dropbox found for this account'
+      });
+    }
+
     const doorState = await DoorState.getInstance();
 
     res.json({

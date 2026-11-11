@@ -21,16 +21,13 @@ class TrackingService {
   TrackingService._internal();
 
   final _trackingController = StreamController<List<TrackingModel>>.broadcast();
-  final _allTrackingController = StreamController<List<TrackingModel>>.broadcast();
   final _authService = getIt<AuthService>();
   List<TrackingModel> _cachedTracking = [];
   bool _isFetching = false;
-  bool _isFetchingAll = false;
 
   // Public getters
   List<TrackingModel> get cachedTracking => _cachedTracking;
   Stream<List<TrackingModel>> get trackingStream => _trackingController.stream;
-  Stream<List<TrackingModel>> get allTrackingStream => _allTrackingController.stream;
 
   /// Register a new tracking ID for a user
   Future<void> registerTrackingId({
@@ -179,42 +176,13 @@ class TrackingService {
     }
   }
 
-  /// Get all tracking IDs (Admin)
-  Future<List<TrackingModel>> getAllTrackingIds() async {
-    if (_isFetchingAll) return _cachedTracking;
-    _isFetchingAll = true;
-
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.get(
-        Uri.parse(ApiConfig.tracking),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        final List data = jsonDecode(response.body);
-        final list = data.map((json) => TrackingModel.fromMap(json)).toList();
-        _cachedTracking = list;
-        _allTrackingController.add(list);
-        return list;
-      }
-      // Ensure listeners (e.g. admin tracking tab) do not stay stuck in waiting.
-      _allTrackingController.add([]);
-      return [];
-    } catch (e) {
-      debugPrint('Error fetching all tracking: $e');
-      // Emit an empty state on failures so StreamBuilder can render fallback UI.
-      _allTrackingController.add([]);
-      return [];
-    } finally {
-      _isFetchingAll = false;
-    }
-  }
-
   /// Trigger an automated simulation for a tracking ID
   Future<void> simulateTracking(String trackingId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.tracking}/$trackingId/simulate'),
+        headers: headers,
       );
       if (response.statusCode != 200) {
         throw 'Failed to start simulation';
@@ -227,8 +195,10 @@ class TrackingService {
   /// Manually reset tracking status (for development/testing)
   Future<void> resetTracking(String trackingId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.tracking}/$trackingId/reset'),
+        headers: headers,
       );
       if (response.statusCode != 200) {
         throw 'Failed to reset tracking';
@@ -385,7 +355,6 @@ class TrackingService {
   /// Dispose resources
   void dispose() {
     _trackingController.close();
-    _allTrackingController.close();
   }
 
   /// Reset singleton instance

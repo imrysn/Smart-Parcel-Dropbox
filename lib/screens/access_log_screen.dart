@@ -102,7 +102,7 @@ class _AccessLogScreenState extends State<AccessLogScreen> {
               onRefresh: _refresh,
               child: ListView.builder(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                padding: UserUi.listPadding(context, top: 12, bottom: 32),
                 itemCount: logs.length,
                 itemBuilder: (context, index) => _buildLogCard(logs[index]),
               ),

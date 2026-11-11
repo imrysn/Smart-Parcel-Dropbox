@@ -249,7 +249,7 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
           ),
         ),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+          padding: UserUi.listPadding(context, top: 16, bottom: 40),
           child: Form(
             key: _formKey,
             child: Column(
