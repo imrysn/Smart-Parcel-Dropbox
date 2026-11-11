@@ -83,9 +83,17 @@ class TrackingService {
         final list = data.map((json) => TrackingModel.fromMap(json)).toList();
         _cachedTracking = list;
         _trackingController.add(list);
+      } else {
+        // Emit cached data so stream listeners don't hang in waiting state
+        if (!_trackingController.isClosed) {
+          _trackingController.add(_cachedTracking);
+        }
       }
     } catch (e) {
       debugPrint('Error refreshing tracking: $e');
+      if (!_trackingController.isClosed) {
+        _trackingController.add(_cachedTracking);
+      }
     } finally {
       _isFetching = false;
     }
@@ -93,6 +101,13 @@ class TrackingService {
 
   /// Get all tracking IDs for a specific user
   Stream<List<TrackingModel>> getUserTrackingIds(String userId) {
+    if (_cachedTracking.isNotEmpty) {
+      Future.microtask(() {
+        if (!_trackingController.isClosed) {
+          _trackingController.add(_cachedTracking);
+        }
+      });
+    }
     // If cache is empty, trigger a fetch
     if (_cachedTracking.isEmpty && !_isFetching) {
       refreshTracking(userId);

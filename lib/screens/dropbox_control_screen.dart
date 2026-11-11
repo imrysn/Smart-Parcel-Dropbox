@@ -1,15 +1,11 @@
 import 'dart:async';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../services/service_locator.dart';
 import '../services/websocket_service.dart';
 import '../services/auth_service.dart';
 import '../services/dropbox_service.dart';
-import '../services/biometric_service.dart';
 import 'hardware_registration_screen.dart';
 import '../presentation/components/emergency_lockdown_card.dart';
 import '../presentation/components/qr_access_badge_card.dart';
@@ -34,10 +30,10 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     with TickerProviderStateMixin {
 
   late final WebSocketService _ws;
-  final BiometricService _biometricService = BiometricService();
   StreamSubscription<Map<String, dynamic>>? _esp32Sub;
   StreamSubscription<Map<String, dynamic>>? _binSub;
   StreamSubscription<Map<String, dynamic>>? _unregSub;
+  StreamSubscription<Map<String, dynamic>>? _doorSub;
 
   bool _esp32Connected = false;
   final Map<String, bool> _doorOpen = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
@@ -52,8 +48,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   bool _registrationChecked = false;
   int _registeredUserCount = 0; // how many users share this device
   bool _isLockdownActive = false;
-  String _currentOtp = '849204';
-  int _otpSecondsLeft = 840; // 14 mins
   late String _ownerQrToken;
 
   late final AnimationController _pulseController;
@@ -75,24 +69,34 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     if (_userId != null) {
       final dropboxService = getIt<DropboxService>();
       final dropbox = await dropboxService.getUserDropbox(_userId!);
-      if (mounted) setState(() {
-        _hasDropbox = dropbox != null;
-        _registrationChecked = true;
-        if (dropbox != null) {
-          _registeredUserCount = dropbox.registeredUserCount;
-          _logicalPickupCount = (dropbox as dynamic).pickupCount ?? 0;
-          _logicalDropoffCount = (dropbox as dynamic).dropoffCount ?? 0;
-          // Pre-fill percentages based on initial logical counts (10% per parcel)
-          _pickupFill = (_logicalPickupCount / 10).clamp(0.0, 1.0);
-          _dropoffFill = (_logicalDropoffCount / 10).clamp(0.0, 1.0);
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _hasDropbox = dropbox != null;
+          _registrationChecked = true;
+          if (dropbox != null) {
+            _registeredUserCount = dropbox.registeredUserCount;
+            _logicalPickupCount = (dropbox as dynamic).pickupCount ?? 0;
+            _logicalDropoffCount = (dropbox as dynamic).dropoffCount ?? 0;
+            // Pre-fill percentages based on initial logical counts (10% per parcel)
+            _pickupFill = (_logicalPickupCount / 10).clamp(0.0, 1.0);
+            _dropoffFill = (_logicalDropoffCount / 10).clamp(0.0, 1.0);
+          }
+        });
+      }
     } else {
       if (mounted) setState(() => _registrationChecked = true);
     }
-    _esp32Sub?.cancel(); _binSub?.cancel(); _unregSub?.cancel();
+    _esp32Sub?.cancel(); _binSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
     _esp32Sub = _ws.esp32StatusUpdates.listen((data) { if (mounted) setState(() => _esp32Connected = data['connected'] == true); });
     _unregSub = getIt<DropboxService>().deviceUnregisteredStream.listen((data) { if (data['success'] == true) _init(); });
+    _doorSub = _ws.doorStateUpdates.listen((data) {
+      if (!mounted) return;
+      setState(() {
+        if (data.containsKey('parcelDoorOpen')) _doorOpen[kDoorTop] = data['parcelDoorOpen'] == true;
+        if (data.containsKey('pickupDoorOpen')) _doorOpen[kDoorPickup] = data['pickupDoorOpen'] == true;
+        if (data.containsKey('receivedDoorOpen')) _doorOpen[kDoorReceived] = data['receivedDoorOpen'] == true;
+      });
+    });
     _binSub = _ws.binStatusUpdates.listen((data) {
       if (!mounted) return;
       setState(() {
@@ -129,7 +133,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
 
   @override
   void dispose() {
-    _esp32Sub?.cancel(); _binSub?.cancel(); _unregSub?.cancel();
+    _esp32Sub?.cancel(); _binSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel();
     _pulseController.dispose(); super.dispose();
   }
 
@@ -148,105 +152,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       duration: const Duration(seconds: 2),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ));
-  }
-
-  /// Gate door actions behind biometric (Android) or a confirmation modal (Windows/Desktop).
-  Future<void> _requestDoorAuth(String doorType) async {
-    if (!_esp32Connected) {
-      _showOfflineError();
-      return;
-    }
-
-    final isOpen = _doorOpen[doorType]!;
-    if (_isLockdownActive && !isOpen) {
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ Cannot unlock door while Emergency Lockdown is active. Disable lockdown first.'),
-          backgroundColor: UserTheme.statusError,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
-
-    if (isDesktop) {
-      // Windows / demo: show a styled confirmation dialog instead of biometrics
-      final confirmed = await _showDesktopConfirmation(doorType);
-      if (confirmed == true) _toggleDoor(doorType);
-      return;
-    }
-
-    // Android/iOS: attempt biometric auth
-    final biometricAvailable = await _biometricService.isBiometricAvailable();
-    if (biometricAvailable) {
-      final authed = await _biometricService.authenticate(
-        reason: 'Confirm to ${_doorOpen[doorType]! ? 'secure' : 'unlock'} ${_doorLabel(doorType)}',
-      );
-      if (authed) {
-        _toggleDoor(doorType);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Row(children: [
-              Icon(Icons.fingerprint, color: Colors.white, size: 20),
-              SizedBox(width: 12),
-              Text('Biometric verification failed.', style: TextStyle(fontWeight: FontWeight.bold)),
-            ]),
-            backgroundColor: UserTheme.statusError,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ));
-        }
-      }
-    } else {
-      // No biometrics enrolled — proceed directly (device-level security is enough)
-      _toggleDoor(doorType);
-    }
-  }
-
-  Future<bool?> _showDesktopConfirmation(String doorType) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isOpen = _doorOpen[doorType]!;
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
-        title: Row(
-          children: [
-            Icon(isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
-                color: isOpen ? UserTheme.statusError : UserTheme.primaryOrange, size: 22),
-            const SizedBox(width: 10),
-            Text(isOpen ? 'Secure Door?' : 'Unlock Door?',
-                style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-          ],
-        ),
-        content: Text(
-          '${isOpen ? 'Lock' : 'Unlock'} the ${_doorLabel(doorType)}?\n\nOn Android this would require biometric confirmation.',
-          style: TextStyle(color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('CANCEL',
-                style: TextStyle(color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted, fontWeight: FontWeight.bold)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(isOpen ? 'SECURE' : 'UNLOCK',
-                style: TextStyle(
-                  color: isOpen ? UserTheme.statusError : UserTheme.primaryOrange,
-                  fontWeight: FontWeight.bold,
-                )),
-          ),
-        ],
-      ),
-    );
   }
 
   void _toggleDoor(String doorType) {
@@ -271,7 +176,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
     Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _doorProcessing[doorType] = false); });
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('${isOpen ? 'Closing' : 'Opening'} ${_doorLabel(doorType)}...'),
+      content: Text('${isOpen ? 'Securing' : 'Opening'} ${_doorLabel(doorType)}...'),
       behavior: SnackBarBehavior.floating,
       backgroundColor: isOpen ? UserTheme.statusError : UserTheme.statusSuccess,
     ));
@@ -572,7 +477,23 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   ],
                 ),
               ),
-              UserUi.statusPill(label: isOpen ? 'OPEN' : 'LOCKED', color: isOpen ? UserTheme.statusSuccess : UserTheme.statusError),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  UserUi.statusPill(label: isOpen ? 'OPEN' : 'LOCKED', color: isOpen ? UserTheme.statusSuccess : UserTheme.statusError),
+                  if (reedOpen != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      reedOpen ? 'Door Ajar' : 'Door Closed',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: reedOpen ? UserTheme.statusWarning : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -582,7 +503,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 : (_isLockdownActive && !isOpen
                     ? 'LOCKED (LOCKDOWN)'
                     : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR')),
-            onTap: isProcessing ? () {} : () => _requestDoorAuth(doorType),
+            onTap: isProcessing ? () {} : () => _toggleDoor(doorType),
             icon: isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
             color: !_esp32Connected
                 ? Colors.grey
@@ -608,9 +529,24 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13))),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                    Text(sublabel, style: TextStyle(fontSize: 10, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted)),
+                  ],
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -619,7 +555,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
             child: LinearProgressIndicator(
               value: fill ?? 0,
               minHeight: 8,
-              backgroundColor: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+              backgroundColor: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
               valueColor: AlwaysStoppedAnimation<Color>(fill == null ? Colors.grey : (fill > 0.8 ? UserTheme.statusError : color)),
             ),
           ),
@@ -644,7 +580,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                   if (pct != null) 
                     Text(
                       'Scan: $pct%', 
-                      style: TextStyle(fontSize: 9, color: isDark ? UserTheme.nightTextMuted.withOpacity(0.5) : UserTheme.dayTextMuted.withOpacity(0.5)),
+                      style: TextStyle(fontSize: 9, color: isDark ? UserTheme.nightTextMuted.withValues(alpha: 0.5) : UserTheme.dayTextMuted.withValues(alpha: 0.5)),
                     ),
                 ],
               ),
@@ -736,13 +672,13 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
     );
   }
 
-  void _promptPassword(String ssid, {bool isManual = false}) {
+  void _promptPassword(String ssid, {bool isManual = false}) async {
     final ssidController = TextEditingController(text: ssid);
     final passController = TextEditingController();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     bool isJoining = false;
 
-    showDialog(
+    final success = await showDialog<bool>(
       context: context,
       barrierDismissible: !isJoining,
       builder: (dialogContext) => StatefulBuilder(
@@ -777,7 +713,7 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
             actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             actions: [
               TextButton(
-                onPressed: isJoining ? null : () => Navigator.pop(dialogContext),
+                onPressed: isJoining ? null : () => Navigator.pop(dialogContext, false),
                 child: const Text('CANCEL'),
               ),
               ConstrainedBox(
@@ -799,8 +735,8 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
                         password: passController.text,
                       );
                       
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
                           SnackBar(
                             content: Text('Pushing Wi-Fi credentials for "$targetSsid"...'),
                             backgroundColor: UserTheme.primaryOrange,
@@ -810,8 +746,7 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
                       }
                       
                       await Future.delayed(const Duration(milliseconds: 600));
-                      if (dialogContext.mounted) Navigator.pop(dialogContext);
-                      if (this.context.mounted) Navigator.pop(this.context);
+                      if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                     } catch (e) {
                       if (dialogContext.mounted) {
                         setDialogState(() => isJoining = false);
@@ -825,5 +760,9 @@ class _WiFiScannerDialogState extends State<_WiFiScannerDialog> {
         },
       ),
     );
+
+    if (success == true && mounted) {
+      Navigator.pop(context);
+    }
   }
 }

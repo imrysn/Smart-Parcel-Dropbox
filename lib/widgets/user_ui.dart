@@ -207,11 +207,14 @@ class UserUi {
     );
   }
 
-  /// Premium Empty State.
+  /// Premium Empty State with optional action button.
   static Widget emptyState(BuildContext context, {
     required IconData icon,
     required String title,
     String? subtitle,
+    String? actionLabel,
+    VoidCallback? onActionTap,
+    Widget? action,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
@@ -221,18 +224,18 @@ class UserUi {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(sXL),
+              padding: const EdgeInsets.all(sL),
               decoration: BoxDecoration(
-                color: (isDark ? UserTheme.nightCard : UserTheme.daySurface).withOpacity(0.5),
+                color: (isDark ? UserTheme.nightCard : UserTheme.daySurface).withValues(alpha: 0.5),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 64, color: UserTheme.primaryOrange.withOpacity(0.8)),
+              child: Icon(icon, size: 48, color: UserTheme.primaryOrange.withValues(alpha: 0.85)),
             ),
             const SizedBox(height: sL),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
             ),
             if (subtitle != null) ...[
               const SizedBox(height: sS),
@@ -242,7 +245,21 @@ class UserUi {
                 style: TextStyle(
                   color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
                   height: 1.5,
+                  fontSize: 13,
                 ),
+              ),
+            ],
+            if (action != null) ...[
+              const SizedBox(height: sL),
+              action,
+            ] else if (actionLabel != null && onActionTap != null) ...[
+              const SizedBox(height: sL),
+              premiumButton(
+                label: actionLabel,
+                onTap: onActionTap,
+                fullWidth: false,
+                fontSize: 13,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
             ],
           ],

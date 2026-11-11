@@ -6,39 +6,22 @@ import '../services/database_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/websocket_service.dart';
 import '../services/service_locator.dart';
-import '../services/error_handler.dart';
 import '../models/tracking_model.dart';
 import 'login_screen.dart';
 import 'add_tracking_screen.dart';
 import 'tracking_details_screen.dart';
-import 'logs_screen.dart';
-import 'notifications_screen.dart';
+import 'payment_qr_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'admin/rider_management_screen.dart';
 import 'dropbox_control_screen.dart';
-
-import 'pickup_screen.dart';
 import 'task_manager_screen.dart';
-import 'owner_verify_screen.dart';
-import 'access_log_screen.dart';
 import '../widgets/notification_badge.dart';
-import '../widgets/weekly_activity_chart.dart';
-import '../widgets/mini_sparkline.dart';
-import '../widgets/daily_digest_card.dart';
-import '../widgets/financial_digest_card.dart';
-import '../models/transaction_model.dart';
-import '../services/financial_service.dart';
 import 'add_pickup_screen.dart';
-import 'financial_screen.dart';
-import 'payment_qr_screen.dart';
-import '../services/tracking_service.dart';
 import '../widgets/user_ui.dart';
 import '../config/user_theme.dart';
-import '../presentation/components/status_pill.dart';
 import '../presentation/components/carrier_badge.dart';
 import '../presentation/components/delivery_timeline.dart';
 import '../presentation/components/in_box_spotlight.dart';
-import '../presentation/screens/home/home_view_model.dart';
 
 /// Home Screen - Main dashboard showing active orders
 class HomeScreen extends StatefulWidget {
@@ -53,17 +36,13 @@ class _HomeScreenState extends State<HomeScreen> {
   final DatabaseService _databaseService = DatabaseService();
   final DropboxService _dropboxService = getIt<DropboxService>();
   int _selectedIndex = 0;
-  int _ordersTabIndex = 0; // 0: Delivered, 1: Pick Up, 2: Retrieved
-  final TextEditingController _searchController = TextEditingController();
-  String _selectedFilterTag = 'All';
+  int _ordersMode = 0; // 0: Inbound (Deliveries), 1: Outbound (Pickups)
+  int _inboundFilterIndex = 0; // 0: All, 1: In Box, 2: Pending, 3: Retrieved
+  int _outboundFilterIndex = 0; // 0: All, 1: Awaiting Pickup, 2: Completed
 
   bool _hasDropbox = true;
 
   // Stream subscriptions for cleanup
-  Stream<List<TrackingModel>>? _activeOrdersStream;
-  Stream<List<TrackingModel>>? _activePickupsStream;
-  Stream<int>? _notificationsCountStream;
-  Stream<Map<String, dynamic>?>? _doorStateStream;
   StreamSubscription<bool>? _connectionSub;
   StreamSubscription<Map<String, dynamic>>? _registrationSub;
 
@@ -74,8 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Cache FutureBuilder future to prevent recreation on every rebuild
   Future<Map<String, dynamic>?>? _userDataFuture;
-  Map<String, dynamic>? _dailyDigestData;
-  FinancialSummaryModel? _financialSummary;
 
   @override
   void initState() {
@@ -92,24 +69,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_userId != null) {
         _userDataFuture = _databaseService.getUserData(_userId!);
         _checkDropbox();
-        _loadDailyDigest();
       }
       setState(() {});
-    }
-  }
-
-  Future<void> _loadDailyDigest() async {
-    try {
-      final digest = await getIt<TrackingService>().fetchDailyDigest();
-      final finData = await FinancialService().fetchFinancialSummary();
-      if (mounted) {
-        setState(() {
-          if (digest != null) _dailyDigestData = digest;
-          _financialSummary = finData['summary'];
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading daily digest: $e');
     }
   }
 
@@ -129,10 +90,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    // Clean up streams to prevent memory leaks
-    _activeOrdersStream = null;
-    _activePickupsStream = null;
-    _notificationsCountStream = null;
     _connectionSub?.cancel();
     _registrationSub?.cancel();
     super.dispose();
@@ -143,12 +100,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_userId != null) {
       // Establish WebSocket connection
       _databaseService.initSocket(_userId!);
-
-      _activeOrdersStream = _databaseService.getActiveOrders(_userId!);
-      _activePickupsStream = _databaseService.getActivePickups(_userId!);
-      _notificationsCountStream =
-          _databaseService.getUnreadNotificationsCount(_userId!);
-      _doorStateStream = _databaseService.getDropBoxDoorState();
 
       // ── WebSocket Connectivity & Auto-Refresh ──
       _connectionSub?.cancel();
@@ -259,6 +210,22 @@ class _HomeScreenState extends State<HomeScreen> {
           title: _getAppBarTitle(),
           centerTitle: false,
           actions: [
+            if (_selectedIndex == 1)
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline_rounded, color: UserTheme.primaryOrange, size: 22),
+                tooltip: _ordersMode == 0 ? 'Add Tracking ID' : 'Schedule Pickup',
+                onPressed: () {
+                  if (_ordersMode == 0) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AddTrackingScreen()),
+                    );
+                  } else {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AddPickupScreen()),
+                    ).then((_) => _databaseService.refreshTracking(_userId!));
+                  }
+                },
+              ),
             if (_selectedIndex == 2) ...[
               IconButton(
                 icon: const Icon(Icons.qr_code_2_rounded, color: UserTheme.primaryOrange),
@@ -287,7 +254,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   setState(() {
                     _selectedIndex = tabIndex;
                     if (subTabIndex != null) {
-                      _ordersTabIndex = subTabIndex;
+                      if (subTabIndex == 2) {
+                        _ordersMode = 1;
+                      } else {
+                        _ordersMode = 0;
+                        _inboundFilterIndex = subTabIndex == 0 ? 2 : (subTabIndex == 1 ? 1 : 3);
+                      }
                     }
                   });
                 },
@@ -296,7 +268,6 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 12),
           ],
         ),
-        floatingActionButton: _getFloatingActionButton(),
         bottomNavigationBar: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           child: ClipRRect(
@@ -382,201 +353,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget? _getFloatingActionButton() {
-    if (_selectedIndex == 1) {
-      return FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => const AddTrackingScreen(),
-            ),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Add Tracking ID'),
-        heroTag: 'home_fab',
-      );
-    }
-    return null;
-  }
-
-
-  List<int> _calculateWeeklyData(List<TrackingModel> orders, bool Function(TrackingModel) filter) {
-    final now = DateTime.now();
-    final List<int> dailyCounts = List.filled(7, 0);
-
-    for (int i = 6; i >= 0; i--) {
-      final date = now.subtract(Duration(days: i));
-      final dateString = date.toIso8601String().split('T')[0];
-      
-      int countForDay = orders.where((o) {
-        if (!filter(o)) return false;
-        if (o.registeredAt == null) return false;
-        final regDateStr = o.registeredAt!.toIso8601String().split('T')[0];
-        return regDateStr == dateString;
-      }).length;
-      
-      dailyCounts[6 - i] = countForDay;
-    }
-    return dailyCounts;
-  }
-
-  List<String> _getWeeklyLabels() {
-    final now = DateTime.now();
-    final List<String> labels = [];
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-    for (int i = 6; i >= 0; i--) {
-      final date = now.subtract(Duration(days: i));
-      // DateTime.weekday: 1=Mon, 2=Tue, ..., 7=Sun
-      labels.add(days[date.weekday - 1]);
-    }
-    return labels;
-  }
-
-  Widget _buildSmartGreetingBanner(String userDisplayName) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hour = DateTime.now().hour;
-    String greeting;
-    IconData greetingIcon;
-    if (hour < 12) {
-      greeting = 'Good Morning';
-      greetingIcon = Icons.wb_sunny_outlined;
-    } else if (hour < 17) {
-      greeting = 'Good Afternoon';
-      greetingIcon = Icons.wb_sunny_rounded;
-    } else {
-      greeting = 'Good Evening';
-      greetingIcon = Icons.nights_stay_rounded;
-    }
-
-    final isOnline = _appConnected;
-    final statusColor = isOnline ? const Color(0xFF10B981) : UserTheme.statusError;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-        borderRadius: BorderRadius.circular(UserTheme.radiusL),
-        border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: UserTheme.primaryOrange.withOpacity(0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(greetingIcon, color: UserTheme.primaryOrange, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$greeting, $userDisplayName',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  isOnline ? 'Smart Dropbox Synced • Atlas Cloud Live' : 'System Offline • Connecting to Hardware...',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          UserUi.statusPill(
-            label: isOnline ? 'SYNCED' : 'OFFLINE',
-            color: statusColor,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchAndFilterBar() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final tags = ['All', 'In Box', 'In Transit', 'Pickups', 'Collected'];
-
-    return Column(
-      children: [
-        TextField(
-          controller: _searchController,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            hintText: 'Search by tracking #, courier, or recipient...',
-            hintStyle: const TextStyle(fontSize: 13),
-            prefixIcon: const Icon(Icons.search_rounded, size: 20),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                    onPressed: () {
-                      _searchController.clear();
-                      setState(() {});
-                    },
-                  )
-                : null,
-            filled: true,
-            fillColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(UserTheme.radiusL),
-              borderSide: BorderSide(
-                color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(UserTheme.radiusL),
-              borderSide: BorderSide(
-                color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: tags.map((tag) {
-              final isSelected = _selectedFilterTag == tag;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(tag),
-                  selected: isSelected,
-                  selectedColor: UserTheme.primaryOrange,
-                  labelStyle: TextStyle(
-                    fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                    color: isSelected ? Colors.white : (isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary),
-                  ),
-                  backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-                  onSelected: (val) {
-                    if (val) setState(() => _selectedFilterTag = tag);
-                  },
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
   Widget _buildNoDropboxBanner() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
@@ -635,471 +411,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildMiniStatCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-    required List<int> weeklyData,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    return UserUi.surfaceCard(
-      context,
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: color, size: 22),
-              ),
-              MiniSparkline(data: weeklyData, color: color),
-            ],
-          ),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w900,
-              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-              letterSpacing: -1,
-            ),
-          ),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRetailerJungle(List<TrackingModel> orders) {
-    final Map<String, int> counts = {
-      'Shopee': 0, 'Lazada': 0, 'TikTok': 0, 'Amazon': 0, 'Others': 0,
-    };
-
-    for (var order in orders) {
-      final name = order.shopName.toLowerCase();
-      if (name.contains('shopee')) counts['Shopee'] = counts['Shopee']! + 1;
-      else if (name.contains('lazada')) counts['Lazada'] = counts['Lazada']! + 1;
-      else if (name.contains('tiktok')) counts['TikTok'] = counts['TikTok']! + 1;
-      else if (name.contains('amazon')) counts['Amazon'] = counts['Amazon']! + 1;
-      else counts['Others'] = counts['Others']! + 1;
-    }
-
-    final total = orders.isEmpty ? 1 : orders.length;
-
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      child: UserUi.glassCard(
-        context,
-        blur: 16,
-        padding: const EdgeInsets.all(22),
-        color: UserTheme.sunsetStart.withOpacity(0.95),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(Icons.auto_graph_rounded, color: Colors.white, size: 24),
-                ),
-                const SizedBox(width: 16),
-                const Expanded(
-                  child: Text(
-                    'Ecommerce Platforms Used',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                ),
-                UserUi.statusPill(label: '${orders.length} Parcels', color: Colors.white),
-              ],
-            ),
-            const SizedBox(height: 24),
-            ...counts.entries.where((e) => e.value > 0 || e.key == 'Others').map((entry) {
-              final percentage = entry.value / total;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          entry.key,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
-                        ),
-                        Text(
-                          '${entry.value}',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Stack(
-                      children: [
-                        Container(
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        FractionallySizedBox(
-                          widthFactor: percentage > 0 ? percentage : 0.05,
-                          child: Container(
-                            height: 8,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [UserTheme.accentAmberLight, Colors.white]),
-                              borderRadius: BorderRadius.circular(10),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeroIotControlUnit(BuildContext context, bool isDark, int dropOffBinCount, TrackingModel? inBoxParcel) {
-    final isOnline = _appConnected;
-    final statusColor = isOnline ? const Color(0xFF10B981) : UserTheme.statusError;
-    final hasPackage = dropOffBinCount > 0;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDark
-              ? [
-                  UserTheme.primaryOrange.withOpacity(0.22),
-                  Colors.indigo.shade900.withOpacity(0.45),
-                ]
-              : [
-                  UserTheme.primaryOrange.withOpacity(0.12),
-                  Colors.white.withOpacity(0.95),
-                ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDark ? UserTheme.primaryOrange.withOpacity(0.35) : UserTheme.primaryOrange.withOpacity(0.25),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: UserTheme.primaryOrange.withOpacity(isDark ? 0.15 : 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Status Bar: Hub Tag + Connectivity + Door State
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: UserTheme.primaryOrange.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.markunread_mailbox_rounded, color: UserTheme.primaryOrange, size: 20),
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'SMART DROPBOX HUB',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.0,
-                            color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor)),
-                            const SizedBox(width: 4),
-                            Text(
-                              isOnline ? 'Online • Wi-Fi 100%' : 'Offline',
-                              style: TextStyle(fontSize: 10, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                UserUi.statusPill(
-                  label: hasPackage ? 'PARCEL INSIDE' : 'SECURE & LOCKED',
-                  color: hasPackage ? UserTheme.primaryOrange : const Color(0xFF10B981),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Middle Spec: Package Bin Status Indicator
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hasPackage ? '$dropOffBinCount Package Delivered' : 'Empty & Ready',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      if (hasPackage && inBoxParcel != null) ...[
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: UserTheme.primaryOrange.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                inBoxParcel.shopName,
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: UserTheme.primaryOrange),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Waybill #${inBoxParcel.trackingId}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'monospace',
-                                  color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ] else ...[
-                        Text(
-                          'QR Scanner active for incoming deliveries.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernSummaryGrid(BuildContext context, bool isDark, int dropOffBinCount) {
-    final awaitingPickup = _dailyDigestData?['awaitingPickupCount'] ?? 0;
-    final supplierStockIn = _dailyDigestData?['supplierStockInCount'] ?? 0;
-    final netProfit = _financialSummary?.netProfit ?? 0.0;
-    final marginPercent = _financialSummary?.marginPercent ?? 0.0;
-
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: _buildCompactSummaryTile(
-                context: context,
-                isDark: isDark,
-                title: 'Outbound Pickups',
-                value: '$awaitingPickup',
-                subtitle: awaitingPickup > 0 ? 'Parcels ready' : 'Queue clear',
-                icon: Icons.outbox_rounded,
-                iconColor: UserTheme.primaryOrange,
-                badgeLabel: 'PICKUP',
-                badgeColor: UserTheme.primaryOrange,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => PickupScreen(userId: _userId!, databaseService: _databaseService)),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildCompactSummaryTile(
-                context: context,
-                isDark: isDark,
-                title: 'Supplier Stock In',
-                value: '$supplierStockIn',
-                subtitle: 'Inbound supplies',
-                icon: Icons.inventory_2_rounded,
-                iconColor: Colors.tealAccent.shade700,
-                badgeLabel: 'SUPPLY',
-                badgeColor: Colors.teal,
-                onTap: () => setState(() => _selectedIndex = 1),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildCompactSummaryTile(
-                context: context,
-                isDark: isDark,
-                title: 'Business Profit',
-                value: '₱${netProfit.toStringAsFixed(0)}',
-                subtitle: '${marginPercent.toStringAsFixed(1)}% Margin',
-                icon: Icons.account_balance_wallet_rounded,
-                iconColor: netProfit >= 0 ? UserTheme.statusSuccess : UserTheme.statusError,
-                badgeLabel: netProfit >= 0 ? 'PROFIT' : 'LOSS',
-                badgeColor: netProfit >= 0 ? UserTheme.statusSuccess : UserTheme.statusError,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => const FinancialScreen()),
-                  ).then((_) => _loadDailyDigest());
-                },
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildCompactSummaryTile(
-                context: context,
-                isDark: isDark,
-                title: 'Dropbox Bin',
-                value: '$dropOffBinCount',
-                subtitle: dropOffBinCount > 0 ? 'Parcels inside' : 'Empty bin',
-                icon: Icons.all_inbox_rounded,
-                iconColor: Colors.indigoAccent,
-                badgeLabel: dropOffBinCount > 0 ? 'PARCELS' : 'SECURE',
-                badgeColor: dropOffBinCount > 0 ? UserTheme.primaryOrange : Colors.indigo,
-                onTap: () => setState(() => _selectedIndex = 3),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCompactSummaryTile({
-    required BuildContext context,
-    required bool isDark,
-    required String title,
-    required String value,
-    required String subtitle,
-    required IconData icon,
-    required Color iconColor,
-    required String badgeLabel,
-    required Color badgeColor,
-    required VoidCallback onTap,
-  }) {
-    return UserUi.glassCard(
-      context,
-      blur: 12,
-      padding: const EdgeInsets.all(14),
-      color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: iconColor, size: 20),
-                ),
-                UserUi.statusPill(label: badgeLabel, color: badgeColor),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildActiveOrdersTab() {
     if (_userId == null) return const Center(child: Text('Not logged in'));
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1124,10 +435,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   if (!_hasDropbox) _buildNoDropboxBanner(),
 
-                  // ─── Single Unified Tesla/Apple Home Hero IoT Control Unit ───
-                  _buildHeroIotControlUnit(context, isDark, dropOffBinCount, inBoxParcel),
+                  // ─── Modern In-Box Parcel Spotlight Card ───
+                  InBoxSpotlight(
+                    inBoxParcel: inBoxParcel,
+                    totalInBoxCount: dropOffBinCount,
+                    onTapDetails: () {
+                      if (inBoxParcel != null) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => TrackingDetailsScreen(tracking: inBoxParcel),
+                          ),
+                        );
+                      }
+                    },
+                  ),
 
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 18),
 
                   // ─── Minimalist Recent Activity Header ───
                   Row(
@@ -1158,22 +481,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // ─── Recent 2 Deliveries Stream ───
+                  // ─── Recent 2 Deliveries Stream with Live Delivery Timeline ───
                   if (recentOrders.isEmpty) ...[
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-                        borderRadius: BorderRadius.circular(UserTheme.radiusL),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'No recent activity',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                          ),
-                        ),
+                    UserUi.emptyState(
+                      context,
+                      icon: Icons.inventory_2_outlined,
+                      title: 'No Recent Deliveries',
+                      subtitle: 'Incoming courier deliveries and staged pickups will appear here.',
+                      actionLabel: 'ADD TRACKING',
+                      onActionTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const AddTrackingScreen()),
                       ),
                     ),
                   ] else ...[
@@ -1181,51 +498,77 @@ class _HomeScreenState extends State<HomeScreen> {
                       int stageIndex = 0;
                       if (order.status == 'in_transit') stageIndex = 1;
                       else if (order.status == 'delivered') stageIndex = 2;
-                      else if (order.status == 'done') stageIndex = 3;
+                      else if (order.status == 'done' || order.status == 'retrieved') stageIndex = 3;
 
                       return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.all(14),
+                        margin: const EdgeInsets.only(bottom: 12),
                         decoration: BoxDecoration(
                           color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
                           borderRadius: BorderRadius.circular(UserTheme.radiusL),
                           border: Border.all(
-                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
+                            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08),
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            CarrierBadge(shopName: order.shopName),
-                            const SizedBox(width: 12),
-                            Expanded(
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => TrackingDetailsScreen(tracking: order),
+                                ),
+                              );
+                            },
+                            borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    order.trackingId,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      fontFamily: 'monospace',
-                                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                                    ),
+                                  Row(
+                                    children: [
+                                      CarrierBadge(shopName: order.shopName),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              order.trackingId,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w800,
+                                                fontFamily: 'monospace',
+                                                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              order.getStatusText(),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      UserUi.statusPill(
+                                        label: order.status.toUpperCase(),
+                                        color: order.status == 'delivered'
+                                            ? UserTheme.primaryOrange
+                                            : (order.status == 'done' || order.status == 'retrieved'
+                                                ? UserTheme.statusSuccess
+                                                : Colors.indigo),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    order.getStatusText(),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                                    ),
-                                  ),
+                                  const SizedBox(height: 14),
+                                  DeliveryTimeline(stageIndex: stageIndex),
                                 ],
                               ),
                             ),
-                            UserUi.statusPill(
-                              label: order.status.toUpperCase(),
-                              color: order.status == 'delivered' ? UserTheme.primaryOrange : (order.status == 'done' ? UserTheme.statusSuccess : Colors.indigo),
-                            ),
-                          ],
+                          ),
                         ),
                       );
                     }),
@@ -1240,172 +583,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickActionButton({
-    required IconData icon,
-    required String label,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                icon,
-                color: Theme.of(context).colorScheme.primary,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right,
-              color: Colors.grey[400],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropboxStatusCard() {
-    if (_userId == null) return const SizedBox.shrink();
-
-    return StreamBuilder<Map<String, dynamic>?>(
-      stream: _doorStateStream,
-      builder: (context, snapshot) {
-        final doorState = snapshot.data;
-        final command = doorState?['command'] as String?;
-        final isOpen = command == 'open';
-        final isProcessing = doorState?['status'] == 'processing';
-
-        return Card(
-          margin: const EdgeInsets.all(16),
-          elevation: 4,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: LinearGradient(
-                colors: isOpen
-                    ? [Colors.green.shade50, Colors.white]
-                    : [
-                        Theme.of(context)
-                            .colorScheme
-                            .primaryContainer
-                            .withOpacity(0.1),
-                        Colors.white
-                      ],
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isOpen
-                          ? Colors.green.shade100
-                          : Colors.orange.shade100,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      isOpen ? Icons.lock_open : Icons.lock,
-                      color: isOpen
-                          ? Colors.green.shade700
-                          : Colors.orange.shade700,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Drop Box Status',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          isProcessing
-                              ? 'Processing...'
-                              : (isOpen
-                                  ? 'Unlocked & Open'
-                                  : 'Locked & Secure'),
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const DropboxControlScreen(),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Manage'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildOrderCard(TrackingModel order) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final statusColor = _getStatusColor(order.status);
+    int stageIndex = 0;
+    if (order.status == 'in_transit') stageIndex = 1;
+    else if (order.status == 'delivered') stageIndex = 2;
+    else if (order.status == 'done' || order.status == 'retrieved') stageIndex = 3;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1430,16 +614,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
-                      child: Text(
-                        order.shopName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                          letterSpacing: -0.5,
-                        ),
+                      child: Row(
+                        children: [
+                          CarrierBadge(shopName: order.shopName),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              order.shopName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1469,7 +664,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: (isDark ? Colors.white : UserTheme.primaryOrange).withOpacity(0.08),
+                        color: (isDark ? Colors.white : UserTheme.primaryOrange).withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(
@@ -1488,33 +683,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         fontFamily: 'monospace',
                       ),
                     ),
+                    const Spacer(),
+                    if (order.registeredAt != null)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.access_time_rounded, size: 12,
+                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
+                          const SizedBox(width: 4),
+                          Text(
+                            _timeAgo(order.registeredAt),
+                            style: TextStyle(
+                              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
-                if (order.registeredAt != null) ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(Icons.access_time_rounded, size: 14,
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        _timeAgo(order.registeredAt),
-                        style: TextStyle(
-                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                const SizedBox(height: 14),
+                DeliveryTimeline(stageIndex: stageIndex),
               ],
             ),
           ),
@@ -1610,130 +800,186 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Column(
       children: [
-        // ── Status Segment Control (Master Categories - 100% Screen Fit) ──
+        // ── Primary 2-Mode Segment Control (DELIVERIES vs PICKUPS) ──
         Container(
-          margin: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-          padding: const EdgeInsets.all(3),
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(15),
+            color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
+              color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
             ),
           ),
           child: Row(
             children: [
-              _buildSegmentItem(0, 'PENDING', Icons.pending_actions_rounded),
-              _buildSegmentItem(1, 'DELIVERED', Icons.local_shipping_rounded),
-              _buildSegmentItem(2, 'OUTBOUND', Icons.unarchive_rounded),
-              _buildSegmentItem(3, 'RETRIEVED', Icons.history_rounded),
+              _buildPrimaryModeItem(0, 'DELIVERIES'),
+              _buildPrimaryModeItem(1, 'PICKUPS'),
             ],
           ),
         ),
 
-        // ── Outbound Tab View OR Filtered Inbound List ──
-        if (_ordersTabIndex == 2)
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: [
-                  DailyDigestCard(
-                    digestData: _dailyDigestData,
-                    onRefresh: _loadDailyDigest,
-                    onAddOutbound: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const AddPickupScreen()),
-                      ).then((_) => _loadDailyDigest());
-                    },
-                  ),
-                  SizedBox(
-                    height: 600,
-                    child: PickupScreen(
-                      userId: _userId!,
-                      databaseService: _databaseService,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else
-          Expanded(
-            child: StreamBuilder<List<TrackingModel>>(
-              stream: _databaseService.getUserTrackingIds(_userId!),
-              initialData: _databaseService.cachedTracking,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return UserUi.emptyState(
-                    context,
-                    icon: Icons.cloud_off_rounded,
-                    title: 'Could not load orders',
-                    subtitle: 'Check your connection and pull down to refresh.',
+        // ── Sub-Category Filters (Clean Text, No Icons) ──
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: Row(
+            children: _ordersMode == 0
+                ? [
+                    _buildFilterChip('All', 0, _inboundFilterIndex, (i) => setState(() => _inboundFilterIndex = i)),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('In Box', 1, _inboundFilterIndex, (i) => setState(() => _inboundFilterIndex = i)),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Pending', 2, _inboundFilterIndex, (i) => setState(() => _inboundFilterIndex = i)),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Retrieved', 3, _inboundFilterIndex, (i) => setState(() => _inboundFilterIndex = i)),
+                  ]
+                : [
+                    _buildFilterChip('All', 0, _outboundFilterIndex, (i) => setState(() => _outboundFilterIndex = i)),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Awaiting Pickup', 1, _outboundFilterIndex, (i) => setState(() => _outboundFilterIndex = i)),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Completed', 2, _outboundFilterIndex, (i) => setState(() => _outboundFilterIndex = i)),
+                  ],
+          ),
+        ),
+
+        const SizedBox(height: 4),
+
+        // ── Dynamic List Stream ──
+        Expanded(
+          child: StreamBuilder<List<TrackingModel>>(
+            stream: _databaseService.getUserTrackingIds(_userId!),
+            initialData: _databaseService.cachedTracking,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return UserUi.emptyState(
+                  context,
+                  icon: Icons.cloud_off_rounded,
+                  title: 'Could not load orders',
+                  subtitle: 'Check your connection and pull down to refresh.',
+                );
+              }
+
+              // Show shimmering skeletons while waiting for first data
+              if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data ?? []).isEmpty) {
+                return UserUi.shimmerList(context, count: 5);
+              }
+
+              final allOrders = snapshot.data ?? [];
+              List<TrackingModel> filtered;
+              String emptyTitle;
+              String emptySubtitle;
+              IconData emptyIcon;
+              String? emptyActionLabel;
+              VoidCallback? emptyActionOnTap;
+
+              if (_ordersMode == 0) {
+                // ─── INBOUND DELIVERIES ───
+                final inboundOrders = allOrders.where((o) => o.mode == 'drop_off' || o.mode.isEmpty).toList();
+
+                if (_inboundFilterIndex == 1) {
+                  // In Box
+                  filtered = inboundOrders.where((o) => o.status == 'delivered').toList();
+                  emptyTitle = 'No Parcels in Box';
+                  emptySubtitle = 'When a courier delivers a parcel, it will be securely locked inside.';
+                  emptyIcon = Icons.inbox_rounded;
+                  emptyActionLabel = 'VIEW PENDING';
+                  emptyActionOnTap = () => setState(() => _inboundFilterIndex = 2);
+                } else if (_inboundFilterIndex == 2) {
+                  // Pending
+                  filtered = inboundOrders.where((o) => o.status == 'pending' || o.status == 'in_transit').toList();
+                  emptyTitle = 'No Pending Parcels';
+                  emptySubtitle = 'Parcels you register will appear here until they arrive at your Dropbox.';
+                  emptyIcon = Icons.pending_actions_rounded;
+                  emptyActionLabel = 'ADD TRACKING';
+                  emptyActionOnTap = () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AddTrackingScreen()),
+                  );
+                } else if (_inboundFilterIndex == 3) {
+                  // Retrieved
+                  filtered = inboundOrders.where((o) => o.status == 'retrieved' || o.status == 'done').toList();
+                  emptyTitle = 'No Retrieval History';
+                  emptySubtitle = 'Completed deliveries and collected parcels will be archived here.';
+                  emptyIcon = Icons.history_rounded;
+                } else {
+                  // All Deliveries
+                  filtered = inboundOrders;
+                  emptyTitle = 'No Deliveries Found';
+                  emptySubtitle = 'Register incoming tracking IDs to track your parcel deliveries.';
+                  emptyIcon = Icons.inventory_2_outlined;
+                  emptyActionLabel = 'ADD TRACKING';
+                  emptyActionOnTap = () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AddTrackingScreen()),
                   );
                 }
+              } else {
+                // ─── PICKUPS ───
+                final outboundOrders = allOrders.where((o) => o.mode == 'pickup' || o.mode == 'pick_up').toList();
 
-                // Show shimmering skeletons while waiting for first data
-                if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data ?? []).isEmpty) {
-                  return UserUi.shimmerList(context, count: 5);
-                }
-
-                List<TrackingModel> allOrders = snapshot.data ?? [];
-                List<TrackingModel> filtered;
-
-                // Apply Refined User-Requested Status Logic
-                if (_ordersTabIndex == 0) {
-                  // 1. PENDING - Just added, waiting for activity
-                  filtered = allOrders.where((o) => o.status == 'pending' || o.status == 'in_transit').toList();
-                } else if (_ordersTabIndex == 1) {
-                  // 2. DELIVERED - Courier dropped off, physically in the box
-                  filtered = allOrders.where((o) => o.mode == 'drop_off' && o.status == 'delivered').toList();
+                if (_outboundFilterIndex == 1) {
+                  // Awaiting Pickup
+                  filtered = outboundOrders.where((o) =>
+                    o.status == 'awaiting_pickup' || o.status == 'pending' || o.status == 'ready_for_pickup').toList();
+                  emptyTitle = 'No Awaiting Pickups';
+                  emptySubtitle = 'Parcels waiting in your Dropbox for courier collection will appear here.';
+                  emptyIcon = Icons.schedule_rounded;
+                  emptyActionLabel = 'SCHEDULE PICKUP';
+                  emptyActionOnTap = () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AddPickupScreen()),
+                  ).then((_) => _databaseService.refreshTracking(_userId!));
+                } else if (_outboundFilterIndex == 2) {
+                  // Completed
+                  filtered = outboundOrders.where((o) => o.status == 'retrieved' || o.status == 'done').toList();
+                  emptyTitle = 'No Completed Pickups';
+                  emptySubtitle = 'Parcels collected by riders from your Dropbox will be archived here.';
+                  emptyIcon = Icons.history_rounded;
                 } else {
-                  // 3. RETRIEVED - Final History (Collected by owner or rider)
-                  filtered = allOrders.where((o) => o.status == 'retrieved' || o.status == 'done').toList();
+                  // All Pickups
+                  filtered = outboundOrders;
+                  emptyTitle = 'No Pickups Scheduled';
+                  emptySubtitle = 'Schedule couriers to pick up returns or outbound parcels from your Dropbox.';
+                  emptyIcon = Icons.outbox_rounded;
+                  emptyActionLabel = 'SCHEDULE PICKUP';
+                  emptyActionOnTap = () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AddPickupScreen()),
+                  ).then((_) => _databaseService.refreshTracking(_userId!));
                 }
+              }
 
-              // Apply Smart Sorting
+              // Smart Sorting: Newest & Most urgent first
               filtered.sort((a, b) {
-                // Priority Score: Lower is Higher (Top of list)
                 int getScore(String status) {
                   if (status == 'pending' || status == 'in_transit' || status == 'awaiting_pickup') return 0;
-                  if (status == 'ready_for_pickup') return 1;
+                  if (status == 'ready_for_pickup' || status == 'delivered') return 1;
                   return 2; // delivered, retrieved, done
                 }
 
                 int scoreA = getScore(a.status);
                 int scoreB = getScore(b.status);
-
                 if (scoreA != scoreB) return scoreA.compareTo(scoreB);
 
-                // Secondary Sort: Newest First
                 final timeA = a.registeredAt ?? DateTime(2000);
                 final timeB = b.registeredAt ?? DateTime(2000);
                 return timeB.compareTo(timeA);
               });
 
               if (filtered.isEmpty) {
-                String title; String subtitle; IconData icon;
-                if (_ordersTabIndex == 0) {
-                  title = 'No Pending Parcels';
-                  subtitle = 'Orders you add manually will appear here until they arrive.';
-                  icon = Icons.pending_actions_rounded;
-                } else if (_ordersTabIndex == 1) {
-                  title = 'No Parcels in Box';
-                  subtitle = 'When a courier drops off a parcel, it will move here.';
-                  icon = Icons.local_shipping_rounded;
-                } else {
-                  title = 'No Retrieval History';
-                  subtitle = 'Completed orders and retrieved parcels move here.';
-                  icon = Icons.history_rounded;
-                }
-
-                return UserUi.emptyState(
-                  context,
-                  icon: icon,
-                  title: title,
-                  subtitle: subtitle,
+                return RefreshIndicator(
+                  onRefresh: () => _databaseService.refreshTracking(_userId!),
+                  color: UserTheme.primaryOrange,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(top: 40, bottom: 120),
+                    child: UserUi.emptyState(
+                      context,
+                      icon: emptyIcon,
+                      title: emptyTitle,
+                      subtitle: emptySubtitle,
+                      actionLabel: emptyActionLabel,
+                      onActionTap: emptyActionOnTap,
+                    ),
+                  ),
                 );
               }
 
@@ -1756,65 +1002,113 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSegmentItem(int index, String label, IconData icon) {
-    final isSelected = _ordersTabIndex == index;
+  Widget _buildPrimaryModeItem(int index, String label) {
+    final isSelected = _ordersMode == index;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Expanded(
       child: GestureDetector(
         onTap: () {
           setState(() {
-            _ordersTabIndex = index;
+            _ordersMode = index;
             _databaseService.refreshTracking(_userId!);
           });
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: isSelected ? UserTheme.primaryOrange : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: UserTheme.primaryOrange.withOpacity(0.3),
-                      blurRadius: 6,
+                      color: UserTheme.primaryOrange.withValues(alpha: 0.35),
+                      blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
                   ]
                 : null,
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.max,
-            children: [
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                letterSpacing: 0.6,
+                color: isSelected
+                    ? Colors.white
+                    : (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(
+    String label,
+    int index,
+    int selectedIndex,
+    ValueChanged<int> onSelect, {
+    IconData? icon,
+  }) {
+    final isSelected = selectedIndex == index;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return InkWell(
+      onTap: () => onSelect(index),
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isDark ? Colors.white : UserTheme.dayTextPrimary)
+              : (isDark ? UserTheme.nightCard : UserTheme.dayCard),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? (isDark ? Colors.white : UserTheme.dayTextPrimary)
+                : (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06)),
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
               Icon(
                 icon,
                 size: 13,
                 color: isSelected
-                    ? Colors.white
+                    ? (isDark ? Colors.black : Colors.white)
                     : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
               ),
-              const SizedBox(width: 3),
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                      letterSpacing: 0.2,
-                      color: isSelected
-                          ? Colors.white
-                          : (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary),
-                    ),
-                  ),
-                ),
-              ),
+              const SizedBox(width: 5),
             ],
-          ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: isSelected
+                    ? (isDark ? Colors.black : Colors.white)
+                    : (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1835,55 +1129,6 @@ class _HomeScreenState extends State<HomeScreen> {
       default:
         return _buildActiveOrdersTab();
     }
-  }
-
-  Widget _buildPickupTab() {
-    if (_userId == null) return const Center(child: Text('Not logged in'));
-
-    return StreamBuilder<List<TrackingModel>>(
-      stream: _activePickupsStream,
-      initialData: _databaseService.cachedTracking
-          .where((t) =>
-              t.mode == 'pickup' &&
-              ['pending', 'ready_for_pickup'].contains(t.status))
-          .toList(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Center(child: Text('Error loading pickups'));
-        }
-
-        var pickups = snapshot.data ?? [];
-
-        if (pickups.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.outbox_outlined, size: 80, color: Colors.grey[400]),
-                const SizedBox(height: 16),
-                Text('No pickups registered',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600])),
-                const SizedBox(height: 8),
-                Text('Add an item for riders to collect',
-                    style: TextStyle(color: Colors.grey[500])),
-              ],
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: pickups.length,
-          itemBuilder: (context, index) {
-            final pickup = pickups[index];
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: _buildOrderCard(pickup),
-            );
-          },
-        );
-      },
-    );
   }
 
   Widget _buildProfileTab() {

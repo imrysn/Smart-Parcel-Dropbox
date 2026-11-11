@@ -5,6 +5,8 @@ import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../models/tracking_model.dart';
 import '../services/database_service.dart';
+import '../presentation/components/delivery_timeline.dart';
+import '../presentation/components/carrier_badge.dart';
 
 class TrackingDetailsScreen extends StatelessWidget {
   final TrackingModel tracking;
@@ -189,22 +191,36 @@ class TrackingDetailsScreen extends StatelessWidget {
 
   Widget _buildStatusHeader(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final statusColor = tracking.status == 'delivered' ? UserTheme.statusSuccess : (tracking.status == 'in_transit' ? UserTheme.accentAmberDark : UserTheme.primaryOrange);
+    final statusColor = tracking.status == 'delivered'
+        ? UserTheme.statusSuccess
+        : (tracking.status == 'in_transit' ? UserTheme.accentAmberDark : UserTheme.primaryOrange);
+
+    int stageIndex = 0;
+    if (tracking.status == 'in_transit') stageIndex = 1;
+    else if (tracking.status == 'delivered') stageIndex = 2;
+    else if (tracking.status == 'done' || tracking.status == 'retrieved') stageIndex = 3;
 
     return UserUi.surfaceCard(
       context,
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CarrierBadge(shopName: tracking.shopName),
+            ],
+          ),
+          const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.12),
+              color: statusColor.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: Icon(_getStatusIcon(tracking.status), size: 40, color: statusColor),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           Text(
             tracking.getStatusText().toUpperCase(),
             style: TextStyle(
@@ -214,16 +230,18 @@ class TrackingDetailsScreen extends StatelessWidget {
               letterSpacing: -0.5,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             _getStatusDescription(tracking.status),
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
               height: 1.4,
             ),
           ),
+          const SizedBox(height: 24),
+          DeliveryTimeline(stageIndex: stageIndex),
         ],
       ),
     );

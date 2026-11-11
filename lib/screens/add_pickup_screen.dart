@@ -741,6 +741,92 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     }
   }
 
+  InputDecoration _buildInputDecoration({
+    required String label,
+    String? hint,
+    required IconData prefixIcon,
+    Widget? suffixIcon,
+    bool isDark = false,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(prefixIcon, color: UserTheme.primaryOrange, size: 20),
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        borderSide: BorderSide(
+          color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08),
+        ),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        borderSide: BorderSide(
+          color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        borderSide: const BorderSide(color: UserTheme.primaryOrange, width: 1.5),
+      ),
+    );
+  }
+
+  Widget _buildCourierChips({
+    required List<String> couriers,
+    required String selectedCourier,
+    required ValueChanged<String> onSelected,
+    required bool isDark,
+  }) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: couriers.map((courier) {
+        final isSelected = selectedCourier == courier;
+        return InkWell(
+          onTap: () => onSelected(courier),
+          borderRadius: BorderRadius.circular(12),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? UserTheme.primaryOrange
+                  : (isDark ? UserTheme.nightCard : UserTheme.dayCard),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected
+                    ? UserTheme.primaryOrange
+                    : (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08)),
+              ),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: UserTheme.primaryOrange.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      )
+                    ]
+                  : null,
+            ),
+            child: Text(
+              courier,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: isSelected
+                    ? Colors.white
+                    : (isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -752,6 +838,10 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
           title: Text(
             'Fulfillment & Outbound Hub',
             style: TextStyle(
@@ -787,7 +877,14 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline, color: UserTheme.primaryOrange),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: UserTheme.primaryOrange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.info_outline_rounded, color: UserTheme.primaryOrange, size: 20),
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -804,9 +901,10 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     const SizedBox(height: 20),
                     TextFormField(
                       controller: _outboundTrackingController,
-                      decoration: InputDecoration(
-                        labelText: 'Order / Waybill Tracking ID',
-                        prefixIcon: const Icon(Icons.local_shipping_outlined, color: UserTheme.primaryOrange),
+                      decoration: _buildInputDecoration(
+                        label: 'Order / Waybill Tracking ID',
+                        prefixIcon: Icons.local_shipping_outlined,
+                        isDark: isDark,
                         suffixIcon: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -818,7 +916,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.content_paste),
+                              icon: const Icon(Icons.content_paste_rounded),
                               tooltip: 'Paste Clipboard',
                               onPressed: () async {
                                 final data = await Clipboard.getData('text/plain');
@@ -835,10 +933,11 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _customerNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Customer Name',
-                        hintText: 'e.g. Sarah Smith',
-                        prefixIcon: Icon(Icons.person_outline),
+                      decoration: _buildInputDecoration(
+                        label: 'Customer Name',
+                        hint: 'e.g. Sarah Smith',
+                        prefixIcon: Icons.person_outline_rounded,
+                        isDark: isDark,
                       ),
                       validator: (v) => (v == null || v.isEmpty) ? 'Please enter customer name' : null,
                     ),
@@ -846,58 +945,39 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     TextFormField(
                       controller: _customerPhoneController,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Customer Phone / WhatsApp (Optional)',
-                        hintText: 'e.g. 60123456789',
-                        prefixIcon: Icon(Icons.phone_outlined),
+                      decoration: _buildInputDecoration(
+                        label: 'Customer Phone / WhatsApp (Optional)',
+                        hint: 'e.g. 60123456789',
+                        prefixIcon: Icons.phone_outlined,
+                        isDark: isDark,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedCourierOutbound,
-                      decoration: const InputDecoration(
-                        labelText: 'Courier Partner',
-                        prefixIcon: Icon(Icons.alt_route_rounded),
-                      ),
-                      items: ['J&T Express', 'NinjaVan', 'PosLaju', 'DHL Express', 'Spx', 'Flash Express', 'Lalamove'].map((c) {
-                        return DropdownMenuItem(value: c, child: Text(c));
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedCourierOutbound = val);
-                      },
+                    const SizedBox(height: 20),
+                    UserUi.sectionTitle(context, 'Courier Partner', subtitle: 'Select rider logistics service'),
+                    const SizedBox(height: 10),
+                    _buildCourierChips(
+                      couriers: ['J&T Express', 'Spx', 'Flash Express', 'NinjaVan', 'PosLaju', 'DHL Express', 'Lalamove'],
+                      selectedCourier: _selectedCourierOutbound,
+                      onSelected: (val) => setState(() => _selectedCourierOutbound = val),
+                      isDark: isDark,
                     ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: ['J&T Express', 'Spx', 'Flash Express', 'NinjaVan', 'Lalamove'].map((courier) {
-                        final isSelected = _selectedCourierOutbound == courier;
-                        return ChoiceChip(
-                          label: Text(courier, style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                          selected: isSelected,
-                          selectedColor: UserTheme.primaryOrange,
-                          labelStyle: TextStyle(color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87)),
-                          onSelected: (selected) {
-                            if (selected) setState(() => _selectedCourierOutbound = courier);
-                          },
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     TextFormField(
                       controller: _riderPhoneController,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Courier / Rider Phone (For SMS Dispatch)',
-                        hintText: 'e.g. 09123456789 (Optional)',
-                        prefixIcon: Icon(Icons.sms_outlined, color: UserTheme.primaryOrange),
+                      decoration: _buildInputDecoration(
+                        label: 'Courier / Rider Phone (For SMS Dispatch)',
+                        hint: 'e.g. 09123456789 (Optional)',
+                        prefixIcon: Icons.sms_outlined,
+                        isDark: isDark,
                       ),
                     ),
                     const SizedBox(height: 28),
                     UserUi.premiumButton(
-                      label: 'STAGE ORDER & GET PICKUP PASS',
+                      label: _isLoading ? 'STAGING ORDER...' : 'STAGE ORDER & GET PICKUP PASS',
                       onTap: _isLoading ? () {} : _stageOutboundCustomerOrder,
                       icon: Icons.qr_code_rounded,
+                      isLoading: _isLoading,
                     ),
                   ],
                 ),
@@ -915,7 +995,14 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     padding: const EdgeInsets.all(16),
                     child: Row(
                       children: [
-                        const Icon(Icons.flash_on, color: UserTheme.primaryOrange),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: UserTheme.primaryOrange.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.flash_on_rounded, color: UserTheme.primaryOrange, size: 20),
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -961,16 +1048,13 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                   TextFormField(
                     controller: _batchTrackingTextController,
                     maxLines: 5,
-                    decoration: InputDecoration(
-                      labelText: 'Scanned / Pasted Tracking IDs',
-                      hintText: 'JNT9901001\nJNT9901002\nJNT9901003',
-                      alignLabelWithHint: true,
-                      prefixIcon: const Padding(
-                        padding: EdgeInsets.only(bottom: 80.0),
-                        child: Icon(Icons.list_alt_rounded),
-                      ),
+                    decoration: _buildInputDecoration(
+                      label: 'Scanned / Pasted Tracking IDs',
+                      hint: 'JNT9901001\nJNT9901002\nJNT9901003',
+                      prefixIcon: Icons.list_alt_rounded,
+                      isDark: isDark,
                       suffixIcon: IconButton(
-                        icon: const Icon(Icons.content_paste),
+                        icon: const Icon(Icons.content_paste_rounded),
                         onPressed: () async {
                           final data = await Clipboard.getData('text/plain');
                           if (data?.text != null) {
@@ -980,45 +1064,47 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedCourierBatch,
-                    decoration: const InputDecoration(
-                      labelText: 'Courier Partner for Batch',
-                      prefixIcon: Icon(Icons.alt_route_rounded),
-                    ),
-                    items: ['J&T Express', 'NinjaVan', 'PosLaju', 'DHL Express', 'Spx', 'Lalamove'].map((c) {
-                      return DropdownMenuItem(value: c, child: Text(c));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedCourierBatch = val);
-                    },
+                  const SizedBox(height: 20),
+                  UserUi.sectionTitle(context, 'Courier Partner for Batch', subtitle: 'Applied to all batch packages'),
+                  const SizedBox(height: 10),
+                  _buildCourierChips(
+                    couriers: ['J&T Express', 'NinjaVan', 'PosLaju', 'DHL Express', 'Spx', 'Lalamove'],
+                    selectedCourier: _selectedCourierBatch,
+                    onSelected: (val) => setState(() => _selectedCourierBatch = val),
+                    isDark: isDark,
                   ),
-                  const SizedBox(height: 16),
-                  SwitchListTile(
-                    title: Text(
-                      'Unlock Dropbox Door Immediately',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                  const SizedBox(height: 20),
+                  UserUi.surfaceCard(
+                    context,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        'Unlock Dropbox Door Immediately',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                        ),
                       ),
-                    ),
-                    subtitle: Text(
-                      'Automatically opens box so you can deposit all items right now',
-                      style: TextStyle(
-                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                        fontSize: 12,
+                      subtitle: Text(
+                        'Automatically opens box so you can deposit all items right now',
+                        style: TextStyle(
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                          fontSize: 12,
+                        ),
                       ),
+                      value: _openDoorForBatch,
+                      activeThumbColor: UserTheme.primaryOrange,
+                      onChanged: (val) => setState(() => _openDoorForBatch = val),
                     ),
-                    value: _openDoorForBatch,
-                    activeThumbColor: UserTheme.primaryOrange,
-                    onChanged: (val) => setState(() => _openDoorForBatch = val),
                   ),
                   const SizedBox(height: 24),
                   UserUi.premiumButton(
-                    label: 'REGISTER BATCH & DEPOSIT ALL NOW',
+                    label: _isLoading ? 'DEPOSITING BATCH...' : 'REGISTER BATCH & DEPOSIT ALL NOW',
                     onTap: _isLoading ? () {} : _stageBatchOutboundCustomerOrders,
                     icon: Icons.lock_open_rounded,
+                    isLoading: _isLoading,
                   ),
                 ],
               ),
@@ -1037,7 +1123,14 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline, color: UserTheme.primaryOrange),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: UserTheme.primaryOrange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.info_outline_rounded, color: UserTheme.primaryOrange, size: 20),
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -1054,9 +1147,10 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     const SizedBox(height: 20),
                     TextFormField(
                       controller: _personalTrackingIdController,
-                      decoration: InputDecoration(
-                        labelText: 'Tracking ID',
-                        prefixIcon: const Icon(Icons.tag, color: UserTheme.primaryOrange),
+                      decoration: _buildInputDecoration(
+                        label: 'Tracking ID',
+                        prefixIcon: Icons.tag_rounded,
+                        isDark: isDark,
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.qr_code_scanner_rounded, color: UserTheme.primaryOrange),
                           onPressed: () => _scanBarcode(
@@ -1066,29 +1160,30 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                       ),
                       validator: (v) => (v == null || v.isEmpty) ? 'Please enter tracking ID' : null,
                     ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedCourierPersonal,
-                      decoration: const InputDecoration(
-                        labelText: 'Courier / Service',
-                        prefixIcon: Icon(Icons.local_shipping_outlined),
-                      ),
-                      items: ['Spx', 'J&T', 'lalamove'].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                      onChanged: (val) => setState(() => _selectedCourierPersonal = val!),
+                    const SizedBox(height: 20),
+                    UserUi.sectionTitle(context, 'Courier / Service', subtitle: 'Select return carrier'),
+                    const SizedBox(height: 10),
+                    _buildCourierChips(
+                      couriers: ['Spx', 'J&T Express', 'Lalamove', 'NinjaVan', 'PosLaju'],
+                      selectedCourier: _selectedCourierPersonal,
+                      onSelected: (val) => setState(() => _selectedCourierPersonal = val),
+                      isDark: isDark,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     TextFormField(
                       controller: _descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                        prefixIcon: Icon(Icons.description_outlined),
+                      decoration: _buildInputDecoration(
+                        label: 'Description',
+                        prefixIcon: Icons.description_outlined,
+                        isDark: isDark,
                       ),
                       validator: (v) => (v == null || v.isEmpty) ? 'Please enter description' : null,
                     ),
                     const SizedBox(height: 28),
                     UserUi.premiumButton(
-                      label: 'REGISTER PERSONAL PICKUP',
+                      label: _isLoading ? 'REGISTERING...' : 'REGISTER PERSONAL PICKUP',
                       onTap: _isLoading ? () {} : _registerPersonalPickup,
+                      isLoading: _isLoading,
                     ),
                   ],
                 ),
