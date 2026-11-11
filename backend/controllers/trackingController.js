@@ -1,17 +1,22 @@
 const Tracking = require('../models/Tracking');
 const DeliveryLog = require('../models/DeliveryLog');
 const Notification = require('../models/Notification');
+const { deviceRoom, pairedBoxForUser } = require('../utils/deviceSessions');
+
+function escapeRegex(text) {
+    return (text || '').replace(/[-[\]{}()*+?.:\\^$|#\s]/g, '\\$&');
+}
 
 // @desc    Register a tracking ID
 exports.registerTracking = async (req, res) => {
     try {
-        const { trackingId, shopName, expectedDeliveryDate, mode } = req.body;
+        const { trackingId: rawId, shopName, expectedDeliveryDate, mode } = req.body;
         const userId = req.userId; // Securely get userId from auth token
+        const trackingId = (rawId || '').trim();
+        const escaped = escapeRegex(trackingId);
 
-        const exists = await Tracking.findOne({ trackingId });
-        if (exists) {
-            return res.status(400).json({ message: 'Tracking ID already registered' });
-        }
+        const exists = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        if (exists) return res.status(409).json({ message: 'Tracking ID is already registered' });
 
         const tracking = await Tracking.create({
             trackingId,
@@ -21,21 +26,22 @@ exports.registerTracking = async (req, res) => {
             mode: mode || 'drop_off',
         });
 
-        // Use global io if available
         const io = req.app.get('io');
+        const box = io ? await pairedBoxForUser(userId) : null;
         if (io) {
             io.to(userId).emit('trackingUpdate', tracking);
-            console.log(`[SOCKET] trackingUpdate emitted for user: ${userId}`);
+            if (box) io.to(deviceRoom(box.deviceId)).emit('registerTracking', { trackingId, mode: tracking.mode });
         }
 
         // Create a notification for the registration
         const isPickUp = mode === 'pick_up' || mode === 'pickup';
-        await Notification.create({
+        const notification = await Notification.create({
             userId,
             title: isPickUp ? 'Pickup Registered' : 'Delivery Registered',
             message: `Tracking ID ${trackingId} has been registered for ${isPickUp ? 'pick up' : 'drop off'}.`,
             type: 'system_alert'
         });
+        if (io) io.to(userId).emit('notificationNew', notification);
 
         res.status(201).json(tracking);
     } catch (error) {
@@ -60,24 +66,29 @@ exports.getUserTracking = async (req, res) => {
     }
 };
 
-// @desc    Get all tracking IDs (Admin)
+// @desc    Get tracking IDs owned by authenticated user
 // @route   GET /api/tracking
 exports.getAllTracking = async (req, res) => {
     try {
-        const tracking = await Tracking.find().sort({ createdAt: -1 });
+        const tracking = await Tracking.find({ userId: req.userId }).sort({ createdAt: -1 });
         res.json(tracking);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 };
 
-// @desc    Get tracking by ID
+// @desc    Get tracking by ID (case-insensitive, owner-scoped)
 // @route   GET /api/tracking/:trackingId
 exports.getTrackingById = async (req, res) => {
     try {
-        const tracking = await Tracking.findOne({ trackingId: req.params.trackingId });
+        const rawId = (req.params.trackingId || '').trim();
+        const escaped = escapeRegex(rawId);
+        const tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
+        }
+        if (tracking.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot access another user\'s parcel' });
         }
         res.json(tracking);
     } catch (error) {
@@ -85,13 +96,24 @@ exports.getTrackingById = async (req, res) => {
     }
 };
 
-// @desc    Update tracking status
+// @desc    Update tracking status (case-insensitive, owner-scoped)
 // @route   PATCH /api/tracking/:trackingId/status
 exports.updateTrackingStatus = async (req, res) => {
     try {
         const { status } = req.body;
+        const rawId = (req.params.trackingId || '').trim();
+        const escaped = escapeRegex(rawId);
+        const existing = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+
+        if (!existing) {
+            return res.status(404).json({ message: 'Tracking ID not found' });
+        }
+        if (existing.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot update another user\'s parcel' });
+        }
+
         const tracking = await Tracking.findOneAndUpdate(
-            { trackingId: req.params.trackingId },
+            { _id: existing._id },
             {
                 $set: {
                     status,
@@ -101,10 +123,6 @@ exports.updateTrackingStatus = async (req, res) => {
             },
             { new: true }
         );
-
-        if (!tracking) {
-            return res.status(404).json({ message: 'Tracking ID not found' });
-        }
 
         // Log the change in DeliveryLog
         await DeliveryLog.create({
@@ -131,13 +149,16 @@ exports.updateTrackingStatus = async (req, res) => {
 // @route   POST /api/tracking/:trackingId/reset
 exports.resetTracking = async (req, res) => {
     try {
-        const tracking = await Tracking.findOne({ trackingId: req.params.trackingId });
+        const rawId = (req.params.trackingId || '').trim();
+        const escaped = escapeRegex(rawId);
+        const tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
 
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
         }
-
-        const completedStatuses = ['delivered', 'done', 'retrieved', 'awaiting_pickup', 'ready_for_pickup'];
+        if (tracking.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot reset another user\'s parcel' });
+        }
         if (!completedStatuses.includes(tracking.status)) {
             return res.status(400).json({
                 message: `Cannot reset: status is '${tracking.status}'. Only completed parcels can be reset.`
@@ -145,7 +166,7 @@ exports.resetTracking = async (req, res) => {
         }
 
         const updated = await Tracking.findOneAndUpdate(
-            { trackingId: req.params.trackingId },
+            { _id: tracking._id },
             {
                 $set: {
                     status: 'pending',
@@ -157,7 +178,7 @@ exports.resetTracking = async (req, res) => {
             { new: true }
         );
 
-        console.log(`🔄 [TEST] Reset tracking ${req.params.trackingId} → pending`);
+        console.log(`🔄 [TEST] Reset tracking ${tracking.trackingId} → pending`);
 
         const io = req.app.get('io');
         if (io) {
@@ -173,13 +194,18 @@ exports.resetTracking = async (req, res) => {
 // @route   POST /api/tracking/:trackingId/simulate
 exports.simulateTracking = async (req, res) => {
     try {
-        const { trackingId } = req.params;
-        const tracking = await Tracking.findOne({ trackingId });
+        const rawId = (req.params.trackingId || '').trim();
+        const escaped = escapeRegex(rawId);
+        const tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
 
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
         }
+        if (tracking.userId !== req.userId) {
+            return res.status(403).json({ message: 'Access denied: cannot simulate another user\'s parcel' });
+        }
 
+        const trackingId = tracking.trackingId;
         const io = req.app.get('io');
         const statuses = tracking.mode === 'pickup' 
             ? ['pending', 'awaiting_pickup', 'ready_for_pickup', 'retrieved', 'done']
@@ -197,7 +223,7 @@ exports.simulateTracking = async (req, res) => {
                 await new Promise(resolve => setTimeout(resolve, 5000));
 
                 const updated = await Tracking.findOneAndUpdate(
-                    { trackingId },
+                    { _id: tracking._id },
                     { 
                         $set: { 
                             status: nextStatus,
@@ -211,7 +237,7 @@ exports.simulateTracking = async (req, res) => {
 
                 if (io) {
                     io.to(updated.userId).emit('trackingUpdate', updated);
-                    io.emit('trackingStatusChanged', {
+                    io.to(updated.userId).emit('trackingStatusChanged', {
                         trackingId,
                         status: nextStatus,
                         mode: updated.mode,
@@ -235,10 +261,11 @@ exports.simulateTracking = async (req, res) => {
 // @route   DELETE /api/tracking/:trackingId
 exports.deleteTracking = async (req, res) => {
     try {
-        const { trackingId } = req.params;
+        const rawId = (req.params.trackingId || '').trim();
         const userId = req.userId; // Securely get userId from auth token
+        const escaped = escapeRegex(rawId);
 
-        const tracking = await Tracking.findOne({ trackingId });
+        const tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
 
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
@@ -249,12 +276,12 @@ exports.deleteTracking = async (req, res) => {
             return res.status(403).json({ message: 'Access denied: cannot delete another user\'s data' });
         }
 
-        await Tracking.deleteOne({ trackingId });
+        await Tracking.deleteOne({ _id: tracking._id });
 
         // Use global io if available to notify the user
         const io = req.app.get('io');
         if (io) {
-            io.to(userId).emit('trackingDeleted', { trackingId });
+            io.to(userId).emit('trackingDeleted', { trackingId: tracking.trackingId });
             console.log(`[SOCKET] trackingDeleted emitted for user: ${userId}`);
         }
 

@@ -4,7 +4,8 @@ const Notification = require('../models/Notification');
 // @route   POST /api/notifications
 exports.createNotification = async (req, res) => {
     try {
-        const notificationData = { ...req.body, userId: req.userId };
+        const { title, message, type, trackingId, isRead, timestamp } = req.body;
+        const notificationData = { title, message, type, trackingId, isRead, timestamp, userId: req.userId };
         const notification = await Notification.create(notificationData);
 
         // Use global io if available
@@ -20,7 +21,7 @@ exports.createNotification = async (req, res) => {
     }
 };
 
-// @desc    Get user notifications
+// @desc    Get user notifications (supports pagination via ?page=1&limit=15)
 // @route   GET /api/notifications/user/:userId
 exports.getUserNotifications = async (req, res) => {
     try {
@@ -31,7 +32,17 @@ exports.getUserNotifications = async (req, res) => {
             return res.status(403).json({ message: 'Access denied: cannot access another user\'s notifications' });
         }
 
-        const notifications = await Notification.find({ userId }).sort({ timestamp: -1 });
+        const page = req.query.page ? parseInt(req.query.page, 10) : null;
+        const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
+
+        let query = Notification.find({ userId }).sort({ timestamp: -1 });
+
+        if (page && limit && page > 0 && limit > 0) {
+            const skip = (page - 1) * limit;
+            query = query.skip(skip).limit(limit);
+        }
+
+        const notifications = await query;
         res.json(notifications);
     } catch (error) {
         res.status(500).json({ message: error.message });

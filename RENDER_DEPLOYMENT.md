@@ -1,47 +1,19 @@
-# 🚀 Render Deployment Guide (Backend)
+# Deploy the SPD backend on Render
 
-This guide explains how to deploy your Node.js/MongoDB backend to **Render**.
+The release branch is based on `optimizations` and packages the Express backend from `backend/`. Its spatial-volume reports go only to the authenticated box's paired household. The Android and ESP32 bench builds come from the companion changes in the SPD `dev` checkout.
 
-## 1. Prepare your MongoDB Database (Atlas)
-Since Render doesn't provide a database, you should use **MongoDB Atlas** (Free Tier):
-1.  Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) and create a free account.
-2.  Create a new Cluster (pick the region closest to you).
-3.  Go to **Database Access** and create a user (remember the password).
-4.  Go to **Network Access** and select "Allow Access from Anywhere" (Render's IPs change frequently).
-5.  Go to **Database** -> **Connect** -> **Connect your application**.
-6.  Copy the connection string (it looks like `mongodb+srv://<username>:<password>@cluster0.abc.mongodb.net/?retryWrites=true&w=majority`).
+## Configure the service
 
-## 2. Push Code to GitHub
-We have already pushed the latest code to the `MongoDB` branch. Ensure you are pushing to the same repository you link to Render.
+- Use the release branch `codex/spd-render-reliability` with root directory `backend`, build command `npm ci`, start command `npm start`, and health check path `/health`.
+- Use Node 22, as specified in `backend/package.json`. If Render has a `NODE_VERSION` override, use a Node 22 release there too.
+- Keep the existing MongoDB configuration and use a `JWT_SECRET` of at least 32 characters. Set `SPD_DEVICE_KEYS` to a private JSON object that maps each test box's station MAC address to its unique key.
+- Store the replacement Firebase service-account JSON from the Android app's Firebase project in the Render secret file `spd-fcm.json`. Set `GOOGLE_APPLICATION_CREDENTIALS` to `/etc/secrets/spd-fcm.json` and leave `SPD_PUSH_ENABLED=false` for the first boot.
 
-## 3. Create a Web Service on Render
-1.  Log in to [Render.com](https://render.com/).
-2.  Click **New +** -> **Web Service**.
-3.  Connect your GitHub repository.
-4.  Configure the service:
-    *   **Name**: `smart-parcel-api`
-    *   **Environment**: `Node`
-    *   **Region**: (Same as your MongoDB Cluster)
-    *   **Branch**: `MongoDB`
-    *   **Root Directory**: `server` 👈 **IMPORTANT!** (Because your backend is in a subfolder)
-    *   **Build Command**: `npm install`
-    *   **Start Command**: `node src/app.js` (or `npm start`)
+## Bench test before switching active units
 
-## 4. Set Environment Variables
-In the Render dashboard, go to the **Environment** tab and add:
-*   `NODE_ENV`: `production`
-*   `MONGODB_URI`: (Your string from Step 1)
-*   `JWT_SECRET`: (A long random string, e.g., `your_very_secret_key_12345`)
-*   `PORT`: `5000` (Render will override this, but it's good for defaults)
+1. Prepare the updated ESP32 firmware with the same per-device key and Render hostname. The backend requires a device authentication challenge response, so firmware built from the old `optimizations` branch needs the corresponding update before cutover.
+2. Install the companion Android build pointed at the same service. For the existing Depth service, use `--dart-define=API_URL=https://smart-parcel-dropbox-depth.onrender.com`.
+3. After deployment, check `/health` for MongoDB connectivity. Sign in, pair the box, and confirm that Dropbox Control shows its firmware version, Wi-Fi signal, and uptime. Verify a lock command and an inbound delivery.
+4. Enable `SPD_PUSH_ENABLED=true`, redeploy, and reopen the app with notifications allowed so it can register. Perform another delivery with the phone locked. Tap the alert and verify that it opens the delivered parcel for the signed-in owner.
 
-## 5. Deployment
-*   Render will start building and deploying automatically.
-*   Once finished, you will get a URL like `https://smart-parcel-api.onrender.com`.
-
-## 6. Update Flutter App
-Once deployed, you need to update your API base URL in the Flutter app to point to your new Render URL instead of `localhost`.
-
----
-
-### ⚠️ Note on WebSockets
-Render's free tier "spins down" after 15 minutes of inactivity. When it spins down, the ESP32 and App will lose connection. To prevent this, you'd need the "Starter" plan ($7/mo) or use a ping service to keep it awake.
+Keep the prior Render deployment available for rollback. A backend rollback also requires the matching firmware for the device protocol used by that deployment.

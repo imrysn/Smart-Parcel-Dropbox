@@ -32,10 +32,14 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
-    // ── Phase 4: Applied Cryptography ─────────
-    hmacKey: {
-        type: String,
-        default: null // Generated upon registration/login
+    hmacKey: { type: String, default: null, select: false },
+    resetCodeAttempts: {
+        type: Number,
+        default: 0
+    },
+    resetCodeLastSentAt: {
+        type: Date,
+        default: null
     }
 }, {
     timestamps: true

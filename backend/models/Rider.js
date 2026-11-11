@@ -12,6 +12,17 @@ const riderSchema = new mongoose.Schema({
         required: true,
         trim: true,
     },
+    userId: {
+        type: String,
+        trim: true,
+        index: true,
+        default: null,
+    },
+    deviceId: {
+        type: String,
+        trim: true,
+        default: null,
+    },
     createdAt: {
         type: Date,
         default: Date.now,
