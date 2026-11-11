@@ -267,26 +267,6 @@ class TrackingService {
     }
   }
 
-  /// Fetch Daily Digest statistics for business dashboard
-  Future<Map<String, dynamic>?> fetchDailyDigest() async {
-    try {
-      final headers = await _authService.getAuthHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConfig.business}/daily-digest'),
-        headers: headers,
-      );
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        return body['data'];
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Error fetching daily digest: $e');
-      return null;
-    }
-  }
-
   /// Stage an outbound customer order
   Future<Map<String, dynamic>> stageOutboundPackage({
     required String trackingId,

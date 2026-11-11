@@ -494,17 +494,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return;
     }
 
-    // 5. Pickup / Ledger notifications -> Ledger page (Index 2)
+    // 5. Pickup notifications -> Orders page (Index 1) > Outbound subpage (Index 2)
     if (typeLower.contains('pickup') || titleLower.contains('pickup')) {
       if (mounted) {
-        Navigator.of(context).pop({'tabIndex': 2}); // Ledger tab
+        Navigator.of(context).pop({'tabIndex': 1, 'subTabIndex': 2}); // Orders > Outbound tab
       }
       return;
     }
 
-    // 6. Access / Scan / Dropbox notifications -> Dropbox Control page (Index 3)
+    // 6. Access / Scan / Dropbox notifications -> Dropbox Control page (Index 2)
     if (mounted) {
-      Navigator.of(context).pop({'tabIndex': 3}); // Dropbox Control tab
+      Navigator.of(context).pop({'tabIndex': 2}); // Dropbox Control tab
     }
   }
 }

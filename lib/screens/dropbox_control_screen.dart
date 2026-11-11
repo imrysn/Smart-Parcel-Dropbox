@@ -7,7 +7,6 @@ import '../services/websocket_service.dart';
 import '../services/auth_service.dart';
 import '../services/dropbox_service.dart';
 import 'hardware_registration_screen.dart';
-import '../presentation/components/emergency_lockdown_card.dart';
 import '../presentation/components/qr_access_badge_card.dart';
 
 // ─── Door type constants matching ESP32 firmware ───────────────────────────
@@ -47,7 +46,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
   bool _hasDropbox = false;
   bool _registrationChecked = false;
   int _registeredUserCount = 0; // how many users share this device
-  bool _isLockdownActive = false;
   late String _ownerQrToken;
 
   late final AnimationController _pulseController;
@@ -160,17 +158,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
       return;
     }
     final isOpen = _doorOpen[doorType]!;
-    if (_isLockdownActive && !isOpen) {
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ Cannot unlock door while Emergency Lockdown is active. Disable lockdown first.'),
-          backgroundColor: UserTheme.statusError,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
     setState(() { _doorProcessing[doorType] = true; _doorOpen[doorType] = !isOpen; });
     _ws.emitControlDoor(doorType, isOpen ? 'close' : 'open');
     Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _doorProcessing[doorType] = false); });
@@ -236,31 +223,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
                 const SizedBox(height: 12),
                 if (_hasDropbox) ...[
                   _buildConnectionBanner(),
-                  const SizedBox(height: 16),
-                  EmergencyLockdownCard(
-                    isLockdownActive: _isLockdownActive,
-                    onToggle: (val) {
-                      setState(() => _isLockdownActive = val);
-                      if (val) {
-                        // Immediately close and lock any doors that were open
-                        for (final doorType in [kDoorTop, kDoorPickup, kDoorReceived]) {
-                          if (_doorOpen[doorType] == true) {
-                            _ws.emitControlDoor(doorType, 'close');
-                            _doorOpen[doorType] = false;
-                          }
-                        }
-                      }
-                      ScaffoldMessenger.of(context).clearSnackBars();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(val ? '⚠️ Emergency Lockdown Active: All doors secured' : '✅ System Security Nominal'),
-                          backgroundColor: val ? UserTheme.statusError : UserTheme.statusSuccess,
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   UserUi.sectionTitle(context, 'Hardware QR Access Badge', subtitle: 'Hold code in front of MH-ET barcode scanner'),
                   const SizedBox(height: 12),
                   QrAccessBadgeCard(
@@ -500,16 +463,12 @@ class _DropboxControlScreenState extends State<DropboxControlScreen>
           UserUi.premiumButton(
             label: isProcessing
                 ? 'PROCESSING...'
-                : (_isLockdownActive && !isOpen
-                    ? 'LOCKED (LOCKDOWN)'
-                    : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR')),
+                : (isOpen ? 'SECURE DOOR' : 'UNLOCK DOOR'),
             onTap: isProcessing ? () {} : () => _toggleDoor(doorType),
             icon: isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
             color: !_esp32Connected
                 ? Colors.grey
-                : (_isLockdownActive && !isOpen
-                    ? Colors.grey
-                    : (isOpen ? UserTheme.statusError : accentColor)),
+                : (isOpen ? UserTheme.statusError : accentColor),
           ),
         ],
       ),

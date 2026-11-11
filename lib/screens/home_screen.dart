@@ -10,11 +10,9 @@ import '../models/tracking_model.dart';
 import 'login_screen.dart';
 import 'add_tracking_screen.dart';
 import 'tracking_details_screen.dart';
-import 'payment_qr_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'admin/rider_management_screen.dart';
 import 'dropbox_control_screen.dart';
-import 'task_manager_screen.dart';
 import '../widgets/notification_badge.dart';
 import 'add_pickup_screen.dart';
 import '../widgets/user_ui.dart';
@@ -138,10 +136,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return 'Orders';
       case 2:
-        return 'Business Financials';
-      case 3:
         return 'Dropbox Management';
-      case 4:
+      case 3:
         return 'Profile';
       default:
         return 'Smart Parcel Dropbox';
@@ -226,26 +222,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
                 },
               ),
-            if (_selectedIndex == 2) ...[
-              IconButton(
-                icon: const Icon(Icons.qr_code_2_rounded, color: UserTheme.primaryOrange),
-                tooltip: 'GCash / Maya / Bank Payment Requests',
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => const PaymentQrScreen()),
-                  );
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.download_rounded, color: UserTheme.primaryOrange),
-                tooltip: 'Export CSV Ledger',
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Financial CSV ledger generated & ready for download!'), backgroundColor: UserTheme.statusSuccess),
-                  );
-                },
-              ),
-            ],
             if (_userId != null)
               NotificationBadge(
                 userId: _userId!,
@@ -286,13 +262,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 64,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(5, (index) {
+                    children: List.generate(4, (index) {
                       final isSelected = _selectedIndex == index;
                       IconData icon; IconData activeIcon; String label;
                       if (index == 0) { icon = Icons.grid_view_outlined; activeIcon = Icons.grid_view_rounded; label = 'Home'; }
                       else if (index == 1) { icon = Icons.inventory_2_outlined; activeIcon = Icons.inventory_2_rounded; label = 'Orders'; }
-                      else if (index == 2) { icon = Icons.account_balance_wallet_outlined; activeIcon = Icons.account_balance_wallet_rounded; label = 'Ledger'; }
-                      else if (index == 3) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
+                      else if (index == 2) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
                       else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
 
                       return Expanded(
@@ -300,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onTap: () {
                             setState(() {
                               _selectedIndex = index;
-                              if (index <= 2 && _userId != null) {
+                              if (index <= 1 && _userId != null) {
                                 _databaseService.refreshTracking(_userId!);
                                 if (index == 0) _checkDropbox();
                               }
@@ -402,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 20),
             UserUi.premiumButton(
               label: 'START REGISTRATION',
-              onTap: () => setState(() => _selectedIndex = 3),
+              onTap: () => setState(() => _selectedIndex = 2),
               icon: Icons.arrow_forward_rounded,
             ),
           ],
@@ -1121,10 +1096,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildAllOrdersTab();
       case 2:
-        return const TaskManagerScreen();
-      case 3:
         return const DropboxControlScreen();
-      case 4:
+      case 3:
         return _buildProfileTab();
       default:
         return _buildActiveOrdersTab();
