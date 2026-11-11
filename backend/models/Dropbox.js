@@ -64,6 +64,9 @@ const dropboxSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  hmacKey: { type: String, default: null, select: false },
+  occupancyPercent: { type: Number, default: 0, min: 0, max: 100 },
+  fillPercentage: { type: Number, default: 0, min: 0, max: 100 },
   diagnostics: {
     firmwareVersion: String,
     wifiRssi: Number,

@@ -49,7 +49,7 @@ function escapeRegex(text) {
 
 /**
  * Flexible Tracking ID Matcher (Case-insensitive)
- * 
+ *
  * Some couriers (Shopee/J&T) add a 'T' or other suffixes to barcodes
  * that might not be in the user's registered ID.
  */
@@ -58,11 +58,11 @@ async function findTrackingFlexibly(inputId, userIds) {
   const clean = inputId.trim();
   const escaped = escapeRegex(clean);
   const scope = { userId: { $in: userIds } };
-  
+
   // 1. Try case-insensitive exact match
   let tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
   if (tracking) return tracking;
-  
+
   // 2. Try match after removing trailing 'T'
   if (clean.toUpperCase().endsWith('T')) {
     const trimmedId = escapeRegex(clean.substring(0, clean.length - 1));
@@ -73,7 +73,7 @@ async function findTrackingFlexibly(inputId, userIds) {
       return tracking;
     }
   }
-  
+
   // 3. Try matching if DB record has 'T' but scan doesn't
   const appended = escapeRegex(clean + 'T');
   tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${appended}$`, 'i') } });
@@ -156,9 +156,11 @@ app.use('/api/webhooks', webhookRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const revision = process.env.RENDER_GIT_COMMIT;
   res.json({
     status: 'online',
     timestamp: new Date(),
+    revision: /^[a-f0-9]{40}$/i.test(revision ?? '') ? revision : null,
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
   });
 });
@@ -697,6 +699,21 @@ io.on('connection', (socket) => {
 
   });
 
+  on('spatialVolumeUpdate', async (data) => {
+    if (!socket.deviceId || !socket.connected || !data) return;
+    const { occupancyPercent, rawDistance } = data;
+    if (!Number.isFinite(occupancyPercent) || occupancyPercent < 0 || occupancyPercent > 100 ||
+        !Number.isFinite(rawDistance) || rawDistance < 0) return;
+    const fillPercentage = Math.round(occupancyPercent);
+    const box = await Dropbox.findOneAndUpdate({ deviceId: socket.deviceId, isRegistered: true }, {
+      $set: { occupancyPercent, fillPercentage },
+      $max: { lastSeenAt: new Date() },
+    }, { new: true });
+    if (box && socket.connected) emitToMembers(io, box, 'spatialVolumeHUD', {
+      occupancyPercent, fillPercentage, rawDistance,
+    });
+  });
+
   on('sensorUpdate', async (data) => {
     const box = await registeredBoxForDevice(socket.deviceId);
     if (!box || !socket.connected) return;
@@ -822,7 +839,7 @@ io.on('connection', (socket) => {
       socket.emit('deviceRegistrationFailed', { reason: 'server_error' });
     }
   });
-  
+
   // ── Unregister Device (mobile app → backend) ─────────────────────────────
   // App emits this to remove a user's own access to the dropbox.
   // Multi-user: only pulls this userId out of userIds. The device stays registered

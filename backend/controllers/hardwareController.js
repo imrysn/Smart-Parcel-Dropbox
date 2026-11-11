@@ -110,16 +110,16 @@ const verifyBarcode = async (req, res) => {
     // Flexible trim/append 'T' fallback for Shopee/J&T
     if (!tracking && sanitizedBarcode.toUpperCase().endsWith('T')) {
       const trimmed = escapeRegex(sanitizedBarcode.substring(0, sanitizedBarcode.length - 1));
-      tracking = await Tracking.findOne({ 
-        trackingId: { $regex: new RegExp(`^${trimmed}$`, 'i') }, 
-        userId: { $in: registeredUsers } 
+      tracking = await Tracking.findOne({
+        trackingId: { $regex: new RegExp(`^${trimmed}$`, 'i') },
+        userId: { $in: registeredUsers }
       });
     }
     if (!tracking) {
       const appended = escapeRegex(sanitizedBarcode + 'T');
-      tracking = await Tracking.findOne({ 
-        trackingId: { $regex: new RegExp(`^${appended}$`, 'i') }, 
-        userId: { $in: registeredUsers } 
+      tracking = await Tracking.findOne({
+        trackingId: { $regex: new RegExp(`^${appended}$`, 'i') },
+        userId: { $in: registeredUsers }
       });
     }
 

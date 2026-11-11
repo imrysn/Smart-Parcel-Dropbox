@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    hmacKey: { type: String, default: null, select: false },
     resetCodeAttempts: {
         type: Number,
         default: 0

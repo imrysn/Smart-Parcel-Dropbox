@@ -27,9 +27,9 @@ exports.getDailyDigest = async (req, res) => {
     const outboundPending = outboundAll.filter(t => t.status === 'pending' || t.status === 'awaiting_pickup');
 
     // Inbound supplier parcels delivered today
-    const inboundToday = trackings.filter(t => 
-      t.direction !== 'OUTBOUND_CUSTOMER' && 
-      (t.status === 'delivered' || t.status === 'done') && 
+    const inboundToday = trackings.filter(t =>
+      t.direction !== 'OUTBOUND_CUSTOMER' &&
+      (t.status === 'delivered' || t.status === 'done') &&
       t.deliveredAt && new Date(t.deliveredAt) >= startOfDay
     );
 
@@ -143,7 +143,7 @@ exports.generateDispatchLink = async (req, res) => {
     const courier = tracking.courierName || 'Courier';
 
     const text = `Hi ${customer}! Your order has been securely staged at our Smart Parcel Dropbox for pickup via ${courier}.\n\nTracking ID: ${tracking.trackingId}\nStatus: ${tracking.status.toUpperCase()}\n\nThank you for shopping with ${shop}! 📦✨`;
-    
+
     res.json({
       success: true,
       data: {

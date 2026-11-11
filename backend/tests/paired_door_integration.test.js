@@ -27,7 +27,7 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
     ? box.deviceId === query.deviceId : box.userIds.includes(query.$or?.[0]?.userIds)));
   t.mock.method(Dropbox, 'updateOne', async () => ({ modifiedCount: 1 }));
   t.mock.method(Dropbox, 'findById', async id => boxes.find(box => box._id === id));
-  const storeHeartbeat = t.mock.method(Dropbox, 'findOneAndUpdate', async (query, update) => {
+  const storeTelemetry = t.mock.method(Dropbox, 'findOneAndUpdate', async (query, update) => {
     const box = boxes.find(item => item.deviceId === query.deviceId);
     return box && Object.assign(box, update.$set);
   });
@@ -96,6 +96,13 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
   assert.equal(reportA.deviceId, 'BOX-A');
   assert.equal(reportA.diagnostics.wifiRssi, heartbeat.wifiRssi);
 
+  let unrelatedVolumeReports = 0;
+  phoneB.on('spatialVolumeHUD', () => unrelatedVolumeReports++);
+  const volume = once(phoneA, 'spatialVolumeHUD');
+  boxA.emit('spatialVolumeUpdate', { deviceId: 'BOX-B', occupancyPercent: 61.7, rawDistance: 16.2 });
+  const [volumeA] = await volume;
+  assert.deepEqual(volumeA, { deviceId: 'BOX-A', occupancyPercent: 61.7, fillPercentage: 62, rawDistance: 16.2 });
+
   let unrelatedDeliveries = 0;
   phoneB.on('trackingStatusChanged', () => unrelatedDeliveries++);
   const delivery = once(phoneA, 'trackingStatusChanged');
@@ -126,5 +133,6 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
   assert.equal(commandsB, 0);
   assert.equal(unrelatedReports, 0);
   assert.equal(unrelatedDeliveries, 0);
-  assert.equal(storeHeartbeat.mock.callCount(), 1);
+  assert.equal(unrelatedVolumeReports, 0);
+  assert.equal(storeTelemetry.mock.callCount(), 2);
 });
