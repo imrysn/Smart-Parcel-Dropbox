@@ -513,7 +513,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
           TextButton.icon(
             onPressed: () => setState(() => _showManagement = !_showManagement),
             icon: Icon(_showManagement ? Icons.view_in_ar : Icons.tune),
-            label: Text(_showManagement ? 'Cabinet' : 'Manage'),
+            label: Text(_showManagement ? 'Dropbox' : 'Manage'),
           ),
         ],
       ),
