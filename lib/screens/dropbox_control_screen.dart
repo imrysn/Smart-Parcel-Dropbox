@@ -48,6 +48,11 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   bool _esp32Connected = false;
   bool _doorStateKnown = false;
   bool _showManagement = false;
+  int _manageFilterIndex = 0; // 0: All, 1: Doors, 2: Bins, 3: Access & Unit
+  bool _diagnosticsExpanded = false;
+  bool _isRefreshing = false;
+  bool _headerTogglePressed = false;
+  bool _headerToggleHovered = false;
   final Map<String, bool> _doorOpen = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
   final Map<String, bool> _doorProcessing = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
   static const _reedKeys = {kDoorTop: 'REED_TOP', kDoorPickup: 'REED_PICKUP', kDoorReceived: 'REED_RECEIVED'};
@@ -472,10 +477,25 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
             ),
             if (_showManagement)
               SafeArea(
+                bottom: false,
                 child: Column(
                   children: [
                     _buildCabinetHeader(),
-                    Expanded(child: _buildManagementPage()),
+                    Expanded(
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, child) => Opacity(
+                          opacity: value,
+                          child: Transform.translate(
+                            offset: Offset(0, (1 - value) * 10),
+                            child: child,
+                          ),
+                        ),
+                        child: _buildManagementPage(),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -485,214 +505,730 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     );
   }
 
+  Future<void> _refreshManagement() async {
+    if (_isRefreshing) return;
+    HapticFeedback.lightImpact();
+    setState(() => _isRefreshing = true);
+    try {
+      if (_esp32Connected) {
+        _requestHardwareState();
+      }
+      await _init();
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
+  }
+
   Widget _buildCabinetHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
-      padding: UserUi.listPadding(context, top: 4, bottom: 0),
+      padding: UserUi.listPadding(context, top: 6, bottom: 4),
       child: Row(
         children: [
-          UserUi.statusPill(
-            label: _esp32Connected ? 'Online' : 'Offline',
-            color: _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusWarning,
-          ),
-          if (_esp32Connected && _logicalDropoffCount > 0) ...[
-            const SizedBox(width: 12),
-            Expanded(
-              child: Semantics(
-                liveRegion: true,
-                child: Text(
-                  _logicalDropoffCount == 1
-                      ? '1 parcel waiting'
-                      : '$_logicalDropoffCount parcels waiting',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          Expanded(
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                UserUi.statusPill(
+                  label: _esp32Connected ? 'Online' : 'Offline',
+                  color: _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusWarning,
                 ),
-              ),
+                if (_esp32Connected && _logicalDropoffCount > 0)
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _logicalDropoffCount == 1
+                          ? '1 parcel waiting'
+                          : '$_logicalDropoffCount parcels waiting',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ] else
-            const Spacer(),
-          TextButton.icon(
-            onPressed: () => setState(() => _showManagement = !_showManagement),
-            icon: Icon(_showManagement ? Icons.view_in_ar : Icons.tune),
-            label: Text(_showManagement ? 'Dropbox' : 'Manage'),
           ),
+          const SizedBox(width: 8),
+          _buildHeaderToggleButton(),
         ],
       ),
     );
   }
 
-  Widget _buildManagementPage() {
-    return SingleChildScrollView(
-      padding: UserUi.listPadding(context, top: 4, bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildManagementSection(),
-          const SizedBox(height: 18),
-          if (_hasDropbox) ...[
-            QrAccessBadgeCard(
-              qrToken: _ownerQrToken,
-              onRefresh: _ownerQrLoading ? null : _refreshOwnerBadge,
+  Widget _buildHeaderToggleButton() {
+    final openDoors = _doorOpen.values.where((open) => open).length;
+    final ajarDoors = _reedState.values.where((open) => open == true).length;
+    final busyDoors = _doorProcessing.values.any((busy) => busy);
+    final isManageTarget = !_showManagement;
+    final showBusySpinner = _isRefreshing || (isManageTarget && busyDoors);
+
+    final fillAlpha = _headerTogglePressed
+        ? 0.22
+        : (_headerToggleHovered ? 0.18 : 0.14);
+    final borderColor = (isManageTarget && ajarDoors > 0)
+        ? UserTheme.statusWarning.withValues(alpha: _headerTogglePressed ? 0.8 : 0.6)
+        : UserTheme.primaryOrange.withValues(
+            alpha: _headerTogglePressed ? 0.72 : (_headerToggleHovered ? 0.56 : 0.42),
+          );
+    final scale = _headerTogglePressed
+        ? 0.94
+        : (_headerToggleHovered ? 1.03 : 1.0);
+
+    Widget? trailingCue;
+    if (isManageTarget) {
+      if (ajarDoors > 0) {
+        trailingCue = _buildHeaderMicroBadge(
+          label: ajarDoors == 1 ? 'Ajar' : '$ajarDoors ajar',
+          color: UserTheme.statusWarning,
+        );
+      } else if (openDoors > 0) {
+        trailingCue = _buildHeaderMicroBadge(
+          label: '$openDoors open',
+          color: UserTheme.statusSuccess,
+        );
+      } else {
+        trailingCue = _buildHeaderLiveDot(_esp32Connected);
+      }
+    } else if (_logicalDropoffCount > 0) {
+      trailingCue = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: UserTheme.primaryOrange,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          '$_logicalDropoffCount',
+          style: const TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            height: 1.1,
+          ),
+        ),
+      );
+    } else {
+      trailingCue = _buildHeaderLiveDot(_esp32Connected);
+    }
+
+    return AnimatedScale(
+      scale: scale,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() {
+              _headerTogglePressed = false;
+              _showManagement = !_showManagement;
+            });
+          },
+          onHighlightChanged: (pressed) {
+            if (_headerTogglePressed != pressed) {
+              setState(() => _headerTogglePressed = pressed);
+            }
+          },
+          onHover: (hovered) {
+            if (_headerToggleHovered != hovered) {
+              setState(() => _headerToggleHovered = hovered);
+            }
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: UserTheme.primaryOrange.withValues(alpha: fillAlpha),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: borderColor),
             ),
-            const SizedBox(height: 24),
-            UserUi.sectionTitle(context, 'Door Controls',
-                subtitle: 'Lock or unlock compartments remotely'),
-            const SizedBox(height: 10),
-            _buildDoorCard(kDoorTop, 'Parcel Entry', 'Top slot for courier deliveries',
-                Icons.local_shipping_rounded, 'REED_TOP', UserTheme.primaryOrange),
-            const SizedBox(height: 12),
-            _buildDoorCard(kDoorPickup, 'Pickup Door', 'Front pickup compartment',
-                Icons.inventory_2_rounded, 'REED_PICKUP', UserTheme.primaryOrange),
-            const SizedBox(height: 12),
-            _buildDoorCard(kDoorReceived, 'Drop-off Door', 'Rear compartment for retrieving deliveries',
-                Icons.move_to_inbox_rounded, 'REED_RECEIVED', UserTheme.primaryOrange),
-            const SizedBox(height: 28),
-            UserUi.sectionTitle(context, 'Storage Bins', subtitle: 'Live compartment capacity'),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildBinCard('Pickup Bin', 'Awaiting courier', _pickupFill,
-                      _logicalPickupCount, UserTheme.primaryOrange, Icons.inventory_2_rounded),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.92, end: 1.0).animate(anim),
+                  child: child,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildBinCard('Delivery Bin', 'Incoming parcels', _dropoffFill,
-                      _logicalDropoffCount, UserTheme.primaryOrange, Icons.shopping_bag_rounded),
+              ),
+              child: Row(
+                key: ValueKey<bool>(_showManagement),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showBusySpinner)
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: UserTheme.primaryOrange,
+                      ),
+                    )
+                  else
+                    Icon(
+                      _showManagement ? Icons.view_in_ar_rounded : Icons.tune_rounded,
+                      size: 16,
+                      color: UserTheme.primaryOrange,
+                    ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _showManagement ? 'Dropbox' : 'Manage',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: UserTheme.primaryOrange,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  trailingCue,
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderLiveDot(bool online) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(
+        color: online
+            ? UserTheme.statusSuccess
+            : UserTheme.primaryOrange.withValues(alpha: 0.5),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+
+  Widget _buildHeaderMicroBadge({required String label, required Color color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          color: color,
+          height: 1.1,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildManagementPage() {
+    // Keep last card clear of HomeScreen's floating bottom navigation bar.
+    final bottomPad = Navigator.canPop(context) ? 32.0 : 116.0;
+    final showDoors = _manageFilterIndex == 0 || _manageFilterIndex == 1;
+    final showBins = _manageFilterIndex == 0 || _manageFilterIndex == 2;
+    final showUnit = _manageFilterIndex == 0 || _manageFilterIndex == 3;
+    final openDoors = _doorOpen.values.where((open) => open).length;
+    final ajarDoors = _reedState.values.where((open) => open == true).length;
+    final totalParcels = _logicalPickupCount + _logicalDropoffCount;
+
+    return RefreshIndicator(
+      color: UserTheme.primaryOrange,
+      onRefresh: _refreshManagement,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: UserUi.listPadding(context, top: 8, bottom: bottomPad),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildManagementSection(),
+            if (_hasDropbox) ...[
+              const SizedBox(height: 14),
+              _buildManageFilterBar(),
+              const SizedBox(height: 18),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (showDoors) ...[
+                      _buildManageSectionHeader(
+                        title: 'Door Controls',
+                        subtitle: 'Lock or unlock compartments remotely',
+                        badgeText: ajarDoors > 0
+                            ? '$ajarDoors ajar'
+                            : (!_doorStateKnown
+                                ? 'Syncing'
+                                : (openDoors == 0 ? 'All locked' : '$openDoors unlocked')),
+                        badgeColor: ajarDoors > 0 || !_doorStateKnown
+                            ? UserTheme.statusWarning
+                            : (openDoors > 0 ? UserTheme.statusSuccess : null),
+                      ),
+                      const SizedBox(height: 8),
+                      _buildDoorCard(
+                        kDoorTop,
+                        'Parcel Entry',
+                        'Top chute for courier deliveries',
+                        Icons.local_shipping_rounded,
+                        'REED_TOP',
+                        UserTheme.primaryOrange,
+                      ),
+                      const SizedBox(height: 10),
+                      _buildDoorCard(
+                        kDoorPickup,
+                        'Pickup Door',
+                        'Outbound courier compartment',
+                        Icons.inventory_2_rounded,
+                        'REED_PICKUP',
+                        UserTheme.primaryOrange,
+                      ),
+                      const SizedBox(height: 10),
+                      _buildDoorCard(
+                        kDoorReceived,
+                        'Drop-off Door',
+                        'Owner retrieval compartment',
+                        Icons.move_to_inbox_rounded,
+                        'REED_RECEIVED',
+                        UserTheme.primaryOrange,
+                      ),
+                      if (showBins || showUnit) const SizedBox(height: 22),
+                    ],
+                    if (showBins) ...[
+                      _buildManageSectionHeader(
+                        title: 'Storage Bins',
+                        subtitle: 'Live compartment fill levels',
+                        badgeText: totalParcels == 1 ? '1 parcel' : '$totalParcels parcels',
+                        badgeColor: totalParcels > 0 ? UserTheme.primaryOrange : null,
+                      ),
+                      const SizedBox(height: 8),
+                      _buildStorageBinsGrid(),
+                      if (showUnit) const SizedBox(height: 22),
+                    ],
+                    if (showUnit) ...[
+                      _buildManageSectionHeader(
+                        title: 'Access & Unit',
+                        subtitle: 'Owner QR pass, sharing & device tools',
+                        badgeText: _registeredUserCount > 1 ? '$_registeredUserCount members' : null,
+                        badgeColor: UserTheme.statusInfo,
+                      ),
+                      const SizedBox(height: 8),
+                      QrAccessBadgeCard(
+                        qrToken: _ownerQrToken,
+                        onRefresh: _ownerQrLoading ? null : _refreshOwnerBadge,
+                      ),
+                      const SizedBox(height: 14),
+                      _buildAccessAndSettingsCard(),
+                    ],
+                  ],
+                ),
+              ),
+            ] else if (_registrationChecked) ...[
+              const SizedBox(height: 18),
+              _buildEmptyState(),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildManageSectionHeader({
+    required String title,
+    required String subtitle,
+    String? badgeText,
+    Color? badgeColor,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final secondaryText = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary;
+    final effectiveBadge = badgeColor ?? secondaryText;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: primaryText,
+                    fontSize: 18.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: secondaryText,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
-          ] else if (_registrationChecked)
-            _buildEmptyState(),
+          ),
+          if (badgeText != null) ...[
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: effectiveBadge.withValues(alpha: 0.11),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                badgeText,
+                style: TextStyle(
+                  color: effectiveBadge,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildManageFilterBar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final unlockedCount = _doorOpen.values.where((open) => open).length;
+    final items = <(int, String, String?)>[
+      (0, 'All', null),
+      (1, 'Doors', unlockedCount > 0 ? '$unlockedCount open' : '3'),
+      (2, 'Bins', '${_logicalPickupCount + _logicalDropoffCount}'),
+      (3, 'Access', null),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+        final scrollable = constraints.maxWidth < 330 || textScale > 1.25;
+
+        if (scrollable) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  _buildFilterChip(
+                    index: items[i].$1,
+                    label: items[i].$2,
+                    badge: items[i].$3,
+                  ),
+                ],
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: isDark ? UserTheme.nightSurface : UserTheme.daySurface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : Colors.black.withValues(alpha: 0.05),
+            ),
+          ),
+          child: Row(
+            children: [
+              for (final item in items)
+                Expanded(
+                  child: _buildFilterChip(
+                    index: item.$1,
+                    label: item.$2,
+                    badge: item.$3,
+                    segmented: true,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip({
+    required int index,
+    required String label,
+    String? badge,
+    bool segmented = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final selected = _manageFilterIndex == index;
+    final radius = segmented ? 14.0 : 20.0;
+
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: selected
+                ? Colors.white
+                : (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary),
+          ),
+        ),
+        if (badge != null) ...[
+          const SizedBox(width: 5),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: selected
+                  ? Colors.white.withValues(alpha: 0.22)
+                  : UserTheme.primaryOrange.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              badge,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                color: selected ? Colors.white : UserTheme.primaryOrange,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _manageFilterIndex = index);
+        },
+        borderRadius: BorderRadius.circular(radius),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: EdgeInsets.symmetric(
+            horizontal: segmented ? 6 : 14,
+            vertical: 9,
+          ),
+          decoration: BoxDecoration(
+            color: selected
+                ? UserTheme.primaryOrange
+                : (segmented
+                    ? Colors.transparent
+                    : (isDark ? UserTheme.nightCard : UserTheme.dayCard)),
+            borderRadius: BorderRadius.circular(radius),
+            border: segmented
+                ? null
+                : Border.all(
+                    color: selected
+                        ? UserTheme.primaryOrange
+                        : (isDark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.07)),
+                  ),
+          ),
+          child: segmented
+              ? FittedBox(fit: BoxFit.scaleDown, child: content)
+              : content,
+        ),
       ),
     );
   }
 
   Widget _buildManagementSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final statusColor = _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError;
+    final statusColor = !_hasDropbox
+        ? UserTheme.primaryOrange
+        : (_esp32Connected ? UserTheme.statusSuccess : UserTheme.statusError);
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final secondaryText = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary;
+    final unitName = (_dropbox?.name ?? '').trim().isNotEmpty
+        ? _dropbox!.name
+        : 'Smart Dropbox Unit';
+    final wifiSsid = (_dropbox?.wifiSSID ?? '').trim();
+    final statusLine = !_hasDropbox
+        ? 'No hardware linked to this account'
+        : (_esp32Connected
+            ? (wifiSsid.isNotEmpty ? 'Connected · $wifiSsid' : 'Hardware online & synced')
+            : 'Offline · Check power or Wi-Fi');
 
-    return UserUi.surfaceCard(
-      context,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Smart Dropbox Unit',
-                style: TextStyle(
-                  color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                !_hasDropbox
-                    ? 'No hardware linked to this account'
-                    : (_esp32Connected
-                        ? 'Hardware online & synced'
-                        : 'Hardware offline · Check power or Wi-Fi'),
-                style: TextStyle(
-                  color: _hasDropbox
-                      ? statusColor
-                      : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 240),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        border: Border.all(
+          color: _hasDropbox && _esp32Connected
+              ? UserTheme.statusSuccess.withValues(alpha: 0.28)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06)),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.24 : 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
-          if (_hasDropbox) ...[
-            const SizedBox(height: 14),
-            _buildDiagnostics(),
-          ],
-          if (BleDropboxService.supported)
-            _buildUnitSettingRow(
-              icon: Icons.bluetooth_searching_rounded,
-              title: 'Offline unlock',
-              subtitle: 'Prepare or use emergency access for the received-parcel door',
-              onTap: () {
-                final box = _dropbox;
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => OfflineUnlockScreen(
-                    ownerDeviceId: box?.userId == _userId ? box?.deviceId : null,
-                  ),
-                ));
-              },
-            ),
-          const SizedBox(height: 18),
-          if (!_hasDropbox) ...[
-            UserUi.premiumButton(
-              label: 'Register Hardware',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HardwareRegistrationScreen())).then((_) => _init()),
-              icon: Icons.qr_code_scanner_rounded,
-            ),
-          ] else ...[
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _showWiFiConfigDialog,
-                    icon: const Icon(Icons.wifi_tethering_rounded, size: 16),
-                    label: const Text('Wi-Fi Setup', style: TextStyle(fontWeight: FontWeight.w700)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: isDark ? 0.18 : 0.12),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Icon(
+                        _hasDropbox
+                            ? (_esp32Connected ? Icons.dns_rounded : Icons.cloud_off_rounded)
+                            : Icons.developer_board_rounded,
+                        color: statusColor,
+                        size: 22,
+                      ),
                     ),
-                  ),
+                    if (_hasDropbox)
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                              width: 2.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _showUnregisterConfirmation,
-                    icon: const Icon(Icons.link_off_rounded, size: 16),
-                    label: const Text('Unlink', style: TextStyle(fontWeight: FontWeight.w700)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: UserTheme.statusError,
-                      side: BorderSide(color: UserTheme.statusError.withValues(alpha: 0.45)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      unitName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: primaryText,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.35,
+                      ),
                     ),
+                    const SizedBox(height: 3),
+                    Text(
+                      statusLine,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _hasDropbox ? statusColor : secondaryText,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_hasDropbox) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _isRefreshing ? null : _refreshManagement,
+                  icon: _isRefreshing
+                      ? const SizedBox(
+                          width: 17,
+                          height: 17,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: UserTheme.primaryOrange,
+                          ),
+                        )
+                      : const Icon(Icons.sync_rounded, size: 19),
+                  color: secondaryText,
+                  tooltip: 'Refresh unit status',
+                  style: IconButton.styleFrom(
+                    backgroundColor: isDark ? UserTheme.nightSurface : UserTheme.daySurface,
+                    minimumSize: const Size(38, 38),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
               ],
-            ),
+            ],
+          ),
+          if (_hasDropbox) ...[
             const SizedBox(height: 16),
-            Divider(
-              height: 1,
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.black.withValues(alpha: 0.06),
-            ),
-            const SizedBox(height: 8),
-            if (BleDropboxService.supported && _dropbox != null)
+            _buildUnitSnapshotStrip(),
+            const SizedBox(height: 12),
+            _buildDiagnostics(),
+            const SizedBox(height: 14),
+            _buildUnitPrimaryActions(),
+          ] else ...[
+            if (BleDropboxService.supported) ...[
+              const SizedBox(height: 14),
               _buildUnitSettingRow(
-                icon: Icons.bluetooth_rounded,
-                title: 'Bluetooth Wi-Fi setup',
-                subtitle: 'Reconnect an offline Dropbox to Wi-Fi',
-                onTap: () {
-                  final id = _dropbox?.deviceId;
-                  if (id == null) return;
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => HardwareRegistrationScreen(wifiSetupDeviceId: id),
-                  )).then((_) { if (mounted) _init(); });
-                },
+                icon: Icons.bluetooth_searching_rounded,
+                iconColor: UserTheme.statusInfo,
+                title: 'Offline unlock',
+                subtitle: 'Prepare or use emergency access for the received-parcel door',
+                onTap: _openOfflineUnlock,
               ),
-            _buildUnitSettingRow(
-              icon: Icons.group_outlined,
-              title: 'Household members',
-              subtitle: '$_registeredUserCount ${_registeredUserCount == 1 ? 'person paired' : 'people paired'}',
-              onTap: _showHouseholdMembersSheet,
-            ),
-            _buildUnitSettingRow(
-              icon: Icons.badge_outlined,
-              title: 'Trusted courier passes',
-              subtitle: 'Manage recurring rider barcodes & QR badges',
-              onTap: _showTrustedCouriersSheet,
+            ],
+            const SizedBox(height: 14),
+            UserUi.premiumButton(
+              label: 'Register Hardware',
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const HardwareRegistrationScreen()))
+                  .then((_) => _init()),
+              icon: Icons.qr_code_scanner_rounded,
             ),
           ],
         ],
@@ -700,10 +1236,376 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     );
   }
 
+  Widget _buildUnitSnapshotStrip() {
+    final unlockedCount = _doorOpen.values.where((open) => open).length;
+    final ajarCount = _reedState.values.where((open) => open == true).length;
+    final doorValue = !_doorStateKnown
+        ? 'Syncing'
+        : (ajarCount > 0
+            ? '$ajarCount Ajar'
+            : (unlockedCount == 0 ? 'All Locked' : '$unlockedCount Open'));
+    final doorColor = ajarCount > 0 || !_doorStateKnown
+        ? UserTheme.statusWarning
+        : (unlockedCount > 0 ? UserTheme.statusSuccess : UserTheme.primaryOrange);
+
+    final tiles = [
+      _buildSnapshotTile(
+        label: 'Doors',
+        value: doorValue,
+        icon: unlockedCount > 0 ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+        accent: doorColor,
+        onTap: () => setState(() => _manageFilterIndex = 1),
+      ),
+      _buildSnapshotTile(
+        label: 'Waiting',
+        value: '$_logicalDropoffCount ${_logicalDropoffCount == 1 ? 'parcel' : 'parcels'}',
+        icon: Icons.inventory_2_outlined,
+        accent: UserTheme.primaryOrange,
+        onTap: () => setState(() => _manageFilterIndex = 2),
+      ),
+      _buildSnapshotTile(
+        label: 'Members',
+        value: '$_registeredUserCount paired',
+        icon: Icons.group_outlined,
+        accent: UserTheme.statusInfo,
+        onTap: () => setState(() => _manageFilterIndex = 3),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+        if (constraints.maxWidth < 310 || textScale > 1.25) {
+          return Column(
+            children: [
+              for (var i = 0; i < tiles.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
+                tiles[i],
+              ],
+            ],
+          );
+        }
+        return Row(
+          children: [
+            for (var i = 0; i < tiles.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(child: tiles[i]),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSnapshotTile({
+    required String label,
+    required String value,
+    required IconData icon,
+    required Color accent,
+    required VoidCallback onTap,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? UserTheme.nightSurface : UserTheme.daySurface;
+
+    return Material(
+      color: surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 14, color: accent),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnitPrimaryActions() {
+    final showBleRecovery = !_esp32Connected && BleDropboxService.supported && _dropbox != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+        final stacked = constraints.maxWidth < 290 || textScale > 1.3;
+
+        final primaryAction = showBleRecovery
+            ? FilledButton.icon(
+                onPressed: _openBluetoothWifiSetup,
+                icon: const Icon(Icons.bluetooth_rounded, size: 17),
+                label: const Text(
+                  'Bluetooth Wi-Fi',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: UserTheme.primaryOrange,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(44),
+                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              )
+            : AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _esp32Connected ? 1.0 : 0.72,
+                child: OutlinedButton.icon(
+                  onPressed: _showWiFiConfigDialog,
+                  icon: const Icon(Icons.wifi_tethering_rounded, size: 16),
+                  label: const Text(
+                    'Wi-Fi Setup',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _esp32Connected ? UserTheme.primaryOrange : mutedText,
+                    backgroundColor: _esp32Connected
+                        ? UserTheme.primaryOrange.withValues(alpha: 0.08)
+                        : Colors.transparent,
+                    side: BorderSide(
+                      color: _esp32Connected
+                          ? UserTheme.primaryOrange.withValues(alpha: 0.45)
+                          : mutedText.withValues(alpha: 0.28),
+                    ),
+                    minimumSize: const Size.fromHeight(44),
+                    padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              );
+
+        final secondaryAction = BleDropboxService.supported
+            ? OutlinedButton.icon(
+                onPressed: _openOfflineUnlock,
+                icon: const Icon(Icons.bluetooth_searching_rounded, size: 16),
+                label: const Text(
+                  'Offline Unlock',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: UserTheme.statusInfo,
+                  side: BorderSide(color: UserTheme.statusInfo.withValues(alpha: 0.35)),
+                  minimumSize: const Size.fromHeight(44),
+                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              )
+            : OutlinedButton.icon(
+                onPressed: _isRefreshing ? null : _refreshManagement,
+                icon: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: _isRefreshing
+                      ? const SizedBox(
+                          key: ValueKey('syncing-spinner'),
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: UserTheme.primaryOrange,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.sync_rounded,
+                          key: ValueKey('sync-icon'),
+                          size: 16,
+                        ),
+                ),
+                label: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: Text(
+                    _isRefreshing ? 'Syncing…' : 'Sync Unit',
+                    key: ValueKey<bool>(_isRefreshing),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: UserTheme.primaryOrange,
+                  backgroundColor: !_esp32Connected
+                      ? UserTheme.primaryOrange.withValues(alpha: 0.10)
+                      : Colors.transparent,
+                  side: BorderSide(
+                    color: UserTheme.primaryOrange.withValues(
+                      alpha: !_esp32Connected ? 0.50 : 0.34,
+                    ),
+                  ),
+                  minimumSize: const Size.fromHeight(44),
+                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              );
+
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [primaryAction, const SizedBox(height: 8), secondaryAction],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: primaryAction),
+            const SizedBox(width: 10),
+            Expanded(child: secondaryAction),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openBluetoothWifiSetup() {
+    final id = _dropbox?.deviceId;
+    if (id == null) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+          builder: (_) => HardwareRegistrationScreen(wifiSetupDeviceId: id),
+        ))
+        .then((_) {
+          if (mounted) _init();
+        });
+  }
+
+  Widget _buildAccessAndSettingsCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dividerColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.06);
+
+    final rows = <Widget>[
+      _buildUnitSettingRow(
+        icon: Icons.group_outlined,
+        iconColor: UserTheme.primaryOrange,
+        title: 'Household members',
+        subtitle: '$_registeredUserCount ${_registeredUserCount == 1 ? 'person paired' : 'people paired'}',
+        badge: '$_registeredUserCount',
+        onTap: _showHouseholdMembersSheet,
+      ),
+      _buildUnitSettingRow(
+        icon: Icons.badge_outlined,
+        iconColor: UserTheme.statusSuccess,
+        title: 'Trusted courier passes',
+        subtitle: 'Manage recurring rider barcodes & QR badges',
+        onTap: _showTrustedCouriersSheet,
+      ),
+      if (BleDropboxService.supported && _dropbox != null)
+        _buildUnitSettingRow(
+          icon: Icons.bluetooth_rounded,
+          iconColor: _esp32Connected ? UserTheme.statusInfo : UserTheme.primaryOrange,
+          title: 'Bluetooth Wi-Fi setup',
+          subtitle: 'Reconnect an offline Dropbox to Wi-Fi',
+          badge: !_esp32Connected ? 'Offline tool' : null,
+          onTap: _openBluetoothWifiSetup,
+        ),
+      if (BleDropboxService.supported)
+        _buildUnitSettingRow(
+          icon: Icons.bluetooth_searching_rounded,
+          iconColor: UserTheme.statusInfo,
+          title: 'Offline unlock',
+          subtitle: 'Emergency BLE access for the received-parcel door',
+          onTap: _openOfflineUnlock,
+        ),
+      _buildUnitSettingRow(
+        icon: Icons.link_off_rounded,
+        iconColor: UserTheme.statusError,
+        title: 'Unlink dropbox',
+        subtitle: 'Remove hardware pairing from this account',
+        titleColor: UserTheme.statusError,
+        onTap: _showUnregisterConfirmation,
+      ),
+    ];
+
+    return UserUi.surfaceCard(
+      context,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Column(
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: dividerColor),
+            rows[i],
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _openOfflineUnlock() {
+    final box = _dropbox;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => OfflineUnlockScreen(
+        ownerDeviceId: box?.userId == _userId ? box?.deviceId : null,
+      ),
+    ));
+  }
+
   Widget _buildDiagnostics() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final report = _diagnostics;
-    final style = Theme.of(context).textTheme.bodySmall;
-    if (report == null) return Text('No hardware diagnostics reported yet.', style: style);
+    final surface = isDark ? UserTheme.nightSurface : UserTheme.daySurface;
+    final muted = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary;
+
+    if (report == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.sensors_off_rounded, size: 16, color: muted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'No hardware diagnostics reported yet.',
+                style: TextStyle(fontSize: 12, color: muted, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     final stale = !_esp32Connected || report.isStaleAt(DateTime.now());
     final date = report.reportedAt.toLocal();
@@ -711,18 +1613,151 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     final time = localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date));
     final uptime = Duration(seconds: report.uptimeSeconds);
     final uptimeLabel = uptime.inHours > 0
-        ? '${uptime.inHours} h ${uptime.inMinutes.remainder(60)} min'
-        : uptime.inMinutes > 0 ? '${uptime.inMinutes} min' : '${uptime.inSeconds} sec';
+        ? '${uptime.inHours}h ${uptime.inMinutes.remainder(60)}m'
+        : uptime.inMinutes > 0
+            ? '${uptime.inMinutes}m'
+            : '${uptime.inSeconds}s';
+    final signalColor = report.wifiRssi >= -67
+        ? UserTheme.statusSuccess
+        : (report.wifiRssi >= -80 ? UserTheme.statusWarning : UserTheme.statusError);
+    final signalLabel = report.wifiRssi >= -67
+        ? 'Strong'
+        : (report.wifiRssi >= -80 ? 'Fair' : 'Weak');
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(stale ? 'Hardware diagnostics · Stale' : 'Hardware diagnostics',
-            style: style?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 4),
-        Text('Firmware ${report.firmwareVersion} · Wi-Fi ${report.wifiRssi} dBm', style: style),
-        Text('Uptime $uptimeLabel · ${localizations.formatShortDate(date)} $time', style: style),
-      ],
+    return Material(
+      color: surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _diagnosticsExpanded = !_diagnosticsExpanded);
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: stale ? UserTheme.statusWarning : UserTheme.statusSuccess,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      stale ? 'Telemetry · Stale' : 'Telemetry · Live',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _diagnosticsExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: muted),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _buildDiagPill(
+                    icon: Icons.wifi_rounded,
+                    color: signalColor,
+                    text: '${report.wifiRssi} dBm · $signalLabel',
+                  ),
+                  _buildDiagPill(
+                    icon: Icons.schedule_rounded,
+                    color: UserTheme.statusInfo,
+                    text: uptimeLabel,
+                  ),
+                  _buildDiagPill(
+                    icon: Icons.memory_rounded,
+                    color: UserTheme.primaryOrange,
+                    text: 'v${report.firmwareVersion}',
+                  ),
+                ],
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                child: !_diagnosticsExpanded
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Last report: ${localizations.formatShortDate(date)} $time',
+                              style: TextStyle(fontSize: 11.5, color: muted),
+                            ),
+                            if ((_dropbox?.wifiSSID ?? '').isNotEmpty)
+                              Text(
+                                'Network: ${_dropbox!.wifiSSID}',
+                                style: TextStyle(fontSize: 11.5, color: muted),
+                              ),
+                            if (_dropbox != null)
+                              Text(
+                                'Unit ID: ${_dropbox!.deviceId}',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontFamily: 'monospace',
+                                  color: muted,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiagPill({
+    required IconData icon,
+    required Color color,
+    required String text,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -731,19 +1766,26 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    Color iconColor = UserTheme.primaryOrange,
+    Color? titleColor,
+    String? badge,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 20,
-              color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 18, color: iconColor),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -755,19 +1797,40 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                     style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w700,
-                      color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                      color: titleColor ??
+                          (isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary),
                     ),
                   ),
+                  const SizedBox(height: 1),
                   Text(
                     subtitle,
                     style: TextStyle(
                       fontSize: 11.5,
-                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                      color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
                     ),
                   ),
                 ],
               ),
             ),
+            if (badge != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: iconColor,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 4),
             Icon(
               Icons.chevron_right_rounded,
               size: 20,
@@ -821,155 +1884,435 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     showDialog(context: context, barrierDismissible: false, builder: (context) => _WiFiScannerDialog(ws: _ws));
   }
 
-  Widget _buildDoorCard(String doorType, String title, String subtitle, IconData icon, String reedKey, Color accentColor) {
+  Widget _buildDoorCard(
+    String doorType,
+    String title,
+    String subtitle,
+    IconData icon,
+    String reedKey,
+    Color accentColor,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isOpen = _doorOpen[doorType]!;
     final isProcessing = _doorProcessing[doorType]!;
-    final reedOpen = _reedState[reedKey];
+    final anyProcessing = _doorProcessing.values.any((pending) => pending);
+    final reedOpen = _reedState[reedKey] == true;
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
 
-    return UserUi.surfaceCard(
-      context,
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+    final statusLabel = !_doorStateKnown
+        ? 'Unknown'
+        : (isOpen ? 'Unlocked' : 'Locked');
+    final statusColor = !_doorStateKnown
+        ? UserTheme.statusWarning
+        : (isOpen ? UserTheme.statusSuccess : UserTheme.statusError);
+    final borderColor = reedOpen
+        ? UserTheme.statusWarning.withValues(alpha: isDark ? 0.5 : 0.45)
+        : (isOpen && _doorStateKnown
+            ? UserTheme.statusSuccess.withValues(alpha: isDark ? 0.45 : 0.35)
+            : (isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.06)));
+    final iconColor = reedOpen ? UserTheme.statusWarning : accentColor;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        border: Border.all(color: borderColor, width: reedOpen ? 1.3 : 1),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
-                child: Icon(icon, color: accentColor, size: 22),
+              ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stackAction = constraints.maxWidth < 300 || textScale > 1.25;
+          final actionPill = _buildDoorActionPill(
+            doorType: doorType,
+            isOpen: isOpen,
+            isProcessing: isProcessing,
+            disabled: anyProcessing,
+            expandedLabel: stackAction,
+            accentColor: accentColor,
+          );
+
+          final infoContent = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: isDark ? 0.16 : 0.1),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                        fontSize: 16,
+                        color: isDark
+                            ? UserTheme.nightTextPrimary
+                            : UserTheme.dayTextPrimary,
+                        fontSize: 15.5,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+                        color: isDark
+                            ? UserTheme.nightTextMuted
+                            : UserTheme.dayTextSecondary,
                         fontSize: 12,
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _buildDoorStatusChip(statusLabel, statusColor),
+                        if (reedOpen)
+                          _buildDoorStatusChip(
+                            'Ajar',
+                            UserTheme.statusWarning,
+                            icon: Icons.sensor_door_outlined,
+                          ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  UserUi.statusPill(
-                    label: !_doorStateKnown ? 'Unknown' : (isOpen ? 'Unlocked' : 'Locked'),
-                    color: !_doorStateKnown ? UserTheme.statusWarning : (isOpen ? UserTheme.statusSuccess : UserTheme.statusError),
-                  ),
-                  if (reedOpen == true) ...[
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Sensor: Ajar',
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: UserTheme.statusWarning,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+              if (!stackAction) ...[
+                const SizedBox(width: 10),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: actionPill,
+                ),
+              ],
             ],
-          ),
-          const SizedBox(height: 16),
-          UserUi.premiumButton(
-            label: isProcessing
-                ? 'Waiting for dropbox…'
-                : (!_doorStateKnown ? 'Refresh lock state' : (isOpen ? 'Lock Door' : 'Unlock Door')),
-            onTap: _doorProcessing.values.any((pending) => pending) ? () {} : () => _toggleDoor(doorType),
-            icon: isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
-            fontSize: 14,
-            color: !_esp32Connected
-                ? Colors.grey
-                : (isOpen ? UserTheme.statusError : accentColor),
+          );
+
+          if (!stackAction) return infoContent;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              infoContent,
+              const SizedBox(height: 14),
+              actionPill,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDoorStatusChip(String label, Color color, {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 4),
+          ] else ...[
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 5),
+          ],
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBinCard(String label, String sublabel, double? fill, int count, Color color, IconData icon) {
+  Widget _buildDoorActionPill({
+    required String doorType,
+    required bool isOpen,
+    required bool isProcessing,
+    required bool disabled,
+    required bool expandedLabel,
+    required Color accentColor,
+  }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final pct = fill != null ? (fill * 100).round() : null;
+    final buttonColor = !_esp32Connected
+        ? (isDark ? Colors.grey.shade700 : Colors.grey.shade500)
+        : (isOpen ? UserTheme.statusError : accentColor);
+    final label = isProcessing
+        ? (expandedLabel ? 'Waiting for dropbox…' : 'Syncing…')
+        : (!_doorStateKnown
+            ? (expandedLabel ? 'Refresh lock state' : 'Sync')
+            : (isOpen
+                ? (expandedLabel ? 'Lock Door' : 'Lock')
+                : (expandedLabel ? 'Unlock Door' : 'Unlock')));
+    final actionIcon = !_doorStateKnown
+        ? Icons.sync_rounded
+        : (isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded);
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 180),
+      opacity: disabled && !isProcessing ? 0.55 : 1.0,
+      child: Material(
+        color: buttonColor,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: disabled
+              ? null
+              : () {
+                  HapticFeedback.mediumImpact();
+                  _toggleDoor(doorType);
+                },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            constraints: const BoxConstraints(minHeight: 42),
+            padding: EdgeInsets.symmetric(
+              horizontal: expandedLabel ? 16 : 14,
+              vertical: 10,
+            ),
+            child: Row(
+              mainAxisSize: expandedLabel ? MainAxisSize.max : MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isProcessing)
+                  const SizedBox(
+                    width: 15,
+                    height: 15,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                else
+                  Icon(actionIcon, size: 17, color: Colors.white),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStorageBinsGrid() {
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final pickupCard = _buildBinCard(
+      'Pickup Bin',
+      'Awaiting courier',
+      _pickupFill,
+      _logicalPickupCount,
+      UserTheme.primaryOrange,
+      Icons.inventory_2_rounded,
+    );
+    final deliveryCard = _buildBinCard(
+      'Delivery Bin',
+      'Incoming parcels',
+      _dropoffFill,
+      _logicalDropoffCount,
+      UserTheme.primaryOrange,
+      Icons.shopping_bag_rounded,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 320 || textScale > 1.3) {
+          return Column(
+            children: [
+              pickupCard,
+              const SizedBox(height: 12),
+              deliveryCard,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: pickupCard),
+            const SizedBox(width: 12),
+            Expanded(child: deliveryCard),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBinCard(
+    String label,
+    String sublabel,
+    double? fill,
+    int count,
+    Color color,
+    IconData icon,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final clampedFill = fill?.clamp(0.0, 1.0);
+    final pct = clampedFill != null ? (clampedFill * 100).round() : null;
     final unitLabel = count == 1 ? 'parcel' : 'parcels';
-    final statusLabel = fill == null
+    final barColor = clampedFill == null
+        ? Colors.grey
+        : (clampedFill > 0.85
+            ? UserTheme.statusError
+            : (clampedFill > 0.65 ? UserTheme.statusWarning : color));
+    final statusLabel = clampedFill == null
         ? 'Offline'
-        : (fill > 0.85 ? 'Full · $pct%' : '$pct% full');
+        : (clampedFill > 0.85 ? 'Full' : (count == 0 ? 'Empty' : 'Active'));
 
     return UserUi.surfaceCard(
       context,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(15),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 19),
-              const SizedBox(width: 8),
-              Expanded(
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: isDark ? 0.16 : 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                decoration: BoxDecoration(
+                  color: barColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
                 child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
+                  pct != null ? '$pct%' : '--',
+                  style: TextStyle(
+                    color: barColor,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: isDark
+                  ? UserTheme.nightTextPrimary
+                  : UserTheme.dayTextPrimary,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
           const SizedBox(height: 2),
           Text(
             sublabel,
-            style: TextStyle(fontSize: 11, color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted),
-          ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: fill ?? 0,
-              minHeight: 7,
-              backgroundColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.06),
-              valueColor: AlwaysStoppedAnimation<Color>(fill == null ? Colors.grey : (fill > 0.8 ? UserTheme.statusError : color)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11.5,
+              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
             ),
+          ),
+          const SizedBox(height: 12),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: clampedFill ?? 0),
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: value,
+                  minHeight: 8,
+                  backgroundColor: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.06),
+                  valueColor: AlwaysStoppedAnimation<Color>(barColor),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                '$count $unitLabel',
-                style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 13),
-              ),
-              const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  statusLabel,
+                  '$count $unitLabel',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
                   style: TextStyle(
-                    color: fill != null && fill > 0.85
-                        ? UserTheme.statusError
-                        : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary),
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
                   ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                statusLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: clampedFill != null && clampedFill > 0.85
+                      ? UserTheme.statusError
+                      : (isDark
+                          ? UserTheme.nightTextMuted
+                          : UserTheme.dayTextSecondary),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
