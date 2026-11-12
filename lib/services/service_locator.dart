@@ -3,6 +3,7 @@ import 'auth_service.dart';
 import 'database_service.dart';
 import 'notification_service.dart';
 import 'delivery_push_service.dart';
+import 'ble_dropbox_service.dart';
 import 'cache_service.dart';
 import 'secure_storage_service.dart';
 import 'connectivity_service.dart';
@@ -38,12 +39,16 @@ Future<void> setupServiceLocator() async {
     dispose: (service) => service.dispose(),
   );
   getIt.registerLazySingleton(() => DropboxService());
+  getIt.registerLazySingleton(() => BleDropboxService(getIt<AuthService>()));
 
   // Legacy DatabaseService (facade for backward compatibility)
   // TODO: Remove after all screens are migrated to new services
   getIt.registerLazySingleton(() => DatabaseService());
   AuthService.onSessionEnded = () => getIt<DatabaseService>().endSession();
-  AuthService.onSessionEnding = () => getIt<DeliveryPushService>().endSession();
+  AuthService.onSessionEnding = () async {
+    if (BleDropboxService.supported) await getIt<BleDropboxService>().clearGrant();
+    await getIt<DeliveryPushService>().endSession();
+  };
 
   // Utility Services
   getIt.registerLazySingleton(() => CacheService());

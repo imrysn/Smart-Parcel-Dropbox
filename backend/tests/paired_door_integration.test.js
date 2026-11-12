@@ -53,7 +53,7 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
   await once(server, 'listening');
   const url = `http://127.0.0.1:${server.address().port}`;
 
-  async function connectDevice(deviceId, key) {
+  async function connectDevice(deviceId, key, clockNonce) {
     const socket = connect(url, {
       transports: ['websocket'], autoConnect: false, reconnection: false, forceNew: true,
       query: { clientType: 'hardware' },
@@ -61,19 +61,32 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
     peers.push(socket);
     socket.on('deviceChallenge', ({ nonce }) => {
       const proof = createHmac('sha256', key).update(`${deviceId}:${nonce}`).digest('hex');
-      socket.emit('authenticateDevice', { deviceId, proof });
+      socket.emit('authenticateDevice', { deviceId, proof, clockNonce });
     });
     const ready = new Promise((resolve, reject) => {
       socket.once('deviceAuthenticated', resolve);
       socket.once('connect_error', reject);
     });
     socket.connect();
-    await ready;
+    const { clock } = await ready;
+    if (clockNonce) {
+      assert.equal(clock.proof, createHmac('sha256', key)
+        .update(`SPD-BLE-CLOCK-V1|${deviceId}|${clockNonce}|${clock.seconds}`).digest('hex'));
+    } else {
+      assert.equal(clock, undefined);
+    }
     return socket;
   }
 
-  const boxA = await connectDevice('BOX-A', keyA);
+  const boxA = await connectDevice('BOX-A', keyA, randomBytes(16).toString('hex'));
   const boxB = await connectDevice('BOX-B', keyB);
+  const requestGrant = (device, account) => fetch(`${url}/api/dropbox/${device}/offline-unlock-grant`, {
+    method: 'POST', headers: { authorization: `Bearer ${generateToken(account)}` },
+  });
+  assert.equal((await requestGrant('BOX-A', 'owner-a')).status, 409);
+  assert.equal((await requestGrant('BOX-A', 'owner-b')).status, 403);
+  assert.equal((await requestGrant('BOX-B', 'owner-b')).status, 409);
+  boxA.emit('offlineClockReady');
   function connectPhone(userId) {
     const socket = connect(url, {
       auth: { token: generateToken(userId) }, transports: ['websocket'], reconnection: false, forceNew: true,
@@ -96,6 +109,18 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
   assert.equal(reportA.deviceId, 'BOX-A');
   assert.equal(reportA.diagnostics.wifiRssi, heartbeat.wifiRssi);
 
+  const grantResponse = await requestGrant('BOX-A', 'owner-a');
+  assert.equal(grantResponse.status, 200);
+  assert.equal(grantResponse.headers.get('cache-control'), 'no-store');
+  const grant = await grantResponse.json();
+  assert.equal(grant.deviceId, 'BOX-A');
+  assert.match(grant.grantId, /^[a-f0-9]{32}$/);
+  const remaining = grant.expiresAt - Math.floor(Date.now() / 1000);
+  assert.ok(remaining > 0 && remaining <= 28800);
+  assert.equal(grant.secret, createHmac('sha256', keyA)
+    .update(`SPD-BLE-GRANT-V1|BOX-A|${grant.grantId}|${grant.expiresAt}`).digest('hex'));
+  assert.equal((await requestGrant('BOX-A', 'owner-b')).status, 403);
+
   let unrelatedVolumeReports = 0;
   phoneB.on('spatialVolumeHUD', () => unrelatedVolumeReports++);
   const volume = once(phoneA, 'spatialVolumeHUD');
@@ -112,6 +137,17 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
   assert.match(event.notificationId, /^[a-f0-9]{24}$/);
   assert.equal(storeDelivery.mock.calls[0].arguments[0].userId, 'owner-a');
   assert.ok(storeDelivery.mock.calls[0].arguments[0].pushDueAt instanceof Date);
+
+  const reedUpdate = once(phoneA, 'doorStateUpdate');
+  boxA.emit('doorStateUpdate', {
+    parcelDoorOpen: false, pickupDoorOpen: false, receivedDoorOpen: false,
+    REED_TOP: false, REED_PICKUP: false, REED_RECEIVED: true,
+  });
+  const [physicalState] = await reedUpdate;
+  assert.equal(physicalState.deviceId, 'BOX-A');
+  assert.equal(physicalState.REED_RECEIVED, true);
+  assert.equal(physicalState.receivedDoorOpen, false);
+
   let commandsB = 0;
   boxB.on('controlDoor', () => commandsB++);
   boxA.on('controlDoor', ({ requestId }) => {

@@ -25,6 +25,7 @@ const {
   verifyDeviceProof, normalizeDeviceId, deviceRoom, membersOf, pairedBoxForUser,
   registeredBoxForDevice, emitToMembers, isDeviceOnline, recordDoorState,
   commandDoor, confirmDoorCommand, deviceDisconnected,
+  offlineClockChallenge,
 } = require('./utils/deviceSessions');
 
 // Owner credentials are short-lived and bound to a single registered device.
@@ -313,11 +314,17 @@ io.on('connection', (socket) => {
       for (const id of io.sockets.adapter.rooms.get(room) || []) io.sockets.sockets.get(id)?.disconnect(true);
       socket.deviceId = deviceId;
       socket.join(room);
-      socket.emit('deviceAuthenticated');
+      const clock = offlineClockChallenge(deviceId, data?.clockNonce);
+      socket.offlineClockOffered = clock !== null;
+      socket.emit('deviceAuthenticated', clock ? { clock } : {});
       return publishPresence(deviceId);
     });
     socket.emit('deviceChallenge', { nonce: socket.deviceNonce });
   }
+
+  on('offlineClockReady', () => {
+    if (socket.deviceId && socket.offlineClockOffered) socket.offlineClockReady = true;
+  });
 
   on('join', async roomId => {
     if (socket.userId && roomId === socket.userId) await emitCurrentOwnerAlert(socket);

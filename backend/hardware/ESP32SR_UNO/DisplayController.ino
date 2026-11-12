@@ -379,7 +379,11 @@ void drawScanFailedPrompt() {
 }
 
 void drawSettingsMenu() {
-  _twoOvalScreen("System Settings", COLOR_BLUE, 4, "REGISTER", COLOR_RED, 3, "BACK");
+  if (cloudDeviceAuthenticated()) {
+    _twoOvalScreen("System Settings", COLOR_BLUE, 4, "REGISTER", COLOR_RED, 3, "BACK");
+  } else {
+    _twoOvalScreen("Offline Settings", COLOR_BLUE, 4, "WI-FI SETUP", COLOR_RED, 3, "BLE UNLOCK");
+  }
 }
 
 void reinitTFT() {
@@ -424,27 +428,7 @@ void drawNoServerOptionsScreen() {
   _buttonIndicator(80,  232, COLOR_BLUE);
   _buttonIndicator(240, 232, COLOR_RED);
   _smallText("RETRY", 80,  218, COLOR_TEXT);
-  _smallText("OTHER", 240, 218, COLOR_TEXT);
-  tft.setFont();
-}
-
-void drawWiFiConfigQRScreen(const char* apSSID) {
-  tft.fillScreen(COLOR_TEXT);
-  tft.setFont();
-  tft.setTextSize(1);
-  tft.setTextColor(COLOR_GREY);
-  tft.setCursor(45, 18);
-  tft.print("Connect to: ");
-  tft.setTextColor(COLOR_GOLD);
-  tft.print(apSSID);
-  String wifiQR = "WIFI:S:";
-  wifiQR += apSSID;
-  wifiQR += ";T:nopass;;";
-  drawQRCode(73, 40, 6, wifiQR.c_str());
-  _smallText("Scan to connect & setup WiFi", 160, 225, COLOR_BG);
-  _buttonIndicator(300, 235, COLOR_RED);
-  tft.setFont(); tft.setTextSize(1); tft.setTextColor(COLOR_BG);
-  tft.setCursor(290, 222); tft.print("EXIT");
+  _smallText("BLE SETUP", 240, 218, COLOR_TEXT);
   tft.setFont();
 }
 

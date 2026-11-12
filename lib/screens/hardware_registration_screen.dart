@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/dropbox_service.dart';
 import '../services/auth_service.dart';
+import '../services/ble_dropbox_service.dart';
+import '../services/ble_protocol.dart';
 import '../services/service_locator.dart';
 import '../config/user_theme.dart';
 import '../widgets/user_ui.dart';
 import '../widgets/smart_scanner_view.dart';
 import 'hardware_config_screen.dart';
 import 'home_screen.dart';
+import 'bluetooth_access_screen.dart';
 
 /// Hardware Registration Screen
 ///
@@ -16,7 +19,8 @@ import 'home_screen.dart';
 /// (or manually entering the code) to register their Smart Parcel Dropbox.
 class HardwareRegistrationScreen extends StatefulWidget {
   final bool canSkipToHome;
-  const HardwareRegistrationScreen({super.key, this.canSkipToHome = false});
+  final String? wifiSetupDeviceId;
+  const HardwareRegistrationScreen({super.key, this.canSkipToHome = false, this.wifiSetupDeviceId});
 
   @override
   State<HardwareRegistrationScreen> createState() =>
@@ -44,14 +48,17 @@ class _HardwareRegistrationScreenState
   String? _errorMsg;
 
   bool get _isMobile => SmartScannerView.isCameraSupportedPlatform;
+  bool get _wifiSetupOnly => widget.wifiSetupDeviceId != null;
+  String get _title => _wifiSetupOnly ? 'Bluetooth Wi-Fi setup' : 'Register Dropbox';
 
   @override
   void initState() {
     super.initState();
-    _registeredSub = _dropboxService.deviceRegisteredStream.listen(_onRegistered);
-    _failedSub     = _dropboxService.deviceRegistrationFailedStream.listen(_onFailed);
-    // Ensure WebSocket connects immediately when arriving directly after signup.
-    _dropboxService.ensureSocketConnected();
+    if (!_wifiSetupOnly) {
+      _registeredSub = _dropboxService.deviceRegisteredStream.listen(_onRegistered);
+      _failedSub = _dropboxService.deviceRegistrationFailedStream.listen(_onFailed);
+      _dropboxService.ensureSocketConnected();
+    }
     if (!_isMobile) {
       _showManual = true;
     }
@@ -135,6 +142,37 @@ class _HardwareRegistrationScreenState
     String trimmed = token.trim().toUpperCase();
     if (trimmed.isEmpty) return;
 
+    final setupCode = BleSetupCode.parse(trimmed);
+    if (setupCode != null) {
+      if (!BleDropboxService.supported || (_wifiSetupOnly && setupCode.deviceId != widget.wifiSetupDeviceId!.toUpperCase())) {
+        _onFailed({'message': 'Scan the Bluetooth Wi-Fi QR on the correct Dropbox using Android or iOS.'});
+        return;
+      }
+      setState(() {
+        _processing = true;
+        _errorMsg = null;
+      });
+      final joined = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => BleWifiSetupScreen(code: setupCode),
+      ));
+      if (!mounted) return;
+      if (joined == true && _wifiSetupOnly) {
+        Navigator.of(context).pop();
+        return;
+      }
+      setState(() => _processing = false);
+      if (joined == true) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Wi-Fi saved. After the box restarts, press blue and scan its registration QR.'),
+        ));
+      }
+      return;
+    }
+    if (_wifiSetupOnly || trimmed.startsWith('SPDBLE:')) {
+      _onFailed({'message': 'Scan the Bluetooth Wi-Fi QR currently shown on the Dropbox.'});
+      return;
+    }
+
     // Gracefully handle if user only types the 6-digit PIN shown on LCD
     if (trimmed.length == 6 && int.tryParse(trimmed) != null) {
       trimmed = 'SPDB-REG-$trimmed';
@@ -204,9 +242,9 @@ class _HardwareRegistrationScreenState
               backgroundColor: Colors.black.withValues(alpha: 0.35),
               elevation: 0,
               iconTheme: const IconThemeData(color: Colors.white),
-              title: const Text(
-                'Register Dropbox',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
+              title: Text(
+                _title,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
               ),
               centerTitle: true,
               actions: [
@@ -221,7 +259,7 @@ class _HardwareRegistrationScreenState
               ],
             )
           : UserTheme.appBarGradient(
-              title: 'Register Dropbox',
+              title: _title,
               context: context,
               actions: [
                 if (widget.canSkipToHome)
@@ -242,10 +280,11 @@ class _HardwareRegistrationScreenState
               controller: _scannerController,
               isSquare: true,
               verticalCenterFraction: 0.37,
-              instructionText:
-                  'Scan the QR code on the dropbox LCD\nor the primary owner\'s invite screen',
+              instructionText: _wifiSetupOnly
+                  ? 'Hold blue on the offline box, choose Wi-Fi Setup, then scan its QR'
+                  : 'Scan the Bluetooth setup QR, registration QR, or owner invite',
               onCodeScanned: _submitToken,
-              manualFallbackLabel: 'Enter PIN Manually',
+              manualFallbackLabel: _wifiSetupOnly ? 'Enter Setup Code' : 'Enter PIN Manually',
               onManualFallback: () {
                 setState(() => _showManual = true);
               },
@@ -311,7 +350,9 @@ class _HardwareRegistrationScreenState
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Check the dropbox LCD or owner invite for the 6-digit PIN',
+                          _wifiSetupOnly
+                              ? 'Enter the code from the Dropbox Bluetooth setup QR.'
+                              : 'Check the dropbox LCD or owner invite for the 6-digit PIN',
                           style: TextStyle(color: secondaryText, fontSize: 13),
                           textAlign: TextAlign.center,
                         ),
@@ -330,7 +371,7 @@ class _HardwareRegistrationScreenState
                             color: primaryText,
                           ),
                           decoration: InputDecoration(
-                            hintText: 'e.g. 482913 or SPDB-REG-482913',
+                            hintText: _wifiSetupOnly ? 'SPDBLE:…' : 'e.g. 482913 or SPDB-REG-482913',
                             hintStyle: TextStyle(
                               fontSize: 14,
                               letterSpacing: 1,
@@ -353,7 +394,7 @@ class _HardwareRegistrationScreenState
                         ),
                         const SizedBox(height: 22),
                         UserUi.premiumButton(
-                          label: 'Register Dropbox',
+                          label: _wifiSetupOnly ? 'Continue setup' : 'Register Dropbox',
                           onTap: () => _submitToken(_codeController.text),
                           icon: Icons.check_rounded,
                         ),

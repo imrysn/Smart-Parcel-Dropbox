@@ -65,7 +65,6 @@
 #define TFT_SPI_FREQ  14000000UL  // 14MHz noise-damped SPI clock for ground noise immunity
 
 // Network & Setup Constants
-#define CAPTIVE_AP_SSID   "SmartParcelBox_Setup"
 
 // ============================================================
 //  STATE MACHINE
@@ -82,6 +81,7 @@ enum SystemState {
   SCAN_FAILED_PROMPT,
   SCAN_TIMEOUT_PROMPT,
   WAITING_FOR_WIFI_CONFIG,
+  WAITING_FOR_BLE_UNLOCK,
   SETUP_NO_SERVER,
   SETTINGS_MENU,
   RESETTING,

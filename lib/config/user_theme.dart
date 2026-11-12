@@ -218,6 +218,7 @@ class UserTheme {
     PreferredSizeWidget? bottom,
     Widget? leading,
     BuildContext? context,
+    Color? backgroundColor,
   }) {
     final bool isDark = context != null && Theme.of(context).brightness == Brightness.dark;
 
@@ -226,7 +227,8 @@ class UserTheme {
       centerTitle: centerTitle,
       elevation: 0,
       scrolledUnderElevation: 0,
-      backgroundColor: isDark ? nightBackground : dayBackground,
+      backgroundColor:
+          backgroundColor ?? (isDark ? nightBackground : dayBackground),
       title: Text(
         title,
         style: TextStyle(

@@ -89,11 +89,28 @@ void setPickupLock(bool unlock) {
   lockPickupOpen = unlock;
 }
 
+void reportReedChanges() {
+  static int previousMask = -1;
+  if (!cloudDeviceAuthenticated()) {
+    previousMask = -1;
+    return;
+  }
+  const int mask = digitalRead(REED_TOP) |
+    (digitalRead(REED_PICKUP) << 1) | (digitalRead(REED_RECEIVED) << 2);
+  if (mask == previousMask) return;
+  const int stableMask = readReedDebounced(REED_TOP) |
+    (readReedDebounced(REED_PICKUP) << 1) | (readReedDebounced(REED_RECEIVED) << 2);
+  if (stableMask != mask) return;
+  previousMask = stableMask;
+  emitDoorState();
+}
+
 void processSensors() {
   // Rate-limit polling to once every 120ms to prevent CPU starvation and loop jitter
   static unsigned long lastSensorPoll = 0;
   if (millis() - lastSensorPoll < 120) return;
   lastSensorPoll = millis();
+  reportReedChanges();
 
   // Platform and Pickup sensors physically removed (GPIO 15, 4 and GPIO 7, 16 free)
   lastUsPlatformDist = 999.0;

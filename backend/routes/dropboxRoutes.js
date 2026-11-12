@@ -6,7 +6,7 @@ const User = require('../models/User');
 const { authMiddleware } = require('../utils/auth');
 
 const { pendingRegistrations } = require('../controllers/hardwareController');
-const { deviceRoom } = require('../utils/deviceSessions');
+const { deviceRoom, registeredBoxForDevice, issueOfflineUnlockGrant, canIssueOfflineUnlockGrant } = require('../utils/deviceSessions');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -17,6 +17,24 @@ function resolvePrimaryOwnerId(dropbox) {
 
 // All dropbox routes are protected
 router.use(authMiddleware);
+
+router.post('/:deviceId/offline-unlock-grant', async (req, res) => {
+  try {
+    const box = await registeredBoxForDevice(req.params.deviceId);
+    if (!box || String(resolvePrimaryOwnerId(box)) !== req.userId) {
+      return res.status(403).json({ message: 'Only the primary owner can prepare offline unlock.' });
+    }
+    if (!canIssueOfflineUnlockGrant(req.app.get('io'), box.deviceId)) {
+      return res.status(409).json({ message: 'Connect the Dropbox to the server with updated firmware first.' });
+    }
+    const grant = issueOfflineUnlockGrant(box.deviceId);
+    if (!grant) return res.status(503).json({ message: 'Offline unlock is unavailable for this Dropbox.' });
+    res.set('Cache-Control', 'no-store').json(grant);
+  } catch (error) {
+    console.error('Offline unlock preparation failed:', error.message);
+    res.status(500).json({ message: 'Could not prepare offline unlock.' });
+  }
+});
 
 /**
  * POST /api/dropbox/claim

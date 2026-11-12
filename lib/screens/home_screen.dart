@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/database_service.dart';
@@ -181,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return 'Orders';
       case 2:
-        return 'Dropbox Management';
+        return 'Dropbox';
       case 3:
         return 'Profile';
       default:
@@ -217,16 +219,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final showingCabinet = _selectedIndex == 2;
+    final interceptCabinet = showingCabinet &&
+        (kIsWeb || defaultTargetPlatform == TargetPlatform.iOS);
     
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         extendBody: true,
+        extendBodyBehindAppBar: showingCabinet,
         appBar: UserTheme.appBarGradient(
           context: context,
           title: _getAppBarTitle(),
           centerTitle: false,
+          backgroundColor: showingCabinet ? Colors.transparent : null,
           actions: [
             if (_selectedIndex == 1)
               IconButton(
@@ -245,24 +252,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
             if (_userId != null)
-              NotificationBadge(
-                userId: _userId!,
-                databaseService: _databaseService,
-                onSelectTab: (tabIndex, {subTabIndex}) {
-                  setState(() {
-                    _selectedIndex = tabIndex;
-                    if (subTabIndex != null) {
-                      if (subTabIndex == 2) {
-                        _ordersMode = 1;
-                      } else {
-                        _ordersMode = 0;
-                        _inboundFilterIndex = subTabIndex == 0 ? 2 : (subTabIndex == 1 ? 1 : 3);
+              PointerInterceptor(
+                intercepting: interceptCabinet,
+                child: NotificationBadge(
+                  userId: _userId!,
+                  databaseService: _databaseService,
+                  onSelectTab: (tabIndex, {subTabIndex}) {
+                    setState(() {
+                      _selectedIndex = tabIndex;
+                      if (subTabIndex != null) {
+                        if (subTabIndex == 2) {
+                          _ordersMode = 1;
+                        } else {
+                          _ordersMode = 0;
+                          _inboundFilterIndex = subTabIndex == 0 ? 2 : (subTabIndex == 1 ? 1 : 3);
+                        }
                       }
-                    }
-                  });
-                },
+                    });
+                  },
+                ),
               ),
-            _buildConnectivityIndicator(),
+            if (_selectedIndex != 2) _buildConnectivityIndicator(),
             const SizedBox(width: 12),
           ],
         ),
@@ -274,7 +284,9 @@ class _HomeScreenState extends State<HomeScreen> {
               constraints: const BoxConstraints(maxWidth: 480),
               child: Padding(
                 padding: EdgeInsets.fromLTRB(UserUi.horizontalGutter(context), 0, UserUi.horizontalGutter(context), 14),
-                child: Container(
+                child: PointerInterceptor(
+                  intercepting: interceptCabinet,
+                  child: Container(
                   height: 62,
                   decoration: BoxDecoration(
                     color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
@@ -344,6 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
                     }),
+                  ),
                   ),
                 ),
               ),

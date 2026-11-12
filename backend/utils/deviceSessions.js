@@ -1,4 +1,4 @@
-const { createHmac, randomUUID, timingSafeEqual } = require('node:crypto');
+const { createHmac, randomBytes, randomUUID, timingSafeEqual } = require('node:crypto');
 const Dropbox = require('../models/Dropbox');
 
 const pendingCommands = new Map();
@@ -33,6 +33,33 @@ function verifyDeviceProof(deviceId, nonce, proof) {
   if (!key || !nonce) return false;
   const expected = createHmac('sha256', key).update(`${normalizeDeviceId(deviceId)}:${nonce}`).digest('hex');
   return sameSecret(expected, proof);
+}
+
+function offlineClockChallenge(deviceId, nonce, now = Date.now()) {
+  if (typeof nonce !== 'string' || !/^[a-f0-9]{32}$/.test(nonce)) return null;
+  const key = deviceKey(deviceId);
+  if (!key) return null;
+  const seconds = Math.floor(now / 1000);
+  const proof = createHmac('sha256', key)
+    .update(`SPD-BLE-CLOCK-V1|${normalizeDeviceId(deviceId)}|${nonce}|${seconds}`).digest('hex');
+  return { seconds, proof };
+}
+
+function issueOfflineUnlockGrant(deviceId, now = Date.now()) {
+  const key = deviceKey(deviceId);
+  if (!key) return null;
+  const id = normalizeDeviceId(deviceId);
+  const grantId = randomBytes(16).toString('hex');
+  const expiresAt = Math.floor(now / 1000) + 8 * 60 * 60;
+  const secret = createHmac('sha256', key)
+    .update(`SPD-BLE-GRANT-V1|${id}|${grantId}|${expiresAt}`).digest('hex');
+  return { deviceId: id, grantId, expiresAt, secret };
+}
+
+function canIssueOfflineUnlockGrant(io, deviceId) {
+  const sockets = io?.sockets;
+  const room = sockets?.adapter.rooms.get(deviceRoom(deviceId));
+  return [...(room || [])].some(id => sockets.sockets.get(id)?.offlineClockReady === true);
 }
 
 function authenticateDeviceHttp(req, res, next) {
@@ -77,7 +104,8 @@ function isDeviceOnline(io, deviceId) {
 
 function recordDoorState(deviceId, data) {
   const state = { deviceId: normalizeDeviceId(deviceId), status: 'idle' };
-  for (const field of [...Object.values(doorTypes), 'parcelDetected', 'parcelInDropOff', 'parcelInPickup']) {
+  for (const field of [...Object.values(doorTypes), 'parcelDetected', 'parcelInDropOff', 'parcelInPickup',
+    'REED_TOP', 'REED_PICKUP', 'REED_RECEIVED']) {
     if (typeof data?.[field] === 'boolean') state[field] = data[field];
   }
   if (!Object.values(doorTypes).every(field => typeof state[field] === 'boolean')) return null;
@@ -132,6 +160,7 @@ function deviceDisconnected(id) {
 
 module.exports = {
   authenticateDeviceHttp, verifyDeviceProof, normalizeDeviceId, deviceRoom,
+  offlineClockChallenge, issueOfflineUnlockGrant, canIssueOfflineUnlockGrant,
   membersOf, pairedBoxForUser, registeredBoxForDevice, emitToMembers, isDeviceOnline,
   recordDoorState, getDoorState, commandDoor, confirmDoorCommand, deviceDisconnected,
 };
