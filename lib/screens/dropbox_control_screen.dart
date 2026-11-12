@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../config/user_theme.dart';
 import '../models/dropbox_model.dart';
+import '../widgets/dropbox_model_view.dart';
 import '../widgets/user_ui.dart';
 import '../services/service_locator.dart';
 import '../services/websocket_service.dart';
@@ -42,9 +45,14 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
 
   bool _esp32Connected = false;
   bool _doorStateKnown = false;
+  bool _showManagement = false;
   final Map<String, bool> _doorOpen = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
   final Map<String, bool> _doorProcessing = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
-  final Map<String, bool?> _reedState = {'REED_TOP': null, 'REED_PICKUP': null, 'REED_RECEIVED': null};
+  static const _reedKeys = {kDoorTop: 'REED_TOP', kDoorPickup: 'REED_PICKUP', kDoorReceived: 'REED_RECEIVED'};
+  final Map<String, bool?> _reedState = {};
+  final Map<String, bool> _doorPreviews = {};
+  final Map<String, Timer> _doorPreviewTimers = {};
+  final Set<String> _offlineOpenDoors = {};
   double? _pickupFill;
   double? _dropoffFill;
   int _logicalPickupCount = 0;
@@ -78,6 +86,10 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
           if (dropbox?.deviceId != _dropbox?.deviceId) {
             _doorStateKnown = false;
             _esp32Connected = false;
+            _reedState.clear();
+            _clearDoorPreviews();
+            _offlineOpenDoors.clear();
+            _doorProcessing.updateAll((_, __) => false);
             _ownerQrToken = null;
             _ownerQrExpiry?.cancel();
             _diagnostics = null;
@@ -95,6 +107,8 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
             _dropoffFill = (_logicalDropoffCount / 10).clamp(0.0, 1.0);
           } else {
             _registeredUserCount = 0;
+            _logicalPickupCount = 0;
+            _logicalDropoffCount = 0;
           }
         });
       }
@@ -111,21 +125,28 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
         setState(() {
           _esp32Connected = false;
           _doorStateKnown = false;
-          _reedState.updateAll((_, __) => null);
+          _reedState.clear();
+          _clearDoorPreviews();
         });
       }
     });
     _esp32Sub = _ws.esp32StatusUpdates.listen((data) {
       if (!mounted || !_matchesDropbox(data)) return;
+      final wasOnline = _esp32Connected;
       setState(() {
         _esp32Connected = data['connected'] == true;
         _updateDiagnostics(HardwareDiagnostics.tryParse(data['diagnostics']));
         if (!_esp32Connected) {
           _doorStateKnown = false;
-          _reedState.updateAll((_, __) => null);
+          _reedState.clear();
+          _clearDoorPreviews();
+        } else if (!wasOnline) {
+          _offlineOpenDoors.clear();
         }
       });
-      if (_esp32Connected && !_doorStateKnown) _ws.requestDoorStatus();
+      if (_esp32Connected && (!wasOnline || !_doorStateKnown)) {
+        _ws.requestDoorStatus();
+      }
     });
     _regSub = getIt<DropboxService>().deviceRegisteredStream.listen((_) => _init());
     _unregSub = getIt<DropboxService>().deviceUnregisteredStream.listen((data) {
@@ -153,9 +174,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
           _dropoffFill = _cmToFill(usDropoff);
         }
 
-        if (data.containsKey('REED_TOP')) _reedState['REED_TOP'] = data['REED_TOP'];
-        if (data.containsKey('REED_PICKUP')) _reedState['REED_PICKUP'] = data['REED_PICKUP'];
-        if (data.containsKey('REED_RECEIVED')) _reedState['REED_RECEIVED'] = data['REED_RECEIVED'];
+        _readReedState(data);
       });
     });
     _requestHardwareState();
@@ -184,15 +203,52 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     _ws.requestDoorStatus();
   }
 
-  void _applyDoorState(Map<String, dynamic> data) {
-    if (!mounted || !_matchesDropbox(data)) return;
+  void _applyDoorState(Map<String, dynamic> data, {bool readReeds = true}) {
+    if (!mounted || !_esp32Connected || !_matchesDropbox(data)) return;
     if (data['parcelDoorOpen'] is! bool || data['pickupDoorOpen'] is! bool || data['receivedDoorOpen'] is! bool) return;
     setState(() {
       _doorOpen[kDoorTop] = data['parcelDoorOpen'] as bool;
       _doorOpen[kDoorPickup] = data['pickupDoorOpen'] as bool;
       _doorOpen[kDoorReceived] = data['receivedDoorOpen'] as bool;
       _doorStateKnown = true;
+      if (readReeds) _readReedState(data);
     });
+  }
+
+  void _readReedState(Map<String, dynamic> data) {
+    if (!_esp32Connected) return;
+    for (final entry in _reedKeys.entries) {
+      final reading = data[entry.value];
+      final open = switch (reading) {
+        true || 1 => true,
+        false || 0 => false,
+        _ => null,
+      };
+      if (open == null) continue;
+      final previous = _reedState[entry.value];
+      _reedState[entry.value] = open;
+      if (open == _doorPreviews[entry.key] ||
+          (previous != null && previous != open)) {
+        _clearDoorPreview(entry.key);
+      }
+    }
+  }
+
+  bool _modelDoorOpen(String door) => _esp32Connected
+      ? (_doorPreviews[door] ?? _reedState[_reedKeys[door]] ?? false)
+      : _offlineOpenDoors.contains(door);
+
+  void _clearDoorPreview(String door) {
+    _doorPreviews.remove(door);
+    _doorPreviewTimers.remove(door)?.cancel();
+  }
+
+  void _clearDoorPreviews() {
+    for (final timer in _doorPreviewTimers.values) {
+      timer.cancel();
+    }
+    _doorPreviewTimers.clear();
+    _doorPreviews.clear();
   }
 
   double _cmToFill(double cm) {
@@ -202,6 +258,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
 
   @override
   void dispose() {
+    _clearDoorPreviews();
     _diagnosticsExpiry?.cancel();
     _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel(); _connectionSub?.cancel();
     _ownerQrExpiry?.cancel();
@@ -225,7 +282,8 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     ));
   }
 
-  Future<void> _toggleDoor(String doorType) async {
+  Future<void> _toggleDoor(String doorType, {bool fromModel = false}) async {
+    if (!_doorOpen.containsKey(doorType)) return;
     if (!_esp32Connected) {
       _showOfflineError();
       return;
@@ -234,29 +292,68 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     if (deviceId == null || _doorProcessing.values.any((pending) => pending)) return;
     if (!_doorStateKnown) {
       _requestHardwareState();
+      if (fromModel) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Checking the door. Try again in a moment.'),
+        ));
+      }
       return;
     }
-    final unlock = !_doorOpen[doorType]!;
-    setState(() => _doorProcessing[doorType] = true);
+    final shouldUnlock = !(_doorOpen[doorType]! ||
+        (fromModel && _modelDoorOpen(doorType)));
+    setState(() {
+      _doorProcessing[doorType] = true;
+      if (fromModel) {
+        _clearDoorPreview(doorType);
+        _doorPreviews[doorType] = shouldUnlock;
+        _doorPreviewTimers[doorType] = Timer(const Duration(seconds: 15), () {
+          if (mounted) setState(() => _clearDoorPreview(doorType));
+        });
+      }
+    });
     try {
       final state = await getIt<DeviceControlService>().setDoorLock(
-        doorType: doorType, unlock: unlock, deviceId: deviceId,
+        doorType: doorType, unlock: shouldUnlock, deviceId: deviceId,
       );
-      _applyDoorState(state);
       if (!mounted || _dropbox?.deviceId != deviceId) return;
+      _applyDoorState(state, readReeds: false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${_doorLabel(doorType)} ${unlock ? 'unlocked' : 'locked'}'),
+        content: Text('${_doorLabel(doorType)} ${shouldUnlock ? 'unlocked' : 'locked'}'),
       ));
     } catch (error) {
       if (!mounted || _dropbox?.deviceId != deviceId) return;
-      setState(() => _doorStateKnown = false);
+      setState(() {
+        _doorStateKnown = false;
+        _clearDoorPreview(doorType);
+      });
       _requestHardwareState();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(error is StateError ? error.message : 'The dropbox did not confirm the lock state.'),
       ));
     } finally {
-      if (mounted) setState(() => _doorProcessing[doorType] = false);
+      if (mounted && _dropbox?.deviceId == deviceId) {
+        setState(() => _doorProcessing[doorType] = false);
+      }
     }
+  }
+
+  void _selectModelDoor(String doorType) {
+    if (!_reedKeys.containsKey(doorType)) return;
+    if (!_esp32Connected) {
+      setState(() {
+        if (!_offlineOpenDoors.remove(doorType)) {
+          _offlineOpenDoors.add(doorType);
+        }
+      });
+      return;
+    }
+    if (_dropbox == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Register your Dropbox to control its doors.'),
+      ));
+      return;
+    }
+    unawaited(_toggleDoor(doorType, fromModel: true));
   }
 
   Future<void> _refreshOwnerBadge() async {
@@ -328,54 +425,143 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        extendBodyBehindAppBar: canPop,
         appBar: canPop
             ? UserTheme.appBarGradient(
                 context: context,
                 title: 'Dropbox Control',
                 centerTitle: false,
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-                  onPressed: () => Navigator.of(context).pop(),
+                backgroundColor: Colors.transparent,
+                leading: PointerInterceptor(
+                  intercepting: kIsWeb || defaultTargetPlatform == TargetPlatform.iOS,
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
                 ),
               )
             : null,
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: UserUi.listPadding(context, top: 14, bottom: 120),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+        body: IndexedStack(
+          index: _showManagement ? 1 : 0,
+          sizing: StackFit.expand,
+          children: [
+            Stack(
+              fit: StackFit.expand,
               children: [
-                _buildManagementSection(),
-                const SizedBox(height: 18),
-                if (_hasDropbox) ...[
-                  QrAccessBadgeCard(
-                    qrToken: _ownerQrToken,
-                    onRefresh: _ownerQrLoading ? null : _refreshOwnerBadge,
+                DropboxModelView(
+                  key: ValueKey(_dropbox?.deviceId),
+                  onDoorSelected: _selectModelDoor,
+                  openDoors: {
+                    for (final door in _reedKeys.keys) door: _modelDoorOpen(door),
+                  },
+                  parcelCount: _logicalDropoffCount,
+                ),
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: SafeArea(
+                    bottom: false,
+                    child: PointerInterceptor(
+                      intercepting: kIsWeb || defaultTargetPlatform == TargetPlatform.iOS,
+                      child: _buildCabinetHeader(),
+                    ),
                   ),
-                  const SizedBox(height: 24),
-                  UserUi.sectionTitle(context, 'Door Controls', subtitle: 'Lock or unlock compartments remotely'),
-                  const SizedBox(height: 10),
-                  _buildDoorCard(kDoorTop, 'Parcel Entry', 'Top slot for courier deliveries', Icons.local_shipping_rounded, 'REED_TOP', UserTheme.primaryOrange),
-                  const SizedBox(height: 12),
-                  _buildDoorCard(kDoorPickup, 'Pickup Door', 'Front compartment for collecting deliveries', Icons.inventory_2_rounded, 'REED_PICKUP', UserTheme.primaryOrange),
-                  const SizedBox(height: 12),
-                  _buildDoorCard(kDoorReceived, 'Drop-off Door', 'Rear compartment for outgoing pickups', Icons.move_to_inbox_rounded, 'REED_RECEIVED', UserTheme.primaryOrange),
-                  const SizedBox(height: 28),
-                  UserUi.sectionTitle(context, 'Storage Bins', subtitle: 'Live compartment capacity'),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: _buildBinCard('Pickup Bin', 'Awaiting courier', _pickupFill, _logicalPickupCount, UserTheme.primaryOrange, Icons.inventory_2_rounded)),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildBinCard('Delivery Bin', 'Incoming parcels', _dropoffFill, _logicalDropoffCount, UserTheme.primaryOrange, Icons.shopping_bag_rounded)),
-                    ],
-                  ),
-                ] else if (_registrationChecked)
-                  _buildEmptyState(),
+                ),
               ],
             ),
-          ),
+            if (_showManagement)
+              SafeArea(
+                child: Column(
+                  children: [
+                    _buildCabinetHeader(),
+                    Expanded(child: _buildManagementPage()),
+                  ],
+                ),
+              ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCabinetHeader() {
+    return Padding(
+      padding: UserUi.listPadding(context, top: 4, bottom: 0),
+      child: Row(
+        children: [
+          UserUi.statusPill(
+            label: _esp32Connected ? 'Online' : 'Offline',
+            color: _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusWarning,
+          ),
+          if (_esp32Connected && _logicalDropoffCount > 0) ...[
+            const SizedBox(width: 12),
+            Expanded(
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
+                  _logicalDropoffCount == 1
+                      ? '1 parcel waiting'
+                      : '$_logicalDropoffCount parcels waiting',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ] else
+            const Spacer(),
+          TextButton.icon(
+            onPressed: () => setState(() => _showManagement = !_showManagement),
+            icon: Icon(_showManagement ? Icons.view_in_ar : Icons.tune),
+            label: Text(_showManagement ? 'Cabinet' : 'Manage'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildManagementPage() {
+    return SingleChildScrollView(
+      padding: UserUi.listPadding(context, top: 4, bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildManagementSection(),
+          const SizedBox(height: 18),
+          if (_hasDropbox) ...[
+            QrAccessBadgeCard(
+              qrToken: _ownerQrToken,
+              onRefresh: _ownerQrLoading ? null : _refreshOwnerBadge,
+            ),
+            const SizedBox(height: 24),
+            UserUi.sectionTitle(context, 'Door Controls',
+                subtitle: 'Lock or unlock compartments remotely'),
+            const SizedBox(height: 10),
+            _buildDoorCard(kDoorTop, 'Parcel Entry', 'Top slot for courier deliveries',
+                Icons.local_shipping_rounded, 'REED_TOP', UserTheme.primaryOrange),
+            const SizedBox(height: 12),
+            _buildDoorCard(kDoorPickup, 'Pickup Door', 'Front pickup compartment',
+                Icons.inventory_2_rounded, 'REED_PICKUP', UserTheme.primaryOrange),
+            const SizedBox(height: 12),
+            _buildDoorCard(kDoorReceived, 'Drop-off Door', 'Rear compartment for retrieving deliveries',
+                Icons.move_to_inbox_rounded, 'REED_RECEIVED', UserTheme.primaryOrange),
+            const SizedBox(height: 28),
+            UserUi.sectionTitle(context, 'Storage Bins', subtitle: 'Live compartment capacity'),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildBinCard('Pickup Bin', 'Awaiting courier', _pickupFill,
+                      _logicalPickupCount, UserTheme.primaryOrange, Icons.inventory_2_rounded),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildBinCard('Delivery Bin', 'Incoming parcels', _dropoffFill,
+                      _logicalDropoffCount, UserTheme.primaryOrange, Icons.shopping_bag_rounded),
+                ),
+              ],
+            ),
+          ] else if (_registrationChecked)
+            _buildEmptyState(),
+        ],
       ),
     );
   }

@@ -24,6 +24,19 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSExceptionDomains</key>
+			<dict>
+				<key>127.0.0.1</key>
+				<dict>
+					<key>NSExceptionAllowsInsecureHTTPLoads</key>
+					<true/>
+				</dict>
+			</dict>
+		</dict>
+		<key>io.flutter.embedded_views_preview</key>
+		<true/>
 		<key>NSCameraUsageDescription</key>
 		<string>Scan dropbox setup codes, owner verification codes, and parcel waybills.</string>
 		<key>NSFaceIDUsageDescription</key>

@@ -1,0 +1,24 @@
+html, body, canvas {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: transparent url('smart-parcel-dropbox.png') center / contain no-repeat;
+}
+
+body.ready {
+  background-image: none;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+
+canvas:active {
+  cursor: grabbing;
+}
