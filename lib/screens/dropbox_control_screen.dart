@@ -11,10 +11,12 @@ import '../widgets/user_ui.dart';
 import '../services/service_locator.dart';
 import '../services/websocket_service.dart';
 import '../services/auth_service.dart';
+import '../services/ble_dropbox_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/device_control_service.dart';
 import '../services/input_validator.dart';
 import 'hardware_registration_screen.dart';
+import 'bluetooth_access_screen.dart';
 import '../presentation/components/qr_access_badge_card.dart';
 
 // ─── Door type constants matching ESP32 firmware ───────────────────────────
@@ -608,6 +610,20 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
             const SizedBox(height: 14),
             _buildDiagnostics(),
           ],
+          if (BleDropboxService.supported)
+            _buildUnitSettingRow(
+              icon: Icons.bluetooth_searching_rounded,
+              title: 'Offline unlock',
+              subtitle: 'Prepare or use emergency access for the received-parcel door',
+              onTap: () {
+                final box = _dropbox;
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => OfflineUnlockScreen(
+                    ownerDeviceId: box?.userId == _userId ? box?.deviceId : null,
+                  ),
+                ));
+              },
+            ),
           const SizedBox(height: 18),
           if (!_hasDropbox) ...[
             UserUi.premiumButton(
@@ -653,6 +669,19 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                   : Colors.black.withValues(alpha: 0.06),
             ),
             const SizedBox(height: 8),
+            if (BleDropboxService.supported && _dropbox != null)
+              _buildUnitSettingRow(
+                icon: Icons.bluetooth_rounded,
+                title: 'Bluetooth Wi-Fi setup',
+                subtitle: 'Reconnect an offline Dropbox to Wi-Fi',
+                onTap: () {
+                  final id = _dropbox?.deviceId;
+                  if (id == null) return;
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => HardwareRegistrationScreen(wifiSetupDeviceId: id),
+                  )).then((_) { if (mounted) _init(); });
+                },
+              ),
             _buildUnitSettingRow(
               icon: Icons.group_outlined,
               title: 'Household members',

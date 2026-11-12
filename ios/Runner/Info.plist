@@ -39,6 +39,10 @@
 		<true/>
 		<key>NSCameraUsageDescription</key>
 		<string>Scan dropbox setup codes, owner verification codes, and parcel waybills.</string>
+		<key>NSBluetoothAlwaysUsageDescription</key>
+		<string>Set up Wi-Fi or unlock your paired Dropbox over Bluetooth.</string>
+		<key>NSBluetoothPeripheralUsageDescription</key>
+		<string>Set up Wi-Fi or unlock your paired Dropbox over Bluetooth.</string>
 		<key>NSFaceIDUsageDescription</key>
 		<string>Verify your identity when the app lock is enabled.</string>
 		<key>UILaunchStoryboardName</key>

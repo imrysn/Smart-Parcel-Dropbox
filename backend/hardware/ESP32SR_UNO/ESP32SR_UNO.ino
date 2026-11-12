@@ -22,8 +22,6 @@
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h> // Required for WSS
-#include <WebServer.h>        // Required for Captive Portal
-#include <DNSServer.h>        // Required for Captive Portal
 #include <SocketIOclient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h> // ESP32 Task Watchdog Timer
@@ -77,6 +75,7 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 #include "config.h"  // ⚠ Add config.h to .gitignore — contains WiFi password
 
 #include "StateMetrics.h"
+#include "BleController.h"
 
 // ============================================================
 //  FORWARD DECLARATIONS
@@ -98,10 +97,6 @@ void emitRequestDeviceRegistration();
 void drawRegistrationQRScreen(const String& token, const String& pin);
 void drawSettingsMenu();
 void drawNoServerOptionsScreen();
-void drawWiFiConfigQRScreen(const char* ssid);
-void setupCaptivePortal();
-void loopCaptivePortal();
-void stopCaptivePortal();
 void checkFactoryReset();
 void checkSerialCommands();
 void forceNextStep();
@@ -189,11 +184,8 @@ void setup() {
   tft.fillScreen(COLOR_BG);
 
   // Network — load credentials from NVS first
-  nvsPrefs.begin("smartbox", false); 
-  String s_ssid = nvsPrefs.getString("ssid", "");
-  String s_pass = nvsPrefs.getString("password", "");
-  strncpy(nvsWifiSSID, s_ssid.c_str(), sizeof(nvsWifiSSID)-1);
-  strncpy(nvsWifiPassword, s_pass.c_str(), sizeof(nvsWifiPassword)-1);
+  loadWifiCredentials();
+  nvsPrefs.begin("smartbox", false);
   deviceRegistered = nvsPrefs.getBool("registered", false);
   nvsPrefs.end();
 
@@ -247,12 +239,15 @@ void loop() {
   checkFactoryReset();
   
   // 1. Maintain background tasks
-  socketIO.loop();
-  sendDeviceHeartbeat(false);
+  const bool localBle = currentState == WAITING_FOR_WIFI_CONFIG || currentState == WAITING_FOR_BLE_UNLOCK;
+  if (!localBle) {
+    socketIO.loop();
+    sendDeviceHeartbeat(false);
+  }
   // esp_task_wdt_reset(); // Disabled to prevent "task not found" spam after detaching main loop
   processSensors();
   
-  checkSerialCommands();
+  if (!localBle) checkSerialCommands();
 
   // Continuous Ultrasonic Live Stream (toggled via 'D' command)
   static unsigned long lastUsStreamTime = 0;
@@ -316,14 +311,13 @@ void loop() {
     serial2Buffer[0] = '\0';
   }
   // Skip status-bar repaints while QR verification screens, WiFi setup, or lockscreen are up
-  if (currentState != SHOWING_REGISTRATION_QR && 
-      currentState != WAITING_FOR_WIFI_CONFIG && currentState != LOCKSCREEN) {
+  if (currentState != SHOWING_REGISTRATION_QR && !localBle && currentState != LOCKSCREEN) {
     updateDynamicIndicators();
   }
 
-  // Active WiFi Monitoring and Auto-Reconnect (skip during captive portal or setup)
+  // Avoid interrupting a BLE Wi-Fi connection attempt.
   unsigned long currentMillisMillis = millis();
-  if (currentState != WAITING_FOR_WIFI_CONFIG && currentState != DEVICE_UNREGISTERED &&
+  if (!localBle && currentState != DEVICE_UNREGISTERED &&
       WiFi.status() != WL_CONNECTED && (currentMillisMillis - previousMillisWiFi >= intervalWiFi)) {
     Serial.println("[WiFi] Connection lost. Attempting to reconnect...");
     WiFi.disconnect();
@@ -355,24 +349,22 @@ void loop() {
       if (digitalRead(BTN_RECEIVE) == LOW) {  // BTN1 = Start Registration
         delay(50);
         if (digitalRead(BTN_RECEIVE) == LOW) {
-          Serial.println("[SETUP] BTN1 pressed. Requesting registration token from server...");
           triggerBuzzer(1);
+          if (WiFi.status() != WL_CONNECTED) {
+            changeState(WAITING_FOR_WIFI_CONFIG);
+            break;
+          }
+          Serial.println("[SETUP] BTN1 pressed. Requesting registration token from server...");
           // Ensure network is connected before requesting registration
-          if (!socketIO.isConnected()) {
-            if (strlen(nvsWifiSSID) == 0) {
-              // Try connecting with compile-time credentials for first ever setup
-              strncpy(nvsWifiSSID, WIFI_SSID, sizeof(nvsWifiSSID)-1);
-              strncpy(nvsWifiPassword, WIFI_PASSWORD, sizeof(nvsWifiPassword)-1);
-            }
+          if (!cloudDeviceAuthenticated()) {
             Serial.println("[SETUP] Not connected. Attempting WiFi/Socket setup...");
             displayMessage("CONNECTING", "Please wait...");
-            setupWiFi();
             setupSocketIO();
             
             // Wait for connection (up to 30s) - Cloud SSL takes ~25s
             Serial.println("[WS] Waiting for cloud handshake...");
             unsigned long startWait = millis();
-            while (!socketIO.isConnected() && millis() - startWait < 30000) {
+            while (!cloudDeviceAuthenticated() && millis() - startWait < 30000) {
               socketIO.loop();
               if ((millis() - startWait) % 1000 < 100) {
                 Serial.print(".");
@@ -382,7 +374,7 @@ void loop() {
             Serial.println();
           }
 
-          if (socketIO.isConnected()) {
+          if (cloudDeviceAuthenticated()) {
             Serial.println("[WS] Cloud connection confirmed!");
             regTokenReceived = false; // Reset before requesting
             emitRequestDeviceRegistration();
@@ -418,25 +410,31 @@ void loop() {
       }
       break;
 
-    // ── V4.0: WAITING FOR WIFI CONFIG (Captive Portal) ─────
     case WAITING_FOR_WIFI_CONFIG:
+    case WAITING_FOR_BLE_UNLOCK: {
+      static bool cancelArmed;
+      static bool cancelPressed;
       if (!stateInitialized) {
-        setupCaptivePortal();
-        drawWiFiConfigQRScreen(CAPTIVE_AP_SSID);
+        const bool wifi = currentState == WAITING_FOR_WIFI_CONFIG;
+        if (!startLocalBle(wifi ? LocalBleMode::wifi : LocalBleMode::unlock)) {
+          changeState(deviceRegistered ? IDLE : DEVICE_UNREGISTERED);
+          displayMessage("BLUETOOTH UNAVAILABLE", wifi ? "Try setup again" : "Connect to server first");
+          break;
+        }
+        cancelArmed = false;
+        cancelPressed = false;
         stateInitialized = true;
       }
-      loopCaptivePortal();
-      
-      // Allow manual exit/reboot via BTN2
-      if (digitalRead(BTN_PICKUP) == LOW) {
-        delay(50);
-        if (digitalRead(BTN_PICKUP) == LOW) {
-          triggerCyberChirp(2);
-          stopCaptivePortal();
-          ESP.restart();
-        }
+      const bool redPressed = digitalRead(BTN_PICKUP) == LOW;
+      if (redPressed && cancelArmed) cancelPressed = true;
+      if (!pollLocalBle() || (cancelPressed && !redPressed)) {
+        stopLocalBle();
+        changeState(deviceRegistered ? IDLE : DEVICE_UNREGISTERED);
+      } else if (!redPressed) {
+        cancelArmed = true;
       }
       break;
+    }
 
     // ── SHOWING REGISTRATION QR ───────────────────────────
     // Displaying QR code + human-readable code for in-app hardware registration.
@@ -1133,11 +1131,24 @@ void loop() {
       break;
     
     // ── SETTINGS MENU ─────────────────────────────────────
-    case SETTINGS_MENU:
+    case SETTINGS_MENU: {
+      static bool buttonsReleased;
+      static bool offline;
       if (!stateInitialized) {
         drawSettingsMenu();
-        Serial.println("[SETTINGS] System Menu: BTN1=Add User, BTN2=Back.");
+        offline = !cloudDeviceAuthenticated();
+        buttonsReleased = false;
         stateInitialized = true;
+      }
+      if (!buttonsReleased) {
+        buttonsReleased = digitalRead(BTN_RECEIVE) == HIGH && digitalRead(BTN_PICKUP) == HIGH;
+        break;
+      }
+      if (offline) {
+        if (digitalRead(BTN_RECEIVE) == LOW) changeState(WAITING_FOR_WIFI_CONFIG);
+        else if (digitalRead(BTN_PICKUP) == LOW) changeState(WAITING_FOR_BLE_UNLOCK);
+        else if (millis() - stateStartTime >= IDLE_TIMEOUT_MS) changeState(IDLE);
+        break;
       }
       if (digitalRead(BTN_RECEIVE) == LOW) {   // BTN1 = Register (Add User)
         delay(50);
@@ -1155,6 +1166,7 @@ void loop() {
         }
       }
       break;
+    }
 
     // ── RESETTING ─────────────────────────────────────────
     case RESETTING: {
@@ -1196,9 +1208,14 @@ void loop() {
 //  Hold BTN_PICKUP for 5 seconds from IDLE/normal states to wipe NVS
 // ============================================================
 void checkFactoryReset() {
-  if (currentState == DEVICE_UNREGISTERED || currentState == SHOWING_REGISTRATION_QR) return;
   static unsigned long holdStart = 0;
   static bool          holding   = false;
+  if (currentState == DEVICE_UNREGISTERED || currentState == SHOWING_REGISTRATION_QR ||
+      currentState == WAITING_FOR_WIFI_CONFIG || currentState == WAITING_FOR_BLE_UNLOCK ||
+      currentState == SETUP_NO_SERVER || currentState == SETTINGS_MENU) {
+    holding = false;
+    return;
+  }
   if (digitalRead(BTN_PICKUP) == LOW) {
     if (!holding) { holding = true; holdStart = millis(); }
     else if (millis() - holdStart > 5000) {
@@ -1391,7 +1408,7 @@ void checkSerialCommands() {
       Serial.println("[MANUAL] Re-initializing TFT Display...");
       reinitTFT();
     } else if (cmd == 'C') {
-      Serial.println("[MANUAL] Triggering WiFi Captive Portal...");
+      Serial.println("[MANUAL] Opening Bluetooth Wi-Fi setup...");
       triggerBuzzer(2);
       changeState(WAITING_FOR_WIFI_CONFIG);
     }

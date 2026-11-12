@@ -17,6 +17,7 @@
 # Google Sign-In & Play Services
 -keep class com.google.android.gms.** { *; }
 -keep class com.google.firebase.** { *; }
+-keep class com.signify.hue.** { *; }
 -keep class com.google.android.play.core.** { *; }
 -dontwarn com.google.android.play.core.**
 -dontwarn com.google.android.gms.**

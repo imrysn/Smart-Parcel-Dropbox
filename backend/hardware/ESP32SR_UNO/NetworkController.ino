@@ -6,12 +6,7 @@
 void setupWiFi() {
   String ssid;
   String password;
-  nvsPrefs.begin("smartbox", true);
-  String s_ssid = nvsPrefs.getString("ssid", "");
-  String s_pass = nvsPrefs.getString("password", "");
-  strncpy(nvsWifiSSID, s_ssid.c_str(), sizeof(nvsWifiSSID)-1);
-  strncpy(nvsWifiPassword, s_pass.c_str(), sizeof(nvsWifiPassword)-1);
-  nvsPrefs.end();
+  loadWifiCredentials();
 
   if (strlen(nvsWifiSSID) != 0) {
     ssid = String(nvsWifiSSID);
@@ -98,6 +93,9 @@ void setupWiFi() {
 
 #include <mbedtls/md.h>
 static bool deviceAuthenticated = false;
+static String offlineClockNonce;
+
+bool cloudDeviceAuthenticated() { return deviceAuthenticated && WiFi.status() == WL_CONNECTED; }
 
 void setupSocketIO() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -137,6 +135,8 @@ void authenticateDevice(const String& nonce) {
   JsonObject data = arr.createNestedObject();
   data["deviceId"] = deviceId;
   data["proof"] = proof;
+  offlineClockNonce = makeBleNonce();
+  data["clockNonce"] = offlineClockNonce;
   String output;
   serializeJson(reply, output);
   socketIO.send(sIOtype_EVENT, output);
@@ -144,7 +144,7 @@ void authenticateDevice(const String& nonce) {
 
 void emitDoorCommandResult(const String& requestId, bool ok) {
   if (requestId.isEmpty()) return;
-  StaticJsonDocument<384> reply;
+  StaticJsonDocument<512> reply;
   JsonArray arr = reply.to<JsonArray>();
   arr.add("doorCommandResult");
   JsonObject result = arr.createNestedObject();
@@ -154,6 +154,9 @@ void emitDoorCommandResult(const String& requestId, bool ok) {
   state["parcelDoorOpen"] = lockTopOpen;
   state["pickupDoorOpen"] = lockPickupOpen;
   state["receivedDoorOpen"] = lockReceivedOpen;
+  state["REED_TOP"] = digitalRead(REED_TOP) == HIGH;
+  state["REED_PICKUP"] = digitalRead(REED_PICKUP) == HIGH;
+  state["REED_RECEIVED"] = digitalRead(REED_RECEIVED) == HIGH;
   String output;
   serializeJson(reply, output);
   socketIO.send(sIOtype_EVENT, output);
@@ -184,11 +187,13 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
   switch (type) {
     case sIOtype_CONNECT:
       deviceAuthenticated = false;
+      offlineClockNonce = "";
       Serial.println("[WS] Socket.IO connected; waiting for device authentication.");
       break;
 
     case sIOtype_DISCONNECT:
       deviceAuthenticated = false;
+      offlineClockNonce = "";
       Serial.println("[WS] Socket.IO disconnected.");
       break;
 
@@ -208,6 +213,11 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
         authenticateDevice(doc[1]["nonce"].as<String>());
       } else if (eventName == "deviceAuthenticated") {
         deviceAuthenticated = true;
+        const auto clock = doc[1]["clock"];
+        if (acceptOfflineClock(offlineClockNonce, clock["seconds"] | 0U, clock["proof"] | "")) {
+          socketIO.send(sIOtype_EVENT, "[\"offlineClockReady\"]");
+        }
+        offlineClockNonce = "";
         Serial.println("[WS] Device authenticated.");
         emitDoorState();
         sendDeviceHeartbeat(true);
@@ -311,19 +321,22 @@ void emitDoorState() {
                           : (lastUsDropoffDist < 30.0);
   bool parcelInPickup   = false; // Pickup US removed - tracked logically via server status
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   JsonArray arr = doc.to<JsonArray>();
   arr.add("doorStateUpdate");
   JsonObject data = arr.createNestedObject();
   data["parcelDoorOpen"]    = lockTopOpen;       
   data["pickupDoorOpen"]    = lockPickupOpen;    
   data["receivedDoorOpen"]  = lockReceivedOpen;  
+  data["REED_TOP"]           = digitalRead(REED_TOP) == HIGH;
+  data["REED_PICKUP"]        = digitalRead(REED_PICKUP) == HIGH;
+  data["REED_RECEIVED"]      = digitalRead(REED_RECEIVED) == HIGH;
   data["parcelDetected"]    = parcelInDropOff;  
   data["parcelInDropOff"]   = parcelInDropOff;   
   data["parcelInPickup"]    = parcelInPickup;    
   data["systemState"]       = (int)currentState; 
 
-  char output[256];
+  char output[384];
   serializeJson(doc, output);
   socketIO.send(sIOtype_EVENT, output);
   if (DEBUG_WS) { Serial.print("[WS] Emitted doorStateUpdate: "); Serial.println(output); }
@@ -371,12 +384,9 @@ void handleApplyHardwareConfig(const String& payload) {
 
   Serial.print("[WS] Applying new WiFi config. SSID: "); Serial.println(ssid);
   
+  if (!saveWifiCredentials(ssid, pass)) return;
   nvsPrefs.begin("smartbox", false);
-  strncpy(nvsWifiSSID, ssid.c_str(), sizeof(nvsWifiSSID)-1);
-  strncpy(nvsWifiPassword, pass.c_str(), sizeof(nvsWifiPassword)-1);
-  nvsPrefs.putString("ssid", ssid);
-  nvsPrefs.putString("password", pass);
-  nvsPrefs.putBool("registered", true); 
+  nvsPrefs.putBool("registered", true);
   nvsPrefs.end();
 
   displayMessage("WIFI SAVED", "Rebooting...");

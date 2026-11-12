@@ -41,6 +41,18 @@ The backend accepts hardware commands and telemetry only after the device proves
 
 The sketch uses its existing TLS Socket.IO transport. Legacy hardware REST endpoints also require matching device credentials. Leave the device keys and JWT signing secret out of Git.
 
+### Bluetooth Wi-Fi setup
+
+On an unregistered box without Wi-Fi, press the blue button to display a setup QR. Scan it in **Register Dropbox** on Android or iOS and enter the network name and password. The app encrypts the credentials for that setup window. The box saves them after it joins the network. After it restarts, press blue and scan the registration QR to link it to the account.
+
+To recover a registered box, wake it while offline, hold blue for two seconds, and select **Wi-Fi Setup** with blue. In **Dropbox Control**, open **Bluetooth Wi-Fi setup** and scan the box's QR. A failed connection attempt keeps the previously saved Wi-Fi settings.
+
+### Offline emergency unlock
+
+While the box is online, the primary owner opens **Dropbox Control → Offline unlock → Prepare offline access**. This saves an eight-hour grant to that phone. During an outage, wake the box, hold blue for two seconds, and press red on **Offline Settings**. Open **Offline unlock** on the phone and approve the unlock with the phone's screen lock. Only the received-parcel door opens, and the firmware relocks it automatically.
+
+The box needs one authenticated server connection after each reboot to establish time. During an outage, a saved grant remains usable until it expires. Build the Bluetooth firmware with Arduino ESP32 core 3.3.6 and an application partition large enough for Wi-Fi and Bluetooth, such as **Huge APP** on a compatible ESP32-S3 board.
+
 ## Verify the demo
 
 Run `flutter test` and `npm --prefix backend test`. The paired-door integration test uses two simulated boxes and a local server. On a real phone and box, verify pairing, sign-out and sign-in, an inbound delivery, an outbound pickup, and a disconnect during a lock request.
