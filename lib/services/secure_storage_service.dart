@@ -85,13 +85,15 @@ class SecureStorageService {
     }
   }
   
-  /// Save user preference
-  Future<void> savePreference(String key, String value) async {
+  /// Save a user preference and report whether the write succeeded.
+  Future<bool> savePreference(String key, String value) async {
     try {
       await _storage.write(key: 'pref_$key', value: value);
       debugPrint('Preference saved: $key');
+      return true;
     } catch (e) {
       debugPrint('Error saving preference $key: $e');
+      return false;
     }
   }
   

@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32-S3 TFT LCD UI Simulator & Stager</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    canvas.pixelated {
+      image-rendering: -moz-crisp-edges;
+      image-rendering: -webkit-crisp-edges;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    .scanlines {
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.25) 50%
+      ), linear-gradient(
+        90deg,
+        rgba(255, 0, 0, 0.03),
+        rgba(0, 255, 0, 0.01),
+        rgba(0, 0, 255, 0.03)
+      );
+      background-size: 100% 3px, 3px 100%;
+      pointer-events: none;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen p-4 md:p-6 antialiased select-none">
+
+  <!-- Header Banner -->
+  <header class="max-w-7xl mx-auto mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+    <div class="flex items-center gap-3">
+      <div class="h-10 w-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-mono font-bold text-lg shadow-[0_0_15px_rgba(6,182,212,0.2)]">
+        TFT
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+          ESP32-S3 TFT Display UI Studio
+          <span class="text-xs px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800/60 font-mono">320 × 240 ILI9341</span>
+        </h1>
+        <p class="text-xs text-slate-400">Iterate and preview modern UI styles live without uploading code on every tweak</p>
+      </div>
+    </div>
+
+    <!-- Scale & Display Options -->
+    <div class="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs">
+      <span class="text-slate-400 px-2 font-medium">Scale:</span>
+      <button onclick="setScale(1)" id="btn-scale-1" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 transition">1x</button>
+      <button onclick="setScale(2)" id="btn-scale-2" class="px-2.5 py-1 rounded bg-cyan-600 text-white font-semibold transition">2x (640×480)</button>
+      <button onclick="setScale(2.5)" id="btn-scale-25" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 transition">2.5x</button>
+      <div class="h-4 w-[1px] bg-slate-800 mx-1"></div>
+      <button onclick="toggleScanlines()" id="btn-scanlines" class="px-2 py-1 rounded hover:bg-slate-800 text-slate-400 transition flex items-center gap-1.5">
+        <span class="h-2 w-2 rounded-full bg-slate-600" id="scanline-indicator"></span> Scanlines
+      </button>
+    </div>
+  </header>
+
+  <!-- Modern Themes Gallery Bar -->
+  <section class="max-w-7xl mx-auto mb-6 bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-xs font-bold text-slate-300 uppercase tracking-wider">UI Design System Proposals</h2>
+        <p class="text-[11px] text-slate-400">Click any system below to test it across all screens, layout geometry, and C++ code:</p>
+      </div>
+      <span class="text-[11px] font-mono text-cyan-400" id="active-theme-name">Active: Nordic Smart Home</span>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+      <!-- 1. Nordic Smart Home -->
+      <button onclick="applyPreset('nordic')" id="card-preset-nordic" class="preset-card p-3 rounded-xl border border-teal-500/60 bg-teal-950/40 text-left transition hover:scale-[1.02]">
+        <div class="flex items-center gap-1.5 font-bold text-teal-300">
+          <span class="h-2 w-2 rounded-full bg-teal-400"></span>
+          <span>1. Nordic Nest</span>
+        </div>
+        <div class="text-[11px] text-slate-300 mt-1">Soft teal & coral, rounded cards (18px)</div>
+        <div class="text-[10px] text-slate-400 mt-0.5">Google Nest / HomeKit style</div>
+      </button>
+
+      <!-- 2. Amazon Hub Locker -->
+      <button onclick="applyPreset('logistics')" id="card-preset-logistics" class="preset-card p-3 rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:scale-[1.02]">
+        <div class="flex items-center gap-1.5 font-bold text-amber-400">
+          <span class="h-2 w-2 rounded-full bg-amber-400"></span>
+          <span>2. Hub Locker</span>
+        </div>
+        <div class="text-[11px] text-slate-300 mt-1">Courier yellow & navy, high visibility</div>
+        <div class="text-[10px] text-slate-400 mt-0.5">Amazon / DHL Locker style</div>
+      </button>
+
+      <!-- 3. Tesla Sleek Luxury -->
+      <button onclick="applyPreset('tesla')" id="card-preset-tesla" class="preset-card p-3 rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:scale-[1.02]">
+        <div class="flex items-center gap-1.5 font-bold text-cyan-400">
+          <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+          <span>3. Tesla Sleek</span>
+        </div>
+        <div class="text-[11px] text-slate-300 mt-1">Obsidian black, laser cyan & crimson</div>
+        <div class="text-[10px] text-slate-400 mt-0.5">Automotive luxury UI</div>
+      </button>
+
+      <!-- 4. Material Bento -->
+      <button onclick="applyPreset('bento')" id="card-preset-bento" class="preset-card p-3 rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:scale-[1.02]">
+        <div class="flex items-center gap-1.5 font-bold text-indigo-400">
+          <span class="h-2 w-2 rounded-full bg-indigo-400"></span>
+          <span>4. Material Bento</span>
+        </div>
+        <div class="text-[11px] text-slate-300 mt-1">Indigo & emerald asymmetric tiles</div>
+        <div class="text-[10px] text-slate-400 mt-0.5">Consumer mobile OS style</div>
+      </button>
+
+      <!-- 5. Braun Industrial -->
+      <button onclick="applyPreset('braun')" id="card-preset-braun" class="preset-card p-3 rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:scale-[1.02]">
+        <div class="flex items-center gap-1.5 font-bold text-orange-400">
+          <span class="h-2 w-2 rounded-full bg-orange-400"></span>
+          <span>5. Braun Matte</span>
+        </div>
+        <div class="text-[11px] text-slate-300 mt-1">Matte ash, safety orange tactile dot</div>
+        <div class="text-[10px] text-slate-400 mt-0.5">Dieter Rams functionalism</div>
+      </button>
+
+      <!-- 6. Original Cyber HUD -->
+      <button onclick="applyPreset('current')" id="card-preset-current" class="preset-card p-3 rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:scale-[1.02]">
+        <div class="flex items-center gap-1.5 font-bold text-slate-400">
+          <span class="h-2 w-2 rounded-full bg-slate-500"></span>
+          <span>6. Original HUD</span>
+        </div>
+        <div class="text-[11px] text-slate-400 mt-1">Pure black, cyan border, full ovals</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">Current firmware baseline</div>
+      </button>
+    </div>
+  </section>
+
+  <!-- Main Grid Layout -->
+  <main class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+    <!-- Left Column: TFT Hardware Enclosure & Controls (7 Cols) -->
+    <div class="lg:col-span-7 space-y-4">
+
+      <!-- Hardware Screen Bezel -->
+      <div class="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
+        <div class="flex items-center justify-between text-[11px] font-mono text-slate-500 mb-2 px-1">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>SPI: 14MHz • RGB565 • ROTATION: 3 (Landscape)</span>
+            <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-semibold">TOUCH ENABLED</span>
+          </div>
+          <div class="text-slate-400 font-semibold" id="screen-badge">Home (Idle)</div>
+        </div>
+
+        <!-- Canvas Container with optional Scanline Overlay -->
+        <div class="relative flex justify-center items-center bg-black rounded-lg border border-slate-800/80 overflow-hidden shadow-inner mx-auto" style="width: fit-content;">
+          <canvas id="tftCanvas" width="320" height="240" class="pixelated block cursor-pointer transition-all duration-150"></canvas>
+          <div id="scanlineOverlay" class="absolute inset-0 scanlines hidden"></div>
+        </div>
+
+        <!-- Hardware Pushbuttons (Simulate physical tactile switches) -->
+        <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between px-3">
+          <div class="flex items-center gap-2">
+            <button id="hwBtn1" onmousedown="onHwBtn1Down()" onmouseup="onHwBtn1Up()" class="h-9 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-cyan-600 active:scale-95 border border-slate-700 text-xs font-mono font-semibold text-slate-200 transition flex items-center gap-2 shadow">
+              <span class="h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f0ff]" id="hw-btn1-dot"></span>
+              <span>BTN 1 (Pin 40)</span>
+            </button>
+            <span class="text-[11px] text-slate-500 hidden sm:inline">Drop-Off / Hold: Settings</span>
+          </div>
+
+          <div class="flex items-center gap-2 text-[10px] font-mono text-slate-400">
+            <span class="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]"></span>
+            <span>ESP32-S3</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-slate-500 hidden sm:inline">Pick-Up / Exit</span>
+            <button id="hwBtn2" onmousedown="onHwBtn2Down()" onmouseup="onHwBtn2Up()" class="h-9 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-rose-600 active:scale-95 border border-slate-700 text-xs font-mono font-semibold text-slate-200 transition flex items-center gap-2 shadow">
+              <span class="h-2.5 w-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]" id="hw-btn2-dot"></span>
+              <span>BTN 2 (Pin 2)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Screen Switcher Chips -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2.5">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            <span>Workflows & Screen Navigator</span>
+            <span class="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">FLOW RUNNER</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="runDeliveryFlow()" id="sim-flow-btn" class="px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition">
+              <span id="sim-flow-icon">▶</span>
+              <span id="sim-flow-txt">Play 2s Delivery Flow</span>
+            </button>
+            <button onclick="runSetupFlow()" id="sim-setup-flow-btn" class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition">
+              <span id="sim-setup-flow-icon">▶</span>
+              <span id="sim-setup-flow-txt">Play Setup Flow</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Section A: 4-Step Delivery Sequence -->
+        <div class="border border-slate-800/80 rounded-lg p-2 bg-slate-950/40 space-y-1">
+          <div class="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Delivery Flow Sequence:</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs font-medium">
+            <button onclick="setScreen('DROP_PROMPT')" id="nav-DROP_PROMPT" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>1. Place & Drop</span>
+              <span class="text-[10px]">○</span>
+            </button>
+            <button onclick="setScreen('DELIVERED')" id="nav-DELIVERED" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>2. Parcel Delivered</span>
+              <span class="text-[10px]">○</span>
+            </button>
+            <button onclick="setScreen('CLOSE_DOOR')" id="nav-CLOSE_DOOR" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>3. Please Close Door</span>
+              <span class="text-[10px]">○</span>
+            </button>
+            <button onclick="setScreen('THANKYOU')" id="nav-THANKYOU" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>4. Thank you.</span>
+              <span class="text-[10px]">○</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Section B: Setup & Pairing Workflow -->
+        <div class="border border-slate-800/80 rounded-lg p-2 bg-slate-950/40 space-y-1">
+          <div class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Setup & Pairing Workflow:</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs font-medium">
+            <button onclick="setScreen('SETUP_PROMPT')" id="nav-SETUP_PROMPT" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>1. Setup Prompt</span>
+              <span class="text-[10px]">○</span>
+            </button>
+            <button onclick="setScreen('SETUP_BLE')" id="nav-SETUP_BLE" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>2. BLE Wi-Fi Setup</span>
+              <span class="text-[10px]">○</span>
+            </button>
+            <button onclick="setScreen('SETUP_QR')" id="nav-SETUP_QR" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>3. Pairing QR & PIN</span>
+              <span class="text-[10px]">○</span>
+            </button>
+            <button onclick="setScreen('SETUP_SUCCESS')" id="nav-SETUP_SUCCESS" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+              <span>4. Device Paired</span>
+              <span class="text-[10px]">○</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Section C: Base Screens & Mobile Controls -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 text-xs font-medium pt-1">
+          <button onclick="setScreen('HOME')" id="nav-HOME" class="screen-nav-btn py-1.5 px-2 rounded-md border border-cyan-500/40 bg-cyan-950/60 text-cyan-300 font-semibold text-left flex items-center justify-between">
+            <span>Home</span>
+            <span class="text-[10px]">●</span>
+          </button>
+          <button onclick="setScreen('SCANNER')" id="nav-SCANNER" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+            <span>Scanner</span>
+            <span class="text-[10px]">○</span>
+          </button>
+          <button onclick="setScreen('UNLOCKED')" id="nav-UNLOCKED" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+            <span>Mobile: Unlocked</span>
+            <span class="text-[10px]">○</span>
+          </button>
+          <button onclick="setScreen('LOCKED')" id="nav-LOCKED" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+            <span>Mobile: Locked</span>
+            <span class="text-[10px]">○</span>
+          </button>
+          <button onclick="setScreen('ALERT_ERROR')" id="nav-ALERT_ERROR" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+            <span>Scan Rejected</span>
+            <span class="text-[10px]">○</span>
+          </button>
+          <button onclick="setScreen('LOCKSCREEN')" id="nav-LOCKSCREEN" class="screen-nav-btn py-1.5 px-2 rounded-md border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between">
+            <span>Robot Screen</span>
+            <span class="text-[10px]">○</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Live Tuning Controls & C++ Generator (5 Cols) -->
+    <div class="lg:col-span-5 space-y-4">
+
+      <!-- Tabs Header -->
+      <div class="flex items-center border-b border-slate-800 pb-2 gap-2 text-xs font-semibold">
+        <button onclick="switchTab('design')" id="tab-design-btn" class="px-3 py-1.5 rounded-lg bg-cyan-600 text-white font-medium transition">
+          Design & Geometry Controls
+        </button>
+        <button onclick="switchTab('code')" id="tab-code-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition flex items-center gap-1.5">
+          <span>Export C++ Code</span>
+          <span class="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
+        </button>
+      </div>
+
+      <!-- TAB 1: Live Design Controls -->
+      <div id="tab-design" class="space-y-4">
+        
+        <!-- Palette & Colors Section -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+          <h2 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+            <span>Color Palette (RGB565 Emulation)</span>
+            <span class="text-[10px] font-mono text-cyan-400" id="hex-calc-readout">0x2EA5</span>
+          </h2>
+          
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <label class="text-slate-400 block mb-1">Primary Drop-Off</label>
+              <div class="flex items-center gap-2">
+                <input type="color" id="cfg-dropColor" value="#14b8a6" oninput="onColorChange()" class="h-8 w-10 bg-transparent cursor-pointer rounded border border-slate-700">
+                <span class="font-mono text-slate-300 text-xs" id="dropColor-rgb565">0x15D4</span>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-slate-400 block mb-1">Pick-Up / Alert</label>
+              <div class="flex items-center gap-2">
+                <input type="color" id="cfg-warnColor" value="#f43f5e" oninput="onColorChange()" class="h-8 w-10 bg-transparent cursor-pointer rounded border border-slate-700">
+                <span class="font-mono text-slate-300 text-xs" id="warnColor-rgb565">0xF9E7</span>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-slate-400 block mb-1">Card Background</label>
+              <div class="flex items-center gap-2">
+                <input type="color" id="cfg-cardColor" value="#1e293b" oninput="onColorChange()" class="h-8 w-10 bg-transparent cursor-pointer rounded border border-slate-700">
+                <span class="font-mono text-slate-300 text-xs" id="cardColor-rgb565">0x1947</span>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-slate-400 block mb-1">Card Border</label>
+              <div class="flex items-center gap-2">
+                <input type="color" id="cfg-borderColor" value="#334155" oninput="onColorChange()" class="h-8 w-10 bg-transparent cursor-pointer rounded border border-slate-700">
+                <span class="font-mono text-slate-300 text-xs" id="borderColor-rgb565">0x320A</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Layout & Sizing Sliders -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3.5">
+          <h2 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+            <span>Button & Layout Geometry</span>
+            <button onclick="resetSliders()" class="text-[10px] text-cyan-400 hover:underline">Reset Defaults</button>
+          </h2>
+
+          <div class="space-y-1">
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Button Width (w)</span>
+              <span class="font-mono text-slate-300" id="val-btnWidth">104 px</span>
+            </div>
+            <input type="range" id="slider-btnWidth" min="80" max="130" value="104" oninput="updateSliders()" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+          </div>
+
+          <div class="space-y-1">
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Button Height (h)</span>
+              <span class="font-mono text-slate-300" id="val-btnHeight">140 px</span>
+            </div>
+            <input type="range" id="slider-btnHeight" min="100" max="170" value="140" oninput="updateSliders()" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+          </div>
+
+          <div class="space-y-1">
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Corner Curvature (r)</span>
+              <span class="font-mono text-slate-300" id="val-btnRadius">18 px</span>
+            </div>
+            <input type="range" id="slider-btnRadius" min="6" max="50" value="18" oninput="updateSliders()" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+          </div>
+
+          <div class="space-y-1">
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Status Bar Height</span>
+              <span class="font-mono text-slate-300" id="val-barHeight">26 px</span>
+            </div>
+            <input type="range" id="slider-barHeight" min="18" max="32" value="26" oninput="updateSliders()" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+          </div>
+        </div>
+
+        <!-- Dynamic Screen Settings -->
+        <div id="dynamic-screen-controls" class="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs space-y-2">
+          <div class="font-bold text-slate-300 uppercase tracking-wider text-[11px]">Screen Settings</div>
+          <div id="screen-subcontrols" class="text-slate-400">
+            <!-- Screen details injected -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- TAB 2: Generated C++ Code -->
+      <div id="tab-code" class="hidden space-y-3">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-300 uppercase tracking-wider">Ready-to-Flash C++ Code</span>
+            <button onclick="copyCode()" id="copy-code-btn" class="px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium transition flex items-center gap-1.5">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <span>Copy C++ Code</span>
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-400">
+            Copy into <code class="text-cyan-400">StateMetrics.h</code> and <code class="text-cyan-400">DisplayController.ino</code>.
+          </p>
+
+          <pre class="bg-black border border-slate-800 rounded-lg p-3 text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-[380px] leading-relaxed select-text" id="code-output">
+// Loading generated code...
+          </pre>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Interactive JavaScript Engine -->
+  <script>
+    function hexToRgb(hex) {
+      const bigint = parseInt(hex.replace('#', ''), 16);
+      return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+    }
+
+    function rgbToRgb565(r, g, b) {
+      const r5 = (r >> 3) & 0x1F;
+      const g6 = (g >> 2) & 0x3F;
+      const b5 = (b >> 3) & 0x1F;
+      return (r5 << 11) | (g6 << 5) | b5;
+    }
+
+    function rgb565ToHexStr(val) {
+      return '0x' + val.toString(16).toUpperCase().padStart(4, '0');
+    }
+
+    function hexColorToRgb565Str(hex) {
+      const { r, g, b } = hexToRgb(hex);
+      return rgb565ToHexStr(rgbToRgb565(r, g, b));
+    }
+
+    const THEMES = {
+      nordic: {
+        name: "Nordic Smart Home (Nest / HomeKit)",
+        bg: '#0f172a', card: '#1e293b', border: '#334155', accent: '#2dd4bf', drop: '#14b8a6', warn: '#f43f5e',
+        grey: '#94a3b8', text: '#f8fafc', gold: '#fbbf24', green: '#10b981',
+        btnW: 104, btnH: 140, btnCY: 132, btnR: 18, barH: 26
+      },
+      logistics: {
+        name: "Amazon Hub / InPost Locker",
+        bg: '#020617', card: '#0f172a', border: '#f59e0b', accent: '#fbbf24', drop: '#f59e0b', warn: '#38bdf8',
+        grey: '#cbd5e1', text: '#ffffff', gold: '#f59e0b', green: '#22c55e',
+        btnW: 108, btnH: 142, btnCY: 132, btnR: 10, barH: 26
+      },
+      tesla: {
+        name: "Tesla Luxury Automotive Tech",
+        bg: '#05070a', card: '#0f131a', border: '#1f2937', accent: '#00f0ff', drop: '#00f0ff', warn: '#e11d48',
+        grey: '#64748b', text: '#ffffff', gold: '#fbbf24', green: '#00f0ff',
+        btnW: 106, btnH: 142, btnCY: 132, btnR: 8, barH: 24
+      },
+      bento: {
+        name: "Material You / Bento Tiles",
+        bg: '#0a0d14', card: '#161c29', border: '#4f46e5', accent: '#6366f1', drop: '#6366f1', warn: '#10b981',
+        grey: '#94a3b8', text: '#ffffff', gold: '#f59e0b', green: '#10b981',
+        btnW: 106, btnH: 140, btnCY: 132, btnR: 22, barH: 26
+      },
+      braun: {
+        name: "Braun Dieter Rams Industrial",
+        bg: '#141414', card: '#222222', border: '#444444', accent: '#ff6b35', drop: '#ff6b35', warn: '#e5e5e5',
+        grey: '#888888', text: '#ffffff', gold: '#ffaa00', green: '#22c55e',
+        btnW: 104, btnH: 138, btnCY: 134, btnR: 6, barH: 24
+      },
+      current: {
+        name: "Current Firmware Default",
+        bg: '#000000', card: '#080808', border: '#7b7d7b', accent: '#00ffff', drop: '#0000ff', warn: '#ff0000',
+        grey: '#7b7d7b', text: '#ffffff', gold: '#ffea00', green: '#00e676',
+        btnW: 100, btnH: 140, btnCY: 132, btnR: 50, barH: 24
+      }
+    };
+
+    let activeThemeKey = 'tesla';
+    const CFG = { ...THEMES.tesla, scale: 2, scanlines: false, screen: 'HOME', laserY: 115, laserDir: 1, robotOffsetX: 0, pinCode: '482-913' };
+
+    const canvas = document.getElementById('tftCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function setScale(s) {
+      CFG.scale = s;
+      canvas.style.width = (320 * s) + 'px';
+      canvas.style.height = (240 * s) + 'px';
+      document.getElementById('btn-scale-1').className = (s === 1) ? 'px-2.5 py-1 rounded bg-cyan-600 text-white font-semibold transition' : 'px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 transition';
+      document.getElementById('btn-scale-2').className = (s === 2) ? 'px-2.5 py-1 rounded bg-cyan-600 text-white font-semibold transition' : 'px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 transition';
+      document.getElementById('btn-scale-25').className = (s === 2.5) ? 'px-2.5 py-1 rounded bg-cyan-600 text-white font-semibold transition' : 'px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 transition';
+    }
+
+    function toggleScanlines() {
+      CFG.scanlines = !CFG.scanlines;
+      const overlay = document.getElementById('scanlineOverlay');
+      const ind = document.getElementById('scanline-indicator');
+      if (CFG.scanlines) {
+        overlay.classList.remove('hidden');
+        ind.className = 'h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]';
+      } else {
+        overlay.classList.add('hidden');
+        ind.className = 'h-2 w-2 rounded-full bg-slate-600';
+      }
+    }
+
+    function applyPreset(key) {
+      activeThemeKey = key;
+      const T = THEMES[key];
+      Object.assign(CFG, T);
+
+      document.querySelectorAll('.preset-card').forEach(btn => {
+        btn.className = 'preset-card p-3 rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:scale-[1.02]';
+      });
+      const activeCard = document.getElementById('card-preset-' + key);
+      if (activeCard) {
+        activeCard.className = 'preset-card p-3 rounded-xl border border-cyan-500/60 bg-cyan-950/40 text-left transition hover:scale-[1.02]';
+      }
+
+      document.getElementById('active-theme-name').textContent = 'Active: ' + T.name;
+      document.getElementById('hw-btn1-dot').style.backgroundColor = T.drop;
+      document.getElementById('hw-btn2-dot').style.backgroundColor = T.warn;
+
+      syncInputs();
+      render();
+      generateCppCode();
+    }
+
+    function syncInputs() {
+      document.getElementById('cfg-dropColor').value = CFG.drop;
+      document.getElementById('cfg-warnColor').value = CFG.warn;
+      document.getElementById('cfg-cardColor').value = CFG.card;
+      document.getElementById('cfg-borderColor').value = CFG.border;
+
+      document.getElementById('slider-btnWidth').value = CFG.btnW;
+      document.getElementById('slider-btnHeight').value = CFG.btnH;
+      document.getElementById('slider-btnRadius').value = CFG.btnR;
+      document.getElementById('slider-barHeight').value = CFG.barH;
+
+      updateLabels();
+    }
+
+    function updateLabels() {
+      document.getElementById('val-btnWidth').textContent = CFG.btnW + ' px';
+      document.getElementById('val-btnHeight').textContent = CFG.btnH + ' px';
+      document.getElementById('val-btnRadius').textContent = CFG.btnR + ' px';
+      document.getElementById('val-barHeight').textContent = CFG.barH + ' px';
+
+      document.getElementById('dropColor-rgb565').textContent = hexColorToRgb565Str(CFG.drop);
+      document.getElementById('warnColor-rgb565').textContent = hexColorToRgb565Str(CFG.warn);
+      document.getElementById('cardColor-rgb565').textContent = hexColorToRgb565Str(CFG.card);
+      document.getElementById('borderColor-rgb565').textContent = hexColorToRgb565Str(CFG.border);
+      document.getElementById('hex-calc-readout').textContent = hexColorToRgb565Str(CFG.drop);
+    }
+
+    function onColorChange() {
+      CFG.drop = document.getElementById('cfg-dropColor').value;
+      CFG.warn = document.getElementById('cfg-warnColor').value;
+      CFG.card = document.getElementById('cfg-cardColor').value;
+      CFG.border = document.getElementById('cfg-borderColor').value;
+      updateLabels();
+      render();
+      generateCppCode();
+    }
+
+    function updateSliders() {
+      CFG.btnW = parseInt(document.getElementById('slider-btnWidth').value);
+      CFG.btnH = parseInt(document.getElementById('slider-btnHeight').value);
+      CFG.btnR = parseInt(document.getElementById('slider-btnRadius').value);
+      CFG.barH = parseInt(document.getElementById('slider-barHeight').value);
+      updateLabels();
+      render();
+      generateCppCode();
+    }
+
+    function resetSliders() {
+      applyPreset(activeThemeKey);
+    }
+
+    function setScreen(s) {
+      CFG.screen = s;
+      document.getElementById('screen-badge').textContent = s;
+      document.getElementById('current-state-readout').textContent = 'State: ' + s;
+
+      document.querySelectorAll('.screen-nav-btn').forEach(btn => {
+        btn.className = 'screen-nav-btn py-2 px-2.5 rounded-lg border border-slate-800 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-left flex items-center justify-between';
+        btn.querySelector('span:last-child').textContent = '○';
+      });
+      const active = document.getElementById('nav-' + s);
+      if (active) {
+        active.className = 'screen-nav-btn py-2 px-2.5 rounded-lg border border-cyan-500/40 bg-cyan-950/60 text-cyan-300 font-semibold text-left flex items-center justify-between';
+        active.querySelector('span:last-child').textContent = '●';
+      }
+      render();
+    }
+
+    function switchTab(t) {
+      if (t === 'design') {
+        document.getElementById('tab-design').classList.remove('hidden');
+        document.getElementById('tab-code').classList.add('hidden');
+        document.getElementById('tab-design-btn').className = 'px-3 py-1.5 rounded-lg bg-cyan-600 text-white font-medium transition';
+        document.getElementById('tab-code-btn').className = 'px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition flex items-center gap-1.5';
+      } else {
+        document.getElementById('tab-design').classList.add('hidden');
+        document.getElementById('tab-code').classList.remove('hidden');
+        document.getElementById('tab-design-btn').className = 'px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition';
+        document.getElementById('tab-code-btn').className = 'px-3 py-1.5 rounded-lg bg-cyan-600 text-white font-medium transition flex items-center gap-1.5';
+        generateCppCode();
+      }
+    }
+
+    function onHwBtn1Down() {}
+    function onHwBtn1Up() {
+      if (CFG.screen === 'HOME') setScreen('SCANNER');
+      else if (CFG.screen === 'SCANNER') runDeliveryFlow();
+      else if (CFG.screen === 'SETUP_PROMPT' || CFG.screen === 'UNREGISTERED') setScreen('SETUP_BLE');
+      else if (CFG.screen === 'SETUP_BLE') setScreen('SETUP_QR');
+      else if (CFG.screen === 'SETUP_QR' || CFG.screen === 'REG_QR') setScreen('SETUP_SUCCESS');
+      else setScreen('HOME');
+    }
+
+    function onHwBtn2Down() {}
+    function onHwBtn2Up() {
+      if (CFG.screen === 'HOME') setScreen('SCANNER');
+      else {
+        if (flowRunning) {
+          clearTimeout(flowTimer);
+          flowRunning = false;
+          const b = document.getElementById('sim-flow-btn');
+          if (b) b.innerHTML = `<span>▶</span><span>Play 2s Delivery Flow</span>`;
+        }
+        if (setupFlowRunning) {
+          clearTimeout(setupFlowTimer);
+          setupFlowRunning = false;
+          const b = document.getElementById('sim-setup-flow-btn');
+          if (b) b.innerHTML = `<span>▶</span><span>Play Setup Flow</span>`;
+        }
+        setScreen('HOME');
+      }
+    }
+
+    // --- Drawing Routines ---
+    function fillRect(x, y, w, h, col) { ctx.fillStyle = col; ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h)); }
+    function drawRect(x, y, w, h, col) { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(Math.floor(x) + 0.5, Math.floor(y) + 0.5, Math.floor(w) - 1, Math.floor(h) - 1); }
+    function fillRoundRect(x, y, w, h, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h), Math.min(r, w/2, h/2)); ctx.fill(); }
+    function drawRoundRect(x, y, w, h, r, col) { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(Math.floor(x) + 0.5, Math.floor(y) + 0.5, Math.floor(w) - 1, Math.floor(h) - 1, Math.min(r, w/2, h/2)); ctx.stroke(); }
+    function drawLine(x1, y1, x2, y2, col) { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.floor(x1) + 0.5, Math.floor(y1) + 0.5); ctx.lineTo(Math.floor(x2) + 0.5, Math.floor(y2) + 0.5); ctx.stroke(); }
+    function fillCircle(cx, cy, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); }
+    function drawCircle(cx, cy, r, col) { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); }
+    function text(s, x, y, col, isBold, size) { ctx.font = `${isBold ? 'bold ' : ''}${size || 12}px sans-serif`; ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); }
+
+    function drawCloudIcon(cx, cy, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx - 3.5, cy + 0.5, 3, 0, Math.PI * 2);
+      ctx.arc(cx, cy - 2, 4, 0, Math.PI * 2);
+      ctx.arc(cx + 4, cy + 0.5, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      fillRect(cx - 5.5, cy + 1, 11, 2.5, color);
+    }
+
+    function drawIconGear(cx, cy, color, bgColor) {
+      ctx.fillStyle = color;
+      // Central hub disc
+      ctx.beginPath();
+      ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+      ctx.fill();
+      // 8 Square Teeth
+      for (let i = 0; i < 8; i++) {
+        const ang = i * Math.PI / 4;
+        const cos = Math.cos(ang);
+        const sin = Math.sin(ang);
+        ctx.save();
+        ctx.translate(cx + cos * 13, cy + sin * 13);
+        ctx.rotate(ang);
+        ctx.fillRect(-2.5, -2.5, 5, 5);
+        ctx.restore();
+      }
+      // Axle Hole
+      ctx.fillStyle = bgColor || '#05070a';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawExitPill(cx, cy, label, isWhiteScreen = false) {
+      const pw = 114, ph = 22;
+      if (isWhiteScreen) {
+        fillRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, '#f1f5f9');
+        drawRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, '#e11d48', 1.2);
+      } else {
+        fillRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, '#1e293b');
+        drawRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, '#e11d48', 1.2);
+      }
+      ctx.strokeStyle = '#e11d48';
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      const gx = cx - pw/2 + 14, gy = cy;
+      ctx.beginPath();
+      ctx.moveTo(gx - 4, gy - 4); ctx.lineTo(gx + 4, gy + 4);
+      ctx.moveTo(gx + 4, gy - 4); ctx.lineTo(gx - 4, gy + 4);
+      ctx.stroke();
+      text(label, cx + 8, cy, '#e11d48', true, 10.5);
+    }
+
+    function drawStatusBar() {
+      fillRect(0, 0, 320, CFG.barH, CFG.bg);
+      drawLine(0, CFG.barH - 1, 320, CFG.barH - 1, CFG.border);
+
+      if (activeThemeKey === 'tesla') {
+        // Centered Telemetry (No Text): [ Wi-Fi (130) | Cloud Backend (160) | Lock (188) ]
+        for (let i = 0; i < 4; i++) {
+          fillRect(130 + i*3.5, 7 + (10 - i*2.5), 2, i*2.5 + 2.5, CFG.green);
+        }
+        drawCloudIcon(160, CFG.barH/2, CFG.green);
+        drawCircle(188, 9, 3.5, '#64748b');
+        fillRoundRect(184, 11, 8, 7, 1.5, '#64748b');
+        // Borderless: No horizontal line, pure dark glass
+      } else if (activeThemeKey === 'nordic') {
+        fillCircle(16, CFG.barH/2, 3, CFG.green);
+        ctx.font = '10px sans-serif'; ctx.fillStyle = CFG.text; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText("Smart Parcel Box", 26, CFG.barH/2);
+        fillRoundRect(220, 4, 90, CFG.barH - 8, (CFG.barH - 8)/2, CFG.card);
+        drawRoundRect(220, 4, 90, CFG.barH - 8, (CFG.barH - 8)/2, CFG.border);
+        for (let i = 0; i < 4; i++) fillRect(230 + i*4, 6 + (10 - i*2.5), 2.5, i*2.5 + 2.5, CFG.green);
+        drawCircle(262, 8, 3.5, CFG.green);
+        fillRoundRect(258, 10, 8, 7, 1.5, CFG.green);
+        fillCircle(295, 13, 3, CFG.green);
+      } else if (activeThemeKey === 'logistics') {
+        fillRect(0, 0, 75, CFG.barH - 1, CFG.accent);
+        ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText("ONLINE", 37, CFG.barH/2);
+        fillRoundRect(220, 4, 90, CFG.barH - 8, (CFG.barH - 8)/2, CFG.card);
+        drawRoundRect(220, 4, 90, CFG.barH - 8, (CFG.barH - 8)/2, CFG.border);
+        for (let i = 0; i < 4; i++) fillRect(230 + i*4, 6 + (10 - i*2.5), 2.5, i*2.5 + 2.5, CFG.green);
+        drawCircle(262, 8, 3.5, CFG.green);
+        fillRoundRect(258, 10, 8, 7, 1.5, CFG.green);
+        fillCircle(295, 13, 3, CFG.green);
+      } else {
+        ctx.font = '9px monospace'; ctx.fillStyle = CFG.accent; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText("SYS_CMD >> ACTIVE", 10, CFG.barH/2);
+        fillRoundRect(220, 4, 90, CFG.barH - 8, (CFG.barH - 8)/2, CFG.card);
+        drawRoundRect(220, 4, 90, CFG.barH - 8, (CFG.barH - 8)/2, CFG.border);
+        for (let i = 0; i < 4; i++) fillRect(230 + i*4, 6 + (10 - i*2.5), 2.5, i*2.5 + 2.5, CFG.green);
+        drawCircle(262, 8, 3.5, CFG.green);
+        fillRoundRect(258, 10, 8, 7, 1.5, CFG.green);
+        fillCircle(295, 13, 3, CFG.green);
+      }
+    }
+
+    // --- UNIFIED MODAL CARD ENGINE (Matches Scan Rejected 1:1) ---
+    function drawModalCard(borderColor, textColor, iconType, headline, subtitle = null) {
+      drawRoundRect(45, 62, 230, 110, CFG.btnR, borderColor);
+      fillRoundRect(47, 64, 226, 106, CFG.btnR - 1, CFG.card);
+
+      fillCircle(160, 95, 18, borderColor);
+
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (iconType === 'unlocked') {
+        ctx.strokeStyle = '#05070a';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(158, 90, 5, Math.PI, 0, false);
+        ctx.stroke();
+        drawLine(153, 90, 153, 93, '#05070a');
+        drawLine(163, 90, 163, 87, '#05070a');
+        fillRoundRect(152, 93, 16, 11, 2, '#05070a');
+        fillCircle(160, 98, 1.2, borderColor);
+      } else if (iconType === 'drop') {
+        fillRoundRect(152, 86, 16, 10, 1.5, '#05070a');
+        fillRect(159, 86, 2, 10, borderColor);
+        ctx.strokeStyle = '#05070a';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(154, 100); ctx.lineTo(160, 104); ctx.lineTo(166, 100);
+        ctx.stroke();
+      } else if (iconType === 'delivered' || iconType === 'check') {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(152, 95); ctx.lineTo(157, 100); ctx.lineTo(168, 88);
+        ctx.stroke();
+      } else if (iconType === 'close_door') {
+        ctx.strokeStyle = '#05070a';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(160, 87); ctx.lineTo(160, 101);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(155, 96); ctx.lineTo(160, 101); ctx.lineTo(165, 96);
+        ctx.stroke();
+      } else if (iconType === 'locked') {
+        ctx.strokeStyle = '#05070a';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(160, 90, 5, Math.PI, 0, false);
+        ctx.stroke();
+        drawLine(155, 90, 155, 93, '#05070a');
+        drawLine(165, 90, 165, 93, '#05070a');
+        fillRoundRect(152, 93, 16, 11, 2, '#05070a');
+        fillCircle(160, 98, 1.2, borderColor);
+      } else if (iconType === 'error' || iconType === 'cross') {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        drawLine(152, 87, 168, 103, '#ffffff');
+        drawLine(168, 87, 152, 103, '#ffffff');
+      }
+
+      if (subtitle) {
+        text(headline, 160, 130, textColor, true, 15.5);
+        text(subtitle, 160, 150, CFG.grey, false, 11);
+      } else {
+        text(headline, 160, 138, textColor, true, 16.5);
+      }
+    }
+
+    function drawButton(x, y, w, h, label, sublabel, pillCol, iconType) {
+      fillRoundRect(x - w/2, y - h/2, w, h, CFG.btnR, CFG.card);
+      drawRoundRect(x - w/2, y - h/2, w, h, CFG.btnR, CFG.border);
+
+      const iy = y - 24;
+      if (iconType === 'box') {
+        drawRoundRect(x - 14, iy - 10, 28, 22, 3, CFG.text);
+        drawLine(x - 14, iy - 2, x + 14, iy - 2, CFG.text);
+        fillRect(x - 4, iy - 2, 8, 4, pillCol);
+      } else {
+        drawCircle(x, iy - 3, 9, CFG.text);
+        fillRect(x + 4, iy - 3, 8, 8, CFG.card);
+        fillRoundRect(x - 11, iy + 3, 22, 16, 3, CFG.text);
+        fillCircle(x, iy + 11, 2.5, CFG.card);
+      }
+
+      text(label, x, y + 14, CFG.text, true, 13);
+      text(sublabel, x, y + 30, CFG.grey, false, 9);
+
+      if (CFG.btnR >= 40) {
+        fillRoundRect(x - 22, y + 44, 44, 10, 5, pillCol);
+      } else {
+        fillCircle(x, y + 46, 5, pillCol);
+      }
+    }
+
+    function render() {
+      fillRect(0, 0, 320, 240, CFG.bg);
+
+      if (CFG.screen === 'HOME') {
+        drawStatusBar();
+        ctx.font = '9px monospace'; ctx.fillStyle = CFG.grey; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText("VER: 4.2.0-S3", 12, 226);
+
+        drawButton(80, CFG.btnCY, CFG.btnW, CFG.btnH, "DROP-OFF", "Deposit Parcel", CFG.drop, 'box');
+        drawButton(240, CFG.btnCY, CFG.btnW, CFG.btnH, "PICK-UP", "Retrieve Item", CFG.warn, 'lock');
+      } else if (CFG.screen === 'SCANNER') {
+        drawStatusBar();
+
+        const isDrop = (CFG.isDropMode !== false);
+        const modeColor = isDrop ? CFG.drop : CFG.warn;
+        const sStyle = CFG.scannerStyle || 'single';
+
+        // 1. Headline: "Please scan the Parcel's QR below."
+        text("Please scan the Parcel's QR below.", 160, 52, '#ffffff', true, 13);
+
+        // 2. Borderless QR UI (Pure floating QR code, no parcel container box, no outline)
+        const qx = 134, qy = 76, qsize = 52;
+        fillRoundRect(qx, qy, qsize, qsize, 4, '#ffffff');
+
+        // Top-left Finder Pattern (12x12)
+        fillRect(qx + 5, qy + 5, 12, 12, '#000000');
+        fillRect(qx + 7, qy + 7, 8, 8, '#ffffff');
+        fillRect(qx + 9, qy + 9, 4, 4, '#000000');
+
+        // Top-right Finder Pattern (12x12)
+        fillRect(qx + 35, qy + 5, 12, 12, '#000000');
+        fillRect(qx + 37, qy + 7, 8, 8, '#ffffff');
+        fillRect(qx + 39, qy + 9, 4, 4, '#000000');
+
+        // Bottom-left Finder Pattern (12x12)
+        fillRect(qx + 5, qy + 35, 12, 12, '#000000');
+        fillRect(qx + 7, qy + 37, 8, 8, '#ffffff');
+        fillRect(qx + 9, qy + 39, 4, 4, '#000000');
+
+        // Timing patterns & Data matrix modules
+        fillRect(qx + 19, qy + 8, 14, 2, '#000000');
+        fillRect(qx + 8, qy + 19, 2, 14, '#000000');
+        fillRect(qx + 19, qy + 14, 4, 4, '#000000');
+        fillRect(qx + 27, qy + 14, 5, 4, '#000000');
+        fillRect(qx + 19, qy + 22, 6, 4, '#000000');
+        fillRect(qx + 29, qy + 22, 4, 6, '#000000');
+        fillRect(qx + 19, qy + 30, 4, 5, '#000000');
+        fillRect(qx + 26, qy + 32, 6, 4, '#000000');
+        fillRect(qx + 36, qy + 20, 5, 5, '#000000');
+        fillRect(qx + 35, qy + 28, 4, 6, '#000000');
+        fillRect(qx + 36, qy + 37, 6, 4, '#000000');
+        fillRect(qx + 20, qy + 39, 4, 5, '#000000');
+
+        // 3. Chev down arrow icon
+        ctx.strokeStyle = modeColor;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        if (sStyle === 'dual') {
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(146, 146); ctx.lineTo(160, 158); ctx.lineTo(174, 146);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(146, 160); ctx.lineTo(160, 172); ctx.lineTo(174, 160);
+          ctx.stroke();
+        } else if (sStyle === 'wide') {
+          ctx.lineWidth = 3.5;
+          ctx.beginPath();
+          ctx.moveTo(136, 154); ctx.lineTo(160, 172); ctx.lineTo(184, 154);
+          ctx.stroke();
+        } else {
+          // Bold Single Chevron (DEFAULT)
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(144, 154); ctx.lineTo(160, 170); ctx.lineTo(176, 154);
+          ctx.stroke();
+        }
+
+        // 4. "Scanner Below" REMOVED per user request
+
+        // 5. Press (red dot) to exit.
+        ctx.font = '11.5px sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#94a3b8';
+        ctx.fillText("Press", 148, 218);
+        fillCircle(158, 218, 3.5, '#e11d48');
+        ctx.textAlign = 'left'; ctx.fillStyle = '#94a3b8'; ctx.fillText("to exit.", 168, 218);
+      } else if (CFG.screen === 'SETUP_PROMPT' || CFG.screen === 'UNREGISTERED') {
+        // --- SETUP STEP 1: INITIAL PROMPT (Authentic Hardware Setup Vibe) ---
+        drawStatusBar();
+
+        // Precision Mechanical Gear Icon
+        drawIconGear(160, 76, '#f59e0b', '#05070a');
+
+        // Headline & Instruction (Borderless, Spacious)
+        text("SETUP REQUIRED", 160, 120, '#f59e0b', true, 18);
+        text("Pair this box with Mobile App", 160, 142, '#94a3b8', false, 11.5);
+
+        // Glowing Begin Setup Button
+        fillRoundRect(95, 168, 130, 28, 14, '#00f0ff');
+        text("Begin Setup", 160, 182, '#05070a', true, 12);
+        ctx.font = '10.5px sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#64748b';
+        ctx.fillText("Press BTN 1", 154, 216);
+        fillCircle(164, 216, 3.5, '#00f0ff');
+        ctx.textAlign = 'left'; ctx.fillText("to start", 174, 216);
+
+      } else if (CFG.screen === 'SETUP_BLE') {
+        // --- SETUP STEP 2: BLUETOOTH WI-FI PROVISIONING (High-Contrast White BG) ---
+        fillRect(0, 0, 320, 240, '#ffffff');
+
+        text("Bluetooth Wi-Fi Setup", 160, 22, '#0f172a', true, 15);
+        text("Scan in Parcel App to configure Wi-Fi", 160, 39, '#475569', false, 11);
+
+        // High-Contrast QR Code Plate (96x96)
+        const qx = 112, qy = 52, qs = 96;
+        drawRect(qx, qy, qs, qs, '#000000');
+        // Finder patterns (TL, TR, BL)
+        fillRect(qx + 4, qy + 4, 20, 20, '#000000');
+        fillRect(qx + 7, qy + 7, 14, 14, '#ffffff');
+        fillRect(qx + 10, qy + 10, 8, 8, '#000000');
+
+        fillRect(qx + qs - 24, qy + 4, 20, 20, '#000000');
+        fillRect(qx + qs - 21, qy + 7, 14, 14, '#ffffff');
+        fillRect(qx + qs - 18, qy + 10, 8, 8, '#000000');
+
+        fillRect(qx + 4, qy + qs - 24, 20, 20, '#000000');
+        fillRect(qx + 7, qy + qs - 21, 14, 14, '#ffffff');
+        fillRect(qx + 10, qy + qs - 18, 8, 8, '#000000');
+
+        // Timing patterns
+        for (let i = 28; i < qs - 28; i += 6) {
+          fillRect(qx + i, qy + 10, 3, 3, '#000000');
+          fillRect(qx + 10, qy + i, 3, 3, '#000000');
+        }
+
+        // Data modules simulation
+        for (let r = 0; r < 12; r++) {
+          for (let c = 0; c < 12; c++) {
+            if ((r < 3 && c < 3) || (r < 3 && c > 8) || (r > 8 && c < 3)) continue;
+            if ((r >= 4 && r <= 7) && (c >= 4 && c <= 7)) continue; // Center cutout for BLE glyph
+            if ((r * 7 + c * 11) % 3 === 0 || (r + c) % 5 === 0) {
+              fillRect(qx + 26 + c * 4, qy + 26 + r * 4, 3.5, 3.5, '#000000');
+            }
+          }
+        }
+
+        // Central Bluetooth Emblem Module
+        fillRoundRect(qx + qs/2 - 9, qy + qs/2 - 9, 18, 18, 3, '#0284c7');
+        text("ᛒ", qx + qs/2, qy + qs/2, '#ffffff', true, 11);
+
+        // Status / Expiry Pill
+        fillRoundRect(85, 156, 150, 24, 12, '#f1f5f9');
+        drawRoundRect(85, 156, 150, 24, 12, '#cbd5e1');
+        text("ᛒ  BLE ACTIVE", 160, 168, '#0284c7', true, 11);
+
+        // Cancel Footer (BTN 2 Red Dot)
+        ctx.font = '10.5px sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#64748b';
+        ctx.fillText("Press", 146, 212);
+        fillCircle(158, 212, 3.5, '#e11d48');
+        ctx.textAlign = 'left'; ctx.fillText("to cancel", 170, 212);
+
+      } else if (CFG.screen === 'SETUP_QR' || CFG.screen === 'REG_QR') {
+        // --- SETUP STEP 3: PAIRING QR & PIN (Existing White BG UI) ---
+        fillRect(0, 0, 320, 240, '#ffffff');
+
+        text("Scan QR with Parcel App", 160, 22, '#0f172a', true, 14);
+        text("Or enter the 6-digit Code below", 160, 38, '#64748b', false, 11);
+
+        // High-Contrast QR Code (96x96)
+        const qx = 112, qy = 52, qs = 96;
+        drawRect(qx, qy, qs, qs, '#000000');
+
+        // Finder patterns (TL, TR, BL)
+        fillRect(qx + 4, qy + 4, 20, 20, '#000000');
+        fillRect(qx + 7, qy + 7, 14, 14, '#ffffff');
+        fillRect(qx + 10, qy + 10, 8, 8, '#000000');
+
+        fillRect(qx + qs - 24, qy + 4, 20, 20, '#000000');
+        fillRect(qx + qs - 21, qy + 7, 14, 14, '#ffffff');
+        fillRect(qx + qs - 18, qy + 10, 8, 8, '#000000');
+
+        fillRect(qx + 4, qy + qs - 24, 20, 20, '#000000');
+        fillRect(qx + 7, qy + qs - 21, 14, 14, '#ffffff');
+        fillRect(qx + 10, qy + qs - 18, 8, 8, '#000000');
+
+        // Timing patterns
+        for (let i = 28; i < qs - 28; i += 6) {
+          fillRect(qx + i, qy + 10, 3, 3, '#000000');
+          fillRect(qx + 10, qy + i, 3, 3, '#000000');
+        }
+
+        // Data modules simulation
+        for (let r = 0; r < 12; r++) {
+          for (let c = 0; c < 12; c++) {
+            if ((r < 3 && c < 3) || (r < 3 && c > 8) || (r > 8 && c < 3)) continue;
+            if ((r * 13 + c * 7) % 3 === 0 || (r + c * 3) % 4 === 0) {
+              fillRect(qx + 26 + c * 4, qy + 26 + r * 4, 3.5, 3.5, '#000000');
+            }
+          }
+        }
+
+        // Large 6-digit PIN (Existing White BG UI)
+        text("CODE: " + (CFG.pinCode || '482-913'), 160, 168, '#0f172a', true, 16);
+
+        // Expiry & Cancel pill
+        fillRoundRect(60, 192, 200, 24, 12, '#f1f5f9');
+        ctx.font = '10.5px sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#475569';
+        ctx.fillText("Expires in 60s  |  BTN 2", 158, 204);
+        fillCircle(168, 204, 3, '#e11d48');
+        ctx.textAlign = 'left'; ctx.fillText("to cancel", 178, 204);
+
+      } else if (CFG.screen === 'SETUP_SUCCESS') {
+        // --- SETUP STEP 4: DEVICE PAIRED (Unified Modal Card) ---
+        drawStatusBar();
+        drawModalCard('#10b981', '#10b981', 'delivered', "Device Paired!", "Ready for deliveries");
+      } else if (CFG.screen === 'ALERT_SUCCESS' || CFG.screen === 'UNLOCKED') {
+        // --- Standalone Mobile App Control Screen (Pure Lock Icon + Text, No Card) ---
+        drawStatusBar();
+
+        // Open Shackle
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(154, 76, 14, Math.PI, 0, false);
+        ctx.stroke();
+        drawLine(140, 76, 140, 92, '#fbbf24');
+        drawLine(168, 76, 168, 84, '#fbbf24');
+
+        // Padlock Body
+        fillRoundRect(138, 92, 44, 34, 6, '#fbbf24');
+        fillCircle(160, 105, 3.5, '#05070a');
+        fillRect(158.5, 105, 3, 9, '#05070a');
+
+        // Headline ONLY
+        text("UNLOCKED", 160, 155, '#ffffff', true, 20);
+
+      } else if (CFG.screen === 'DROP_PROMPT') {
+        // --- STEP 1: PLACE & DROP (Action Illustration - Previous State) ---
+        drawStatusBar();
+
+        // Parcel box
+        fillRoundRect(138, 66, 44, 30, 4, '#1e293b');
+        drawRoundRect(138, 66, 44, 30, 4, '#00f0ff');
+        drawLine(138, 81, 182, 81, '#00f0ff');
+        fillRect(156, 77, 8, 8, '#00f0ff');
+
+        // Downward drop chevron
+        ctx.strokeStyle = '#00f0ff';
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(148, 108); ctx.lineTo(160, 118); ctx.lineTo(172, 108);
+        ctx.stroke();
+
+        // Bin opening frame
+        drawLine(124, 126, 124, 136, '#475569');
+        drawLine(124, 136, 196, 136, '#475569');
+        drawLine(196, 136, 196, 126, '#475569');
+
+        // Bold headline ONLY
+        text("Place & Drop the parcel inside", 160, 170, '#ffffff', true, 16);
+
+      } else if (CFG.screen === 'DELIVERED') {
+        // --- STEP 2: PARCEL DELIVERED (Unified Scan Rejected Card UI) ---
+        drawStatusBar();
+        drawModalCard(CFG.green, CFG.green, 'delivered', "Parcel Delivered");
+
+      } else if (CFG.screen === 'CLOSE_DOOR') {
+        // --- STEP 3: PLEASE CLOSE DOOR (Action Illustration - Previous State) ---
+        drawStatusBar();
+
+        // Dropbox lid closure guide graphic
+        drawRoundRect(134, 100, 52, 26, 4, '#334155');
+        // Angled open lid
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(134, 100); ctx.lineTo(176, 72);
+        ctx.stroke();
+
+        // Push-down guide arrow
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(174, 78); ctx.lineTo(174, 94);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(169, 89); ctx.lineTo(174, 94); ctx.lineTo(179, 89);
+        ctx.stroke();
+
+        // Bold headline ONLY
+        text("Please close the door", 160, 160, '#ffffff', true, 18);
+
+      } else if (CFG.screen === 'LOCKED') {
+        // --- Standalone Mobile App Control Screen (Pure Lock Icon + Text, No Card) ---
+        drawStatusBar();
+
+        // Closed Shackle
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(160, 76, 14, Math.PI, 0, false);
+        ctx.stroke();
+        drawLine(146, 76, 146, 92, '#10b981');
+        drawLine(174, 76, 174, 92, '#10b981');
+
+        // Padlock Body
+        fillRoundRect(138, 92, 44, 34, 6, '#10b981');
+        fillCircle(160, 105, 3.5, '#05070a');
+        fillRect(158.5, 105, 3, 9, '#05070a');
+
+        // Headline ONLY
+        text("LOCKED", 160, 155, '#ffffff', true, 20);
+
+      } else if (CFG.screen === 'THANKYOU') {
+        // --- STEP 4: THANK YOU (Unified Scan Rejected Card UI) ---
+        drawStatusBar();
+        drawModalCard(CFG.drop, CFG.drop, 'delivered', "Thank you.");
+
+      } else if (CFG.screen === 'ALERT_ERROR') {
+        // --- SCAN REJECTED (The Master Template) ---
+        drawStatusBar();
+        drawModalCard(CFG.warn, CFG.warn, 'error', "SCAN REJECTED", "Barcode not registered in delivery log");
+      } else if (CFG.screen === 'LOCKSCREEN') {
+        const lx = 160 - 45 + CFG.robotOffsetX;
+        const rx = 160 + 45 + CFG.robotOffsetX;
+        fillRoundRect(lx - 25, 90, 50, 40, 20, CFG.accent);
+        fillRoundRect(rx - 25, 90, 50, 40, 20, CFG.accent);
+        fillRoundRect(145, 145, 30, 12, 6, CFG.accent);
+        text("Smart Parcel Box", 160, 195, CFG.text, true, 15);
+        text("Touch button or scan to begin", 160, 218, CFG.grey, false, 11);
+      } else if (CFG.screen === 'SETTINGS') {
+        drawStatusBar();
+        text("System Settings", 160, 46, CFG.grey, false, 12);
+        drawButton(80, 138, CFG.btnW, CFG.btnH, "REGISTER", "Pair Device", CFG.drop, 'box');
+        drawButton(240, 138, CFG.btnW, CFG.btnH, "BACK", "Return Home", CFG.warn, 'lock');
+      }
+    }
+
+    let flowTimer = null;
+    let flowRunning = false;
+
+    function runDeliveryFlow() {
+      if (flowRunning) {
+        clearTimeout(flowTimer);
+        flowRunning = false;
+        const b = document.getElementById('sim-flow-btn');
+        if (b) b.innerHTML = `<span>▶</span><span>Play 2s Delivery Flow</span>`;
+        return;
+      }
+
+      flowRunning = true;
+      const b = document.getElementById('sim-flow-btn');
+      if (b) b.innerHTML = `<span>⏹</span><span>Stop Flow</span>`;
+
+      const sequence = [
+        { screen: 'DROP_PROMPT', delay: 2000 },
+        { screen: 'DELIVERED', delay: 2000 },
+        { screen: 'CLOSE_DOOR', delay: 2000 },
+        { screen: 'THANKYOU', delay: 2000 },
+        { screen: 'HOME', delay: 1000 }
+      ];
+
+      let step = 0;
+      function nextStep() {
+        if (!flowRunning) return;
+        if (step >= sequence.length) {
+          flowRunning = false;
+          const b = document.getElementById('sim-flow-btn');
+          if (b) b.innerHTML = `<span>▶</span><span>Play 2s Delivery Flow</span>`;
+          return;
+        }
+
+        const current = sequence[step];
+        setScreen(current.screen);
+        step++;
+
+        if (step < sequence.length) {
+          flowTimer = setTimeout(nextStep, current.delay);
+        } else {
+          flowTimer = setTimeout(() => {
+            setScreen('HOME');
+            flowRunning = false;
+            const b = document.getElementById('sim-flow-btn');
+            if (b) b.innerHTML = `<span>▶</span><span>Play 2s Delivery Flow</span>`;
+          }, current.delay);
+        }
+      }
+
+      nextStep();
+    }
+
+    let setupFlowTimer = null;
+    let setupFlowRunning = false;
+
+    function runSetupFlow() {
+      if (setupFlowRunning) {
+        clearTimeout(setupFlowTimer);
+        setupFlowRunning = false;
+        const b = document.getElementById('sim-setup-flow-btn');
+        if (b) b.innerHTML = `<span>▶</span><span>Play Setup Flow</span>`;
+        return;
+      }
+      if (flowRunning) {
+        clearTimeout(flowTimer);
+        flowRunning = false;
+        const b = document.getElementById('sim-flow-btn');
+        if (b) b.innerHTML = `<span>▶</span><span>Play 2s Delivery Flow</span>`;
+      }
+
+      setupFlowRunning = true;
+      const b = document.getElementById('sim-setup-flow-btn');
+      if (b) b.innerHTML = `<span>⏹</span><span>Stop Setup</span>`;
+
+      const sequence = [
+        { screen: 'SETUP_PROMPT', delay: 2500 },
+        { screen: 'SETUP_BLE', delay: 3000 },
+        { screen: 'SETUP_QR', delay: 3500 },
+        { screen: 'SETUP_SUCCESS', delay: 2500 },
+        { screen: 'HOME', delay: 1000 }
+      ];
+
+      let step = 0;
+      function nextSetupStep() {
+        if (!setupFlowRunning) return;
+        if (step >= sequence.length) {
+          setupFlowRunning = false;
+          const b = document.getElementById('sim-setup-flow-btn');
+          if (b) b.innerHTML = `<span>▶</span><span>Play Setup Flow</span>`;
+          return;
+        }
+
+        const current = sequence[step];
+        setScreen(current.screen);
+        step++;
+
+        if (step < sequence.length) {
+          setupFlowTimer = setTimeout(nextSetupStep, current.delay);
+        } else {
+          setupFlowTimer = setTimeout(() => {
+            setScreen('HOME');
+            setupFlowRunning = false;
+            const b = document.getElementById('sim-setup-flow-btn');
+            if (b) b.innerHTML = `<span>▶</span><span>Play Setup Flow</span>`;
+          }, current.delay);
+        }
+      }
+
+      nextSetupStep();
+    }
+
+    let lastTick = 0;
+    let wander = 0;
+    function anim(ts) {
+      if (ts - lastTick > 50) {
+        lastTick = ts;
+        // Static flicker-free: No continuous redraw loop on SCANNER!
+        if (CFG.screen === 'LOCKSCREEN') {
+          wander += 0.05;
+          CFG.robotOffsetX = Math.sin(wander) * 5;
+          render();
+        }
+      }
+      requestAnimationFrame(anim);
+    }
+    requestAnimationFrame(anim);
+
+    // ── Interactive Touchscreen Simulation ─────────────────────────
+    function getCanvasCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = 320 / rect.width;
+      const scaleY = 240 / rect.height;
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+      };
+    }
+
+    // Touch Feedback Ripple
+    let touchRipple = null;
+    function triggerTouchFeedback(x, y) {
+      touchRipple = { x, y, r: 6, alpha: 0.8 };
+      function drawRipple() {
+        if (!touchRipple) return;
+        ctx.save();
+        ctx.strokeStyle = `rgba(0, 240, 255, ${touchRipple.alpha})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(touchRipple.x, touchRipple.y, touchRipple.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        touchRipple.r += 4;
+        touchRipple.alpha -= 0.15;
+        if (touchRipple.alpha > 0) {
+          requestAnimationFrame(drawRipple);
+        } else {
+          touchRipple = null;
+          render();
+        }
+      }
+      requestAnimationFrame(drawRipple);
+    }
+
+    canvas.addEventListener('click', (e) => {
+      const { x, y } = getCanvasCoords(e);
+      triggerTouchFeedback(x, y);
+
+      switch (CFG.screen) {
+        case 'HOME':
+          // Left Card (Drop-Off)
+          if (x >= 15 && x <= 155 && y >= 30 && y <= 225) {
+            setScreen('SCANNER');
+          }
+          // Right Card (Pick-Up)
+          else if (x >= 165 && x <= 305 && y >= 30 && y <= 225) {
+            setScreen('SCANNER');
+          }
+          break;
+
+        case 'SCANNER':
+          // Exit button pill at bottom
+          if (y >= 195 && y <= 235 && x >= 90 && x <= 230) {
+            setScreen('HOME');
+          }
+          // Center QR scanning area -> trigger simulated parcel scan & delivery sequence
+          else if (y >= 45 && y <= 190 && x >= 80 && x <= 240) {
+            runDeliveryFlow();
+          }
+          break;
+
+        case 'SETUP_PROMPT':
+        case 'UNREGISTERED':
+          // "Begin Setup" button
+          if (y >= 155 && y <= 205 && x >= 85 && x <= 235) {
+            setScreen('SETUP_BLE');
+          }
+          break;
+
+        case 'SETUP_BLE':
+          // Cancel button pill at bottom
+          if (y >= 195 && y <= 235 && x >= 85 && x <= 235) {
+            setScreen('SETUP_PROMPT');
+          }
+          // BLE Active pill or QR plate -> advance to QR pairing
+          else if (y >= 45 && y <= 190 && x >= 80 && x <= 240) {
+            setScreen('SETUP_QR');
+          }
+          break;
+
+        case 'SETUP_QR':
+        case 'REG_QR':
+          // Cancel button pill
+          if (y >= 185 && y <= 235 && x >= 40 && x <= 280) {
+            setScreen('SETUP_PROMPT');
+          }
+          // QR code or code area -> simulate pairing complete!
+          else if (y >= 45 && y <= 180 && x >= 80 && x <= 240) {
+            setScreen('SETUP_SUCCESS');
+          }
+          break;
+
+        case 'DROP_PROMPT':
+        case 'PLACEDROP':
+          // Tap anywhere to advance to DELIVERED
+          setScreen('DELIVERED');
+          break;
+
+        case 'DELIVERED':
+          // Tap to advance to CLOSE_DOOR
+          setScreen('CLOSE_DOOR');
+          break;
+
+        case 'CLOSE_DOOR':
+          // Tap to advance to THANKYOU
+          setScreen('THANKYOU');
+          break;
+
+        case 'THANKYOU':
+        case 'SETUP_SUCCESS':
+        case 'UNLOCKED':
+        case 'LOCKED':
+        case 'ALERT_ERROR':
+        case 'LOCKSCREEN':
+        default:
+          // Tap anywhere returns to HOME
+          setScreen('HOME');
+          break;
+      }
+    });
+
+    // Dynamic Cursor Feedback (Pointer when hovering over interactive touch targets)
+    canvas.addEventListener('mousemove', (e) => {
+      const { x, y } = getCanvasCoords(e);
+      let isPointer = false;
+
+      if (CFG.screen === 'HOME') {
+        if ((x >= 15 && x <= 155 && y >= 30 && y <= 225) ||
+            (x >= 165 && x <= 305 && y >= 30 && y <= 225)) {
+          isPointer = true;
+        }
+      } else if (CFG.screen === 'SCANNER') {
+        if ((y >= 195 && y <= 235 && x >= 90 && x <= 230) ||
+            (y >= 45 && y <= 190 && x >= 80 && x <= 240)) {
+          isPointer = true;
+        }
+      } else if (CFG.screen === 'SETUP_PROMPT' || CFG.screen === 'UNREGISTERED') {
+        if (y >= 155 && y <= 205 && x >= 85 && x <= 235) isPointer = true;
+      } else if (CFG.screen === 'SETUP_BLE') {
+        if ((y >= 195 && y <= 235 && x >= 85 && x <= 235) ||
+            (y >= 45 && y <= 190 && x >= 80 && x <= 240)) isPointer = true;
+      } else if (CFG.screen === 'SETUP_QR' || CFG.screen === 'REG_QR') {
+        if (y >= 40 && y <= 235) isPointer = true;
+      } else {
+        isPointer = true;
+      }
+
+      canvas.style.cursor = isPointer ? 'pointer' : 'default';
+    });
+
+    function generateCppCode() {
+      const cDrop   = hexColorToRgb565Str(CFG.drop);
+      const cWarn   = hexColorToRgb565Str(CFG.warn);
+      const cCard   = hexColorToRgb565Str(CFG.card);
+      const cBorder = hexColorToRgb565Str(CFG.border);
+      const cBg     = hexColorToRgb565Str(CFG.bg);
+      const cAccent = hexColorToRgb565Str(CFG.accent);
+
+      const code = `// ============================================================
+//  THEME: ${THEMES[activeThemeKey].name}
+//  Generated for ESP32-S3 TFT LCD (320x240 ILI9341)
+// ============================================================
+
+// --- 1. Put in StateMetrics.h ---
+#define COLOR_BG      ${cBg}   // Main background
+#define COLOR_CARD    ${cCard}   // Card surface
+#define COLOR_BORDER  ${cBorder}   // Card outline stroke
+#define COLOR_TEXT    0xFFFF   // White primary text
+#define COLOR_GREY    0x9CD3   // Secondary subtitle text
+#define COLOR_ACCENT  ${cAccent}   // Primary brand accent
+#define COLOR_BLUE    ${cDrop}   // Drop-Off action
+#define COLOR_RED     ${cWarn}   // Pick-Up / Alert warning
+#define COLOR_GOLD    0xFDE0   // Amber highlight
+
+#define BAR_HEIGHT    ${CFG.barH}    // Status bar height
+#define BTN_WIDTH     ${CFG.btnW}   // Card width
+#define BTN_HEIGHT    ${CFG.btnH}   // Card height
+#define BTN_CY        ${CFG.btnCY}   // Card vertical center
+#define BTN_RADIUS    ${CFG.btnR}    // Curvature radius (e.g. 18 for soft pill, 8 for tech card)
+
+// --- 2. Put in DisplayController.ino ---
+
+// ── Icon Helper: Vector Cloud Backend Icon ──────────────────
+void drawIconCloud(int cx, int cy, uint16_t color) {
+  tft.fillCircle(cx - 4, cy, 3, color);
+  tft.fillCircle(cx, cy - 2, 4, color);
+  tft.fillCircle(cx + 4, cy, 3, color);
+  tft.fillRect(cx - 6, cy + 1, 13, 3, color);
+}
+
+// ── Minimalist Centered Status Bar (Tesla Sleek - No Text) ──
+void drawStatusBar() {
+  tft.fillRect(0, 0, 320, BAR_HEIGHT, COLOR_BG);
+  // Edge-to-edge dark glass (zero divider line, zero text)
+
+  bool wifiOK   = (WiFi.status() == WL_CONNECTED);
+  bool anyOpen  = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
+  bool socketOK = socketIO.isConnected();
+
+  // Centered 3 Telemetry Glyphs: [ Wi-Fi (130) | Cloud (160) | Lock (188) ]
+  // 1. Wi-Fi 4-bar wedge
+  uint16_t wifiCol = wifiOK ? COLOR_GREEN : COLOR_RED;
+  for (int i = 0; i < 4; i++) {
+    tft.fillRect(130 + i*4, 7 + (10 - (int)(i*2.5)), 2, (int)(i*2.5) + 3, wifiCol);
+  }
+
+  // 2. Cloud backend connection icon
+  uint16_t cloudCol = (wifiOK && socketOK) ? COLOR_GREEN : COLOR_RED;
+  drawIconCloud(160, BAR_HEIGHT/2, cloudCol);
+
+  // 3. Padlock glyph (Grey=Locked, Amber=Open)
+  uint16_t lockCol = anyOpen ? COLOR_GOLD : COLOR_GREY;
+  drawSmallPadlock(188, 9, lockCol, anyOpen);
+}
+
+void _drawSmartButton(int x, int y, int w, int h, const char* title, const char* subtitle, uint16_t accentCol, int iconId) {
+  // Main card body
+  tft.fillRoundRect(x - w/2, y - h/2, w, h, BTN_RADIUS, COLOR_CARD);
+  tft.drawRoundRect(x - w/2, y - h/2, w, h, BTN_RADIUS, COLOR_BORDER);
+
+  // Icon in top half
+  int iy = y - 24;
+  if (iconId == 0) {
+    drawIconBox(x, iy, COLOR_TEXT);
+  } else {
+    drawIconLock(x, iy, COLOR_TEXT, true);
+  }
+
+  // Primary action title
+  _boldText(title, x, y + 14, COLOR_TEXT);
+  // Secondary descriptive subtitle
+  _smallText(subtitle, x, y + 30, COLOR_GREY);
+
+  // Bottom edge accent pill / bar
+  tft.fillRoundRect(x - w/2 + 10, y + h/2 - 6, w - 20, 3, 1, accentCol);
+}
+
+void showHomeScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+
+  // Dual Action Cards
+  _drawSmartButton(80,  BTN_CY, BTN_WIDTH, BTN_HEIGHT, "DROP-OFF", "Deposit Parcel", COLOR_BLUE, 0);
+  _drawSmartButton(240, BTN_CY, BTN_WIDTH, BTN_HEIGHT, "PICK-UP",  "Retrieve Item", COLOR_RED,  1);
+
+  tft.setFont();
+  tft.setTextColor(COLOR_GREY);
+  tft.setCursor(HUD_MARGIN + 2, 228);
+  tft.print("VER: 4.2.0-S3");
+}`;
+
+      document.getElementById('code-output').textContent = code;
+    }
+
+    function copyCode() {
+      const code = document.getElementById('code-output').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copy-code-btn');
+        const orig = btn.innerHTML;
+        btn.innerHTML = `<span class="text-emerald-300 font-bold">✓ Copied!</span>`;
+        setTimeout(() => { btn.innerHTML = orig; }, 1500);
+      });
+    }
+
+    setScale(2);
+    applyPreset('tesla');
+  </script>
+</body>
+</html>

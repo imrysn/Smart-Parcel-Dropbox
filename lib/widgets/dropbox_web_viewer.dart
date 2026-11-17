@@ -10,11 +10,13 @@ class DropboxWebViewer extends StatefulWidget {
     required this.preview,
     required this.stateJson,
     required this.onDoorSelected,
+    this.onBackgroundTap,
   });
 
   final Widget preview;
   final String stateJson;
   final ValueChanged<String> onDoorSelected;
+  final VoidCallback? onBackgroundTap;
 
   @override
   State<DropboxWebViewer> createState() => _DropboxWebViewerState();
@@ -41,6 +43,8 @@ class _DropboxWebViewerState extends State<DropboxWebViewer> {
           _sendState();
         case 'viewer-error':
           setState(() => _failed = true);
+        case 'background-tap':
+          widget.onBackgroundTap?.call();
         case final String door
             when const {'top', 'pickup', 'received'}.contains(door):
           widget.onDoorSelected(door);

@@ -2,6 +2,7 @@
 //  DisplayController.ino  – Cybernetic HUD / Sci-Fi UI
 // ============================================================
 #include "qrcode.h"
+#include "AppIcons.h"
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSans12pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
@@ -40,6 +41,7 @@ void drawScanningAnimation(int scanY, uint16_t color) {
 
 // ── Internal helper: Precise centering using getTextBounds ────
 void _drawCenteredText(const char* s, int x, int y, uint16_t col, const GFXfont* f) {
+  if (!s || s[0] == '\0') return;
   int16_t x1, y1;
   uint16_t w, h;
   tft.setFont(f);
@@ -87,185 +89,395 @@ void _verticalOvalButton(int x, int y, int w, int h, const char* label, uint16_t
   tft.fillRoundRect(x - 22, y + 42, 44, 10, 5, accentColor);
 }
 
-// ── STATUS BAR ──────────────────────────────────────────────
+// ── STATUS BAR (Tesla Sleek Centered Telemetry) ─────────────
 void drawStatusBar() {
-  tft.setFont();
-  tft.setTextSize(1);
-  // Dark terminal bar
-  tft.fillRect(0, 0, 320, BAR_HEIGHT, COLOR_BG); 
-  tft.drawFastHLine(0, BAR_HEIGHT-1, 320, COLOR_ACCENT); // Cyan separator line
-  
-  // Terminal Identifier
-  tft.setTextColor(COLOR_ACCENT);
-  tft.setCursor(HUD_MARGIN, 8);
-  tft.print("SYS_CMD >> ACTIVE");
-  
-  lastIndicatorUpdate = 0;
-  updateDynamicIndicators();
+  tft.fillRect(0, 0, 320, BAR_HEIGHT, COLOR_BG);
+  tft.drawFastHLine(0, BAR_HEIGHT - 1, 320, 0x18E3); // Sleek subtle divider line
+
+  bool wifiOK   = (WiFi.status() == WL_CONNECTED);
+  bool socketOK = socketIO.isConnected();
+  bool anyOpen  = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
+
+  // 1. Wi-Fi Signal Bars (Centered left at x=130..142)
+  uint16_t wifiColor = wifiOK ? COLOR_GREEN : COLOR_RED;
+  for (int i = 0; i < 4; i++) {
+    int barH = 4 + (i * 3);
+    tft.fillRect(130 + (i * 4), 20 - barH, 2, barH, wifiColor);
+  }
+
+  // 2. Cloud Backend Icon (Centered at x=152, y=8) - Crisp Bitmap Icon
+  uint16_t cloudColor = (!wifiOK) ? COLOR_RED : (socketOK ? COLOR_GREEN : COLOR_RED);
+  tft.drawBitmap(152, 8, icon_cloud_16x12, 16, 12, cloudColor);
+
+  // 3. Padlock Status (Centered right at x=178, y=8) - Crisp Bitmap Icon
+  uint16_t doorColor = anyOpen ? COLOR_GOLD : 0x64748b;
+  if (anyOpen) {
+    tft.drawBitmap(178, 8, icon_lock_mini_open_10x12, 10, 12, doorColor);
+  } else {
+    tft.drawBitmap(178, 8, icon_lock_mini_closed_10x12, 10, 12, doorColor);
+  }
+
+  lastIndicatorUpdate = millis();
+  lastWifiState       = wifiOK;
+  lastSocketState     = socketOK;
+  lastDoorState       = anyOpen;
 }
 
-// ── SCANNER BACKGROUND ──────────────────────────────────────
+// ── SCANNER BACKGROUND (Tesla Sleek Static, Flicker-Free) ────
 void drawScannerBg() {
   tft.fillScreen(COLOR_BG);
   drawStatusBar();
 
-  // Technical Markers
-  tft.setTextColor(COLOR_GREY); tft.setFont();
-  tft.setCursor(HUD_MARGIN+15, BAR_HEIGHT+10); tft.print("SCANNER_INIT...");
-  tft.setCursor(HUD_MARGIN+15, BAR_HEIGHT+22); tft.print("MODE: LASER_READ");
-  
-  // Viewfinder: TL(25,35) – BR(295,195)
-  _viewfinder(25, 35, 295, 195, COLOR_ACCENT);
-  
-  // Laser line (Neon Red)
-  tft.fillRect(35, 115, 250, 2, COLOR_RED);
-  
-  // EXIT RED Technical Button
-  _buttonIndicator(288, 222, COLOR_RED);
+  // Headline
+  _smallText("Please scan the Parcel's QR below.", 160, 42, COLOR_TEXT);
+
+  // Borderless QR code visual centered at (160, 92)
+  const int qx = 134, qy = 66, qs = 52;
+  tft.fillRoundRect(qx, qy, qs, qs, 4, COLOR_TEXT);
+
+  // 3 Finder patterns
+  // TL
+  tft.fillRect(qx + 4, qy + 4, 12, 12, COLOR_BG);
+  tft.fillRect(qx + 6, qy + 6, 8, 8, COLOR_TEXT);
+  tft.fillRect(qx + 8, qy + 8, 4, 4, COLOR_BG);
+  // TR
+  tft.fillRect(qx + 36, qy + 4, 12, 12, COLOR_BG);
+  tft.fillRect(qx + 38, qy + 6, 8, 8, COLOR_TEXT);
+  tft.fillRect(qx + 40, qy + 8, 4, 4, COLOR_BG);
+  // BL
+  tft.fillRect(qx + 4, qy + 36, 12, 12, COLOR_BG);
+  tft.fillRect(qx + 6, qy + 38, 8, 8, COLOR_TEXT);
+  tft.fillRect(qx + 8, qy + 40, 4, 4, COLOR_BG);
+
+  // Center & random modules
+  tft.fillRect(qx + 20, qy + 8, 12, 3, COLOR_BG);
+  tft.fillRect(qx + 8, qy + 20, 3, 12, COLOR_BG);
+  tft.fillRect(qx + 22, qy + 18, 8, 8, COLOR_BG);
+  tft.fillRect(qx + 20, qy + 32, 14, 4, COLOR_BG);
+  tft.fillRect(qx + 36, qy + 22, 4, 10, COLOR_BG);
+  tft.fillRect(qx + 36, qy + 36, 10, 4, COLOR_BG);
+
+  // Static bold downward chevron pointing to physical scanner window below bezel (zero animation = flicker-free!)
+  int cx = 160, cy = 142;
+  for (int w = 0; w < 3; w++) {
+    tft.drawLine(cx - 14, cy - 6 + w, cx, cy + 6 + w, COLOR_ACCENT);
+    tft.drawLine(cx, cy + 6 + w, cx + 14, cy - 6 + w, COLOR_ACCENT);
+  }
+
+  // Footer: Press BTN 2 (Red dot) to exit.
+  _smallText("Press", 136, 218, COLOR_GREY);
+  tft.fillCircle(158, 218, 4, COLOR_RED); // BTN 2 Red Dot
+  _smallText("to exit.", 184, 218, COLOR_GREY);
+
   tft.setFont();
 }
 
-// ── HOME SCREEN ─────────────────────────────────────────────
+// ── HOME SCREEN (Tesla Sleek Dual Vertical Cards) ───────────
 void showHomeScreen() {
   tft.fillScreen(COLOR_BG);
   drawStatusBar();
 
-  // Technical Marker: OS Name
-  tft.setFont();
-  tft.setTextColor(COLOR_GREY);
-  tft.setCursor(HUD_MARGIN + 2, 228);
-  tft.print("VER: 4.2.0-S3_ALPHA");
+  // Left Card: DROP-OFF (Cyan Accent)
+  tft.fillRoundRect(20, 36, 134, 188, 16, COLOR_CARD);
+  tft.drawRoundRect(20, 36, 134, 188, 16, COLOR_ACCENT);
 
-  // Vertical Oval Buttons (HUD Style) - cy=132
-  _verticalOvalButton(80,  132, 100, 140, "DROP-OFF", COLOR_BLUE, 0); // Material Blue for entry
-  _verticalOvalButton(240, 132, 100, 140, "PICK-UP",  COLOR_RED,  1);  // Material Red for security
+  // Drop-Off Icon: Crisp 32x32 Parcel Box Bitmap (Centered at 87, 80)
+  tft.drawBitmap(71, 64, icon_parcel_32x32, 32, 32, COLOR_ACCENT);
+
+  // Downward chevron
+  tft.drawLine(81, 106, 87, 112, COLOR_ACCENT);
+  tft.drawLine(87, 112, 93, 106, COLOR_ACCENT);
+  tft.drawLine(81, 107, 87, 113, COLOR_ACCENT);
+  tft.drawLine(87, 113, 93, 107, COLOR_ACCENT);
+
+  // Text
+  _boldText("DROP-OFF", 87, 142, COLOR_ACCENT);
+  _smallText("Touch / BTN 1", 87, 172, COLOR_TEXT);
+
+  // BTN 1 Blue Dot Indicator
+  tft.fillCircle(87, 202, 5, COLOR_ACCENT); // BTN 1 Blue Dot
+
+  // Right Card: PICK-UP (Crimson Accent)
+  tft.fillRoundRect(166, 36, 134, 188, 16, COLOR_CARD);
+  tft.drawRoundRect(166, 36, 134, 188, 16, COLOR_RED);
+
+  // Pick-Up Icon: Crisp 32x32 Padlock Bitmap (Centered at 233, 80)
+  tft.drawBitmap(217, 64, icon_lock_closed_32x32, 32, 32, COLOR_RED);
+
+  // Text
+  _boldText("PICK-UP", 233, 142, COLOR_RED);
+  _smallText("Touch / BTN 2", 233, 172, COLOR_TEXT);
+
+  // BTN 2 Red Dot Indicator
+  tft.fillCircle(233, 202, 5, COLOR_RED); // BTN 2 Red Dot
 
   tft.setFont();
-  tft.setTextSize(1);
   printSerialMenu();
 }
 
-// ── DEVICE UNREGISTERED ─────────────────────────────────────
-void drawDeviceUnregisteredScreen() {
+// ── REMOTE MOBILE APP CONTROLS (UNLOCKED / LOCKED) ──────────
+void drawUnlockedScreen() {
   tft.fillScreen(COLOR_BG);
   drawStatusBar();
-  // Setup Oval (200x76) - More Spacious
-  _horizontalOval(160, 110, 200, 76, COLOR_CARD);
-  tft.drawRoundRect(160-100, 110-38, 200, 76, 38, COLOR_GOLD);
-  
-  _boldText("SETUP", 160, 100, COLOR_GOLD);
-  _smallText("required", 160, 125, COLOR_GREY);
-  
-  // BTN 1 indicator at bottom
-  _buttonIndicator(160, 195, COLOR_BLUE);
-  _smallText("Begin", 160, 215, COLOR_TEXT);
+
+  // Crisp Open Padlock Bitmap (Centered at 160, 92)
+  tft.drawBitmap(144, 76, icon_lock_open_32x32, 32, 32, COLOR_GOLD);
+
+  // Bold headline ONLY (pure & clean, no card box, no subtitle)
+  _boldText("UNLOCKED", 160, 145, COLOR_TEXT);
   tft.setFont();
 }
 
-// ── QR CODE HELPER ──────────────────────────────────────────
-void drawQRCode(int x, int y, int moduleSize, const String& text) {
-  QRCode qrcode;
-  uint8_t qrcodeBytes[qrcode_getBufferSize(3)];
-  qrcode_initText(&qrcode, qrcodeBytes, 3, ECC_MEDIUM, text.c_str());
-  for (int row = 0; row < qrcode.size; row++)
-    for (int col = 0; col < qrcode.size; col++) {
-      uint16_t color = qrcode_getModule(&qrcode, col, row) ? COLOR_BG : COLOR_TEXT;
-      tft.fillRect(x + col * moduleSize, y + row * moduleSize, moduleSize, moduleSize, color);
-    }
-}
+void drawLockedScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
 
-// ── REGISTRATION QR SCREEN ─────────────────────────────────
-void drawRegistrationQRScreen(const String& token, const String& pin) {
-  tft.fillScreen(COLOR_TEXT); // White background
-  // Hint at top
-  _smallText("Scan QR or enter Code in app", 160, 30, COLOR_BG);
-  
-  // Custom QR draw with dark modules
-  QRCode qrcode;
-  uint8_t qrcodeBytes[qrcode_getBufferSize(3)];
-  qrcode_initText(&qrcode, qrcodeBytes, 3, ECC_MEDIUM, token.c_str());
-  int x = 110, y = 60, moduleSize = 4;
-  for (int row = 0; row < qrcode.size; row++)
-    for (int col = 0; col < qrcode.size; col++) {
-      uint16_t color = qrcode_getModule(&qrcode, col, row) ? COLOR_BG : COLOR_TEXT;
-      tft.fillRect(x + col * moduleSize, y + row * moduleSize, moduleSize, moduleSize, color);
-    }
+  // Crisp Closed Padlock Bitmap (Centered at 160, 92)
+  tft.drawBitmap(144, 76, icon_lock_closed_32x32, 32, 32, COLOR_GREEN);
 
-  // Large 6-digit PIN only
-  _boldText(pin.c_str(), 160, 205, COLOR_BG);
+  // Bold headline ONLY
+  _boldText("LOCKED", 160, 145, COLOR_TEXT);
   tft.setFont();
 }
 
-// (drawOwnerVerifyingScreen removed)
+// ── PHYSICAL ACTION / INSTRUCTION SCREENS ───────────────────
+void drawPlaceDropScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
 
-// ── DISPLAY MESSAGE (Terminal Alert Overlay) ────────────────
+  // Crisp 32x32 Parcel box bitmap (Centered at 160, 76)
+  tft.drawBitmap(144, 60, icon_parcel_32x32, 32, 32, COLOR_ACCENT);
+
+  // Downward drop chevron
+  for (int w = 0; w < 3; w++) {
+    tft.drawLine(148, 104 + w, 160, 114 + w, COLOR_ACCENT);
+    tft.drawLine(160, 114 + w, 172, 104 + w, COLOR_ACCENT);
+  }
+
+  // Bin opening frame
+  tft.drawFastVLine(124, 126, 10, COLOR_GREY);
+  tft.drawFastHLine(124, 136, 72, COLOR_GREY);
+  tft.drawFastVLine(196, 126, 10, COLOR_GREY);
+
+  // Bold headline ONLY
+  _boldText("Place & Drop the parcel inside", 160, 170, COLOR_TEXT);
+  tft.setFont();
+}
+
+void drawPleaseCloseDoorScreen() {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+
+  // Dropbox lid closure guide graphic
+  tft.drawRoundRect(134, 100, 52, 26, 4, COLOR_CARD);
+
+  // Angled open lid in gold
+  for (int w = 0; w < 3; w++) {
+    tft.drawLine(134, 100 + w, 176, 72 + w, COLOR_GOLD);
+  }
+
+  // Push-down guide arrow
+  for (int w = 0; w < 2; w++) {
+    tft.drawFastVLine(174 + w, 78, 16, COLOR_GOLD);
+    tft.drawLine(169, 89 + w, 174, 94 + w, COLOR_GOLD);
+    tft.drawLine(174, 94 + w, 179, 89 + w, COLOR_GOLD);
+  }
+
+  // Bold headline ONLY
+  _boldText("Please close the door", 160, 160, COLOR_TEXT);
+  tft.setFont();
+}
+
+// ── UNIFIED MODAL CARD TEMPLATE (230x108) ───────────────────
+void displayModalCard(uint16_t borderColor, bool isCheck, const char* title, const char* subtitle) {
+  tft.fillScreen(COLOR_BG);
+  drawStatusBar();
+
+  // 230x108 Card
+  const int cw = 230, ch = 108;
+  const int cx = 160 - cw/2, cy = 54;
+  tft.fillRoundRect(cx + 2, cy + 2, cw - 4, ch - 4, 14, COLOR_CARD);
+  tft.drawRoundRect(cx, cy, cw, ch, 16, borderColor);
+
+  // Circular Badge
+  tft.fillCircle(160, 84, 18, borderColor);
+  if (isCheck) {
+    drawIconCheck(160, 84, COLOR_TEXT);
+  } else {
+    drawIconX(160, 84, COLOR_TEXT);
+  }
+
+  // Headline
+  _boldText(title, 160, 122, borderColor);
+
+  // Subtitle
+  if (subtitle && strlen(subtitle) > 0) {
+    _smallText(subtitle, 160, 142, COLOR_GREY);
+  }
+  tft.setFont();
+}
+
+void drawParcelDeliveredScreen() {
+  displayModalCard(COLOR_GREEN, true, "Parcel Delivered", "Detected by Ultrasonic Sensor");
+}
+
+void drawThankYouScreen() {
+  displayModalCard(COLOR_ACCENT, true, "Thank you.", "Transaction Logged");
+}
+
+// ── DISPLAY MESSAGE (Terminal Alert Overlay Router) ─────────
 void displayMessage(const char* title, const char* msg) {
+  if (strcmp(title, "UNLOCKED") == 0) {
+    drawUnlockedScreen();
+    triggerCyberChirp(1);
+    return;
+  }
+  if (strcmp(title, "LOCKED") == 0) {
+    drawLockedScreen();
+    triggerCyberChirp(1);
+    return;
+  }
+  if (strstr(title, "DELIVERED") || strstr(title, "Parcel Delivered")) {
+    drawParcelDeliveredScreen();
+    triggerCyberChirp(1);
+    return;
+  }
+  if (strstr(title, "THANK") || strstr(title, "Thank you")) {
+    drawThankYouScreen();
+    triggerCyberChirp(1);
+    return;
+  }
+
   bool isGood = strstr(title, "SUCCESS") || strstr(title, "VALID") ||
                 strstr(title, "VERIFIED") || strstr(title, "REGISTERED") ||
-                strstr(title, "UNLOCKED") || strstr(title, "Connected");
+                strstr(title, "Connected") || strstr(title, "Paired");
   bool isBad  = strstr(title, "ERROR") || strstr(title, "INVALID") ||
                 strstr(title, "REJECTED") || strstr(title, "DENIED") ||
                 strstr(title, "TIMEOUT") || strstr(title, "OFFLINE") ||
                 strstr(title, "FAILED") || strstr(title, "NO PARCEL");
   uint16_t accentColor = isGood ? COLOR_GREEN : isBad ? COLOR_RED : COLOR_ACCENT;
 
+  displayModalCard(accentColor, isGood, title, msg);
+  if (isGood)     triggerCyberChirp(1);
+  else if (isBad) triggerCyberChirp(2);
+  else            triggerCyberChirp(3);
+}
+
+// ── GEAR ICON & SETUP WORKFLOW SCREENS ──────────────────────
+void drawIconGear(int cx, int cy, uint16_t color, uint16_t bgColor) {
+  // Crisp 32x32 Mechanical Gear Bitmap Icon
+  tft.drawBitmap(cx - 16, cy - 16, icon_gear_32x32, 32, 32, color);
+}
+
+void drawDeviceUnregisteredScreen() {
   tft.fillScreen(COLOR_BG);
   drawStatusBar();
-  
-  // Terminal Card (HUD Rect)
-  int cw = 220, ch = 100;
-  tft.drawRoundRect(160 - cw/2, 115 - ch/2, cw, ch, HUD_CORNER, accentColor);
-  tft.fillRoundRect(160 - cw/2 + 2, 115 - ch/2 + 2, cw - 4, ch - 4, HUD_CORNER - 1, COLOR_CARD);
 
-  if (isGood)     { drawIconCheck(160, 105, COLOR_GREEN); triggerCyberChirp(1); }
-  else if (isBad) { drawIconX(160, 105, COLOR_RED);      triggerCyberChirp(2); }
-  else            { drawIconBox(160, 105, COLOR_ACCENT); triggerCyberChirp(3); }
+  // Precision 32x32 Mechanical Gear Bitmap Icon (Centered at 160, 76)
+  drawIconGear(160, 76, COLOR_GOLD, COLOR_BG);
 
-  _boldText(title, 160, 185, COLOR_TEXT);
-  _smallText(msg,  160, 215, COLOR_GREY);
+  // Headline & Subtitle
+  _boldText("SETUP REQUIRED", 160, 120, COLOR_GOLD);
+  _smallText("Pair this box with Mobile App", 160, 142, COLOR_GREY);
+
+  // Sleek Begin Setup Button
+  // Glowing Begin Setup Button
+  tft.fillRoundRect(95, 168, 130, 28, 14, COLOR_ACCENT);
+  _smallText("Begin Setup", 160, 182, COLOR_BG);
+  _smallText("Press BTN 1", 144, 214, COLOR_GREY);
+  tft.fillCircle(174, 214, 4, COLOR_ACCENT); // BTN 1 Blue Dot
+  _smallText("to start", 202, 214, COLOR_GREY);
+  tft.setFont();
+}
+
+// ── QR CODE HELPER ──────────────────────────────────────────
+void drawQRCode(int x, int y, int moduleSize, const String& text) {
+  QRCode qrcode;
+  uint8_t qrcodeBytes[256]; // Static fixed buffer safe for up to Version 6 (no VLA compiler issues)
+  // Try compact Version 3 first, then fallback to Version 4 if text is longer
+  int8_t res = qrcode_initText(&qrcode, qrcodeBytes, 3, ECC_LOW, text.c_str());
+  if (res < 0) {
+    res = qrcode_initText(&qrcode, qrcodeBytes, 4, ECC_LOW, text.c_str());
+  }
+  if (res < 0) {
+    Serial.println("[QR] ERROR: Payload exceeds QR buffer size!");
+    return;
+  }
+  for (int row = 0; row < qrcode.size; row++)
+    for (int col = 0; col < qrcode.size; col++) {
+      uint16_t color = qrcode_getModule(&qrcode, col, row) ? COLOR_BG : COLOR_TEXT;
+      tft.fillRect(x + col * moduleSize, y + row * moduleSize, moduleSize, moduleSize, color);
+    }
+}
+
+void drawBleWifiSetupScreen(const String& qrPayload) {
+  tft.fillScreen(COLOR_TEXT); // High-contrast White Background
+
+  _boldText("Bluetooth Wi-Fi Setup", 160, 22, COLOR_BG);
+  _smallText("Scan in Parcel App to configure Wi-Fi", 160, 39, COLOR_GREY);
+
+  // Large QR code (moduleSize 3 -> 87x87 at x=116, y=54) — unobstructed for camera scanning
+  drawQRCode(116, 54, 3, qrPayload);
+
+  // Status / Expiry Pill with crisp Bluetooth bitmap icon
+  tft.fillRoundRect(85, 156, 150, 24, 12, 0xE71C);
+  tft.drawRoundRect(85, 156, 150, 24, 12, 0xCE79);
+  tft.drawBitmap(95, 158, icon_bluetooth_16x20, 16, 20, COLOR_BLUE);
+  _smallText("BLE ACTIVE", 168, 168, COLOR_BLUE);
+
+  // Cancel Footer: Press BTN 2 (Red dot) to cancel
+  _smallText("Press", 136, 212, COLOR_GREY);
+  tft.fillCircle(158, 212, 4, COLOR_RED); // BTN 2 Red Dot
+  _smallText("to cancel", 188, 212, COLOR_GREY);
+  tft.setFont();
+}
+
+void drawRegistrationQRScreen(const String& token, const String& pin) {
+  tft.fillScreen(COLOR_TEXT); // High-contrast White Background
+
+  _boldText("Scan QR with Parcel App", 160, 22, COLOR_BG);
+  _smallText("Or enter the 6-digit Code below", 160, 38, COLOR_GREY);
+
+  // Large QR code (moduleSize 3 -> 87x87 at x=116, y=54)
+  drawQRCode(116, 54, 3, token);
+
+  // Large 6-digit PIN
+  String pinStr = "CODE: " + pin;
+  _boldText(pinStr.c_str(), 160, 168, COLOR_BG);
+
+  // Expiry & cancel pill with BTN 2 Red Dot
+  tft.fillRoundRect(45, 192, 230, 24, 12, 0xF7BE);
+  tft.drawRoundRect(45, 192, 230, 24, 12, 0xCE79);
+  _smallText("Expires in 60s  |  BTN 2", 138, 204, 0x475569);
+  tft.fillCircle(195, 204, 3, COLOR_RED); // BTN 2 Red Dot
+  _smallText("Cancel", 222, 204, 0x475569);
   tft.setFont();
 }
 
 // ── TIMEOUT SCREEN ──────────────────────────────────────────
 void drawTimeoutScreen(const char* title, const char* subtitle) {
-  tft.fillScreen(COLOR_BG);
-  drawStatusBar();
-  // Alert oval (200x76)
-  _horizontalOval(160, 105, 200, 76, COLOR_RED);
-  drawIconX(160, 102, COLOR_TEXT);
-
-  _boldText(title,    160, 180, COLOR_RED);
-  _smallText(subtitle, 160, 202, COLOR_GREY);
-
-  // RETRY and EXIT indicators
-  _buttonIndicator(80,  232, COLOR_BLUE);
-  _buttonIndicator(240, 232, COLOR_RED);
-  _smallText("RETRY", 80,  218, COLOR_TEXT);
-  _smallText("EXIT",  240, 218, COLOR_TEXT);
-  tft.setFont();
+  displayModalCard(COLOR_RED, false, title, subtitle);
 }
 
-// ── ICON HELPERS ────────────────────────────────────────────
+// ── ICON HELPERS (High-Resolution Bitmaps) ───────────────────
 void drawButtonLabel(int x, int y, uint16_t color, const char* label) {
   _buttonIndicator(x, y + 3, color);
 }
 
 void drawIconLock(int x, int y, uint16_t color, bool open) {
   if (open) {
-    tft.drawCircle(x, y - 5, 10, color);
-    tft.fillRect(x + 5, y - 5, 10, 10, COLOR_BG);
+    tft.drawBitmap(x - 16, y - 16, icon_lock_open_32x32, 32, 32, color);
   } else {
-    tft.drawCircle(x, y, 10, color);
+    tft.drawBitmap(x - 16, y - 16, icon_lock_closed_32x32, 32, 32, color);
   }
-  tft.fillRoundRect(x - 12, y + 2, 24, 18, 3, color);
-  tft.fillCircle(x, y + 11, 3, COLOR_BG);
 }
 
 void drawSmallPadlock(int x, int y, uint16_t color, bool open) {
-  if (open) { tft.drawCircle(x, y - 3, 5, color); tft.fillRect(x + 3, y - 6, 4, 8, COLOR_CARD); }
-  else       { tft.drawCircle(x, y - 2, 5, color); }
-  tft.fillRoundRect(x - 6, y + 2, 12, 10, 2, color);
-  tft.fillCircle(x, y + 6, 2, COLOR_BG);
+  if (open) {
+    tft.drawBitmap(x - 5, y - 6, icon_lock_mini_open_10x12, 10, 12, color);
+  } else {
+    tft.drawBitmap(x - 5, y - 6, icon_lock_mini_closed_10x12, 10, 12, color);
+  }
 }
 
 void drawWiFiSignal(int x, int y, uint16_t color) {
@@ -274,24 +486,15 @@ void drawWiFiSignal(int x, int y, uint16_t color) {
 }
 
 void drawIconBox(int x, int y, uint16_t color) {
-  tft.drawRect(x - 15, y - 10, 30, 25, color);
-  tft.drawRect(x - 16, y - 11, 32, 27, color);
-  tft.drawLine(x - 15, y - 10, x + 15, y + 15, color);
-  tft.drawLine(x - 15, y + 15, x + 15, y - 10, color);
+  tft.drawBitmap(x - 16, y - 16, icon_parcel_32x32, 32, 32, color);
 }
 
 void drawIconCheck(int x, int y, uint16_t color) {
-  tft.drawLine(x - 20, y,      x - 5,  y + 15, color);
-  tft.drawLine(x - 21, y,      x - 6,  y + 15, color);
-  tft.drawLine(x - 5,  y + 15, x + 25, y - 20, color);
-  tft.drawLine(x - 6,  y + 15, x + 24, y - 20, color);
+  tft.drawBitmap(x - 12, y - 12, icon_check_24x24, 24, 24, color);
 }
 
 void drawIconX(int x, int y, uint16_t color) {
-  tft.drawLine(x - 20, y - 20, x + 20, y + 20, color);
-  tft.drawLine(x - 21, y - 20, x + 19, y + 20, color);
-  tft.drawLine(x + 20, y - 20, x - 20, y + 20, color);
-  tft.drawLine(x + 21, y - 20, x - 19, y + 20, color);
+  tft.drawBitmap(x - 12, y - 12, icon_cross_24x24, 24, 24, color);
 }
 
 // ── LOCKSCREEN ANIMATIONS ────────────────────────────────────
@@ -365,16 +568,11 @@ static void _twoOvalScreen(
 // (Unused owner and legacy rider multi-scan screens removed)
 
 void drawScanFailedPrompt() {
-  tft.fillScreen(COLOR_BG);
-  drawStatusBar();
-  _horizontalOval(160, 105, 200, 76, COLOR_RED);
-  drawIconX(160, 102, COLOR_TEXT);
-  _boldText("SCAN FAILED", 160, 182, COLOR_TEXT);
-  _smallText("3 attempts exceeded", 160, 205, COLOR_GREY);
-  _buttonIndicator(80,  232, COLOR_BLUE);
-  _buttonIndicator(240, 232, COLOR_RED);
-  _smallText("RETRY", 80,  218, COLOR_TEXT);
-  _smallText("EXIT",  240, 218, COLOR_TEXT);
+  displayModalCard(COLOR_RED, false, "SCAN FAILED", "3 attempts exceeded");
+  _buttonIndicator(80,  222, COLOR_ACCENT);
+  _buttonIndicator(240, 222, COLOR_RED);
+  _smallText("RETRY", 80,  206, COLOR_TEXT);
+  _smallText("EXIT",  240, 206, COLOR_TEXT);
   tft.setFont();
 }
 
@@ -406,12 +604,32 @@ void updateDynamicIndicators() {
   bool socketOK = socketIO.isConnected();
   bool anyOpen  = (lockTopOpen || lockPickupOpen || lockReceivedOpen);
 
-  tft.fillRoundRect(110, 6, 100, 18, 9, COLOR_CARD);
+  // Redraw only if a telemetry status actually changes to prevent unnecessary SPI traffic & tearing
+  if (wifiOK == lastWifiState && socketOK == lastSocketState && anyOpen == lastDoorState) {
+    return;
+  }
+
+  // Clear just the telemetry icon cluster (x=126..196, y=4..21)
+  tft.fillRect(126, 4, 70, 18, COLOR_BG);
+
+  // 1. Wi-Fi Signal Bars (Centered left at x=130..142)
   uint16_t wifiColor = wifiOK ? COLOR_GREEN : COLOR_RED;
-  drawWiFiSignal(118, 9, wifiColor);
-  uint16_t doorColor = anyOpen ? COLOR_GOLD : COLOR_GREEN;
-  drawSmallPadlock(160, 10, doorColor, anyOpen);
-  tft.fillCircle(195, 14, 3, socketOK ? COLOR_GREEN : COLOR_RED);
+  for (int i = 0; i < 4; i++) {
+    int barH = 4 + (i * 3);
+    tft.fillRect(130 + (i * 4), 20 - barH, 2, barH, wifiColor);
+  }
+
+  // 2. Cloud Backend Icon (Centered at x=152, y=8) - Crisp Bitmap Icon
+  uint16_t cloudColor = (!wifiOK) ? COLOR_RED : (socketOK ? COLOR_GREEN : COLOR_RED);
+  tft.drawBitmap(152, 8, icon_cloud_16x12, 16, 12, cloudColor);
+
+  // 3. Padlock Status (Centered right at x=178, y=8) - Crisp Bitmap Icon
+  uint16_t doorColor = anyOpen ? COLOR_GOLD : 0x64748b;
+  if (anyOpen) {
+    tft.drawBitmap(178, 8, icon_lock_mini_open_10x12, 10, 12, doorColor);
+  } else {
+    tft.drawBitmap(178, 8, icon_lock_mini_closed_10x12, 10, 12, doorColor);
+  }
 
   lastWifiState   = wifiOK;
   lastSocketState = socketOK;
@@ -419,16 +637,11 @@ void updateDynamicIndicators() {
 }
 
 void drawNoServerOptionsScreen() {
-  tft.fillScreen(COLOR_BG);
-  drawStatusBar();
-  _horizontalOval(160, 105, 200, 76, COLOR_RED);
-  drawIconX(160, 102, COLOR_TEXT);
-  _boldText("NO SERVER", 160, 182, COLOR_TEXT);
-  _smallText("Device is offline", 160, 205, COLOR_GREY);
-  _buttonIndicator(80,  232, COLOR_BLUE);
-  _buttonIndicator(240, 232, COLOR_RED);
-  _smallText("RETRY", 80,  218, COLOR_TEXT);
-  _smallText("BLE SETUP", 240, 218, COLOR_TEXT);
+  displayModalCard(COLOR_RED, false, "NO SERVER", "Device is offline");
+  _buttonIndicator(80,  222, COLOR_ACCENT);
+  _buttonIndicator(240, 222, COLOR_RED);
+  _smallText("RETRY", 80,  206, COLOR_TEXT);
+  _smallText("BLE SETUP", 240, 206, COLOR_TEXT);
   tft.setFont();
 }
 

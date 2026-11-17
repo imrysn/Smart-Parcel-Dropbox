@@ -29,7 +29,16 @@ const double kBinEmpty  = 30.0;
 const double kBinFull   =  5.0;
 
 class DropboxControlScreen extends StatefulWidget {
-  const DropboxControlScreen({super.key});
+  const DropboxControlScreen({
+    super.key,
+    this.simulationEnabled = false,
+    this.embeddedInTab = false,
+    this.onHardwareConnectionChanged,
+  });
+
+  final bool simulationEnabled;
+  final bool embeddedInTab;
+  final ValueChanged<bool?>? onHardwareConnectionChanged;
 
   @override
   State<DropboxControlScreen> createState() => _DropboxControlScreenState();
@@ -40,12 +49,14 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   late final WebSocketService _ws;
   StreamSubscription<Map<String, dynamic>>? _esp32Sub;
   StreamSubscription<Map<String, dynamic>>? _binSub;
+  StreamSubscription<Map<String, dynamic>>? _deliverySub;
   StreamSubscription<Map<String, dynamic>>? _regSub;
   StreamSubscription<Map<String, dynamic>>? _unregSub;
   StreamSubscription<Map<String, dynamic>>? _doorSub;
   StreamSubscription<bool>? _connectionSub;
 
-  bool _esp32Connected = false;
+  bool? _hardwareConnected;
+  bool get _esp32Connected => _hardwareConnected == true;
   bool _doorStateKnown = false;
   bool _showManagement = false;
   final Map<String, bool> _doorOpen = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
@@ -59,6 +70,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   double? _dropoffFill;
   int _logicalPickupCount = 0;
   int _logicalDropoffCount = 0;
+  DateTime? _latestDelivery;
   String? _userId;
   Dropbox? _dropbox;
   HardwareDiagnostics? _diagnostics;
@@ -87,7 +99,9 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
         setState(() {
           if (dropbox?.deviceId != _dropbox?.deviceId) {
             _doorStateKnown = false;
-            _esp32Connected = false;
+            _setHardwareConnection(
+              dropbox == null || _ws.isConnected ? null : false,
+            );
             _reedState.clear();
             _clearDoorPreviews();
             _offlineOpenDoors.clear();
@@ -95,6 +109,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
             _ownerQrToken = null;
             _ownerQrExpiry?.cancel();
             _diagnostics = null;
+            _latestDelivery = null;
           }
           _dropbox = dropbox;
           _updateDiagnostics(dropbox?.diagnostics);
@@ -125,7 +140,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
         _requestHardwareState();
       } else {
         setState(() {
-          _esp32Connected = false;
+          _setHardwareConnection(_dropbox == null ? null : false);
           _doorStateKnown = false;
           _reedState.clear();
           _clearDoorPreviews();
@@ -136,7 +151,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
       if (!mounted || !_matchesDropbox(data)) return;
       final wasOnline = _esp32Connected;
       setState(() {
-        _esp32Connected = data['connected'] == true;
+        _setHardwareConnection(data['connected'] == true);
         _updateDiagnostics(HardwareDiagnostics.tryParse(data['diagnostics']));
         if (!_esp32Connected) {
           _doorStateKnown = false;
@@ -155,6 +170,12 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
       if (data['success'] == true || data['removedByOwner'] == true) _init();
     });
     _doorSub = _ws.doorStateUpdates.listen(_applyDoorState);
+    _deliverySub?.cancel();
+    _deliverySub = _ws.trackingStatusChanges.listen((data) {
+      if (!mounted || !_matchesDropbox(data) ||
+          data['mode'] != 'drop_off' || data['status'] != 'delivered') return;
+      setState(() => _latestDelivery = DateTime.now());
+    });
     _binSub = _ws.binStatusUpdates.listen((data) {
       if (!mounted || !_matchesDropbox(data)) return;
       setState(() {
@@ -184,6 +205,12 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
 
   bool _matchesDropbox(Map<String, dynamic> data) =>
       _dropbox != null && data['deviceId'] == _dropbox!.deviceId;
+
+  void _setHardwareConnection(bool? connected) {
+    if (_hardwareConnected == connected) return;
+    _hardwareConnected = connected;
+    widget.onHardwareConnectionChanged?.call(connected);
+  }
 
   void _updateDiagnostics(HardwareDiagnostics? reading) {
     if (reading != null && !(_diagnostics?.reportedAt.isAfter(reading.reportedAt) ?? false)) {
@@ -264,6 +291,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     _diagnosticsExpiry?.cancel();
     _esp32Sub?.cancel(); _binSub?.cancel(); _regSub?.cancel(); _unregSub?.cancel(); _doorSub?.cancel(); _connectionSub?.cancel();
     _ownerQrExpiry?.cancel();
+    _deliverySub?.cancel();
     super.dispose();
   }
 
@@ -421,17 +449,21 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canPop = Navigator.canPop(context);
+    final showAppBar = !widget.embeddedInTab &&
+        (ModalRoute.of(context)?.canPop ?? false);
 
     return Container(
       decoration: UserUi.pageBackground(context),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        extendBodyBehindAppBar: canPop,
-        appBar: canPop
+        extendBodyBehindAppBar: showAppBar,
+        appBar: showAppBar
             ? UserTheme.appBarGradient(
                 context: context,
                 title: 'Dropbox Control',
+                titleSuffix: _hardwareConnected == false
+                    ? UserUi.hardwareOfflineDot()
+                    : null,
                 centerTitle: false,
                 backgroundColor: Colors.transparent,
                 leading: PointerInterceptor(
@@ -447,28 +479,24 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
           index: _showManagement ? 1 : 0,
           sizing: StackFit.expand,
           children: [
-            Stack(
-              fit: StackFit.expand,
-              children: [
-                DropboxModelView(
-                  key: ValueKey(_dropbox?.deviceId),
-                  onDoorSelected: _selectModelDoor,
-                  openDoors: {
-                    for (final door in _reedKeys.keys) door: _modelDoorOpen(door),
-                  },
-                  parcelCount: _logicalDropoffCount,
+            DropboxModelView(
+              key: ValueKey(_dropbox?.deviceId),
+              simulationEnabled: widget.simulationEnabled,
+              onDoorSelected: _selectModelDoor,
+              openDoors: {
+                for (final door in _reedKeys.keys) door: _modelDoorOpen(door),
+              },
+              parcelCount: _logicalDropoffCount,
+              hardwareOnline: _esp32Connected,
+              anyDoorUnlocked: _doorStateKnown ? _doorOpen.containsValue(true) : null,
+              latestDelivery: _latestDelivery,
+              headerBuilder: (weatherControl) => Align(
+                alignment: Alignment.topCenter,
+                child: SafeArea(
+                  bottom: false,
+                  child: _buildCabinetHeader(weatherControl: weatherControl),
                 ),
-                Align(
-                  alignment: Alignment.topCenter,
-                  child: SafeArea(
-                    bottom: false,
-                    child: PointerInterceptor(
-                      intercepting: kIsWeb || defaultTargetPlatform == TargetPlatform.iOS,
-                      child: _buildCabinetHeader(),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
             if (_showManagement)
               SafeArea(
@@ -485,37 +513,75 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     );
   }
 
-  Widget _buildCabinetHeader() {
+  Widget _buildCabinetHeader({Widget? weatherControl}) {
+    final intercept = !_showManagement &&
+        (kIsWeb || defaultTargetPlatform == TargetPlatform.iOS);
+    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: UserUi.listPadding(context, top: 4, bottom: 0),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          UserUi.statusPill(
-            label: _esp32Connected ? 'Online' : 'Offline',
-            color: _esp32Connected ? UserTheme.statusSuccess : UserTheme.statusWarning,
-          ),
-          if (_esp32Connected && _logicalDropoffCount > 0) ...[
-            const SizedBox(width: 12),
-            Expanded(
-              child: Semantics(
-                liveRegion: true,
-                child: Text(
-                  _logicalDropoffCount == 1
-                      ? '1 parcel waiting'
-                      : '$_logicalDropoffCount parcels waiting',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          Row(
+            children: [
+              if (_esp32Connected && _logicalDropoffCount > 0) ...[
+                Expanded(
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: PointerInterceptor(
+                      intercepting: intercept,
+                      child: _buildWaitingParcelCount(colors),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ] else
+                const Spacer(),
+              PointerInterceptor(
+                intercepting: intercept,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _showManagement = !_showManagement),
+                  style: TextButton.styleFrom(
+                    backgroundColor: colors.surface.withValues(
+                      alpha: UserTheme.floatingSurfaceOpacity,
+                    ),
+                    foregroundColor: colors.onSurface,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  icon: Icon(_showManagement ? Icons.view_in_ar : Icons.tune, size: 17),
+                  label: Text(_showManagement ? 'Cabinet' : 'Manage'),
                 ),
               ),
-            ),
-          ] else
-            const Spacer(),
-          TextButton.icon(
-            onPressed: () => setState(() => _showManagement = !_showManagement),
-            icon: Icon(_showManagement ? Icons.view_in_ar : Icons.tune),
-            label: Text(_showManagement ? 'Cabinet' : 'Manage'),
+            ],
           ),
+          if (weatherControl != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: PointerInterceptor(intercepting: intercept, child: weatherControl),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildWaitingParcelCount(ColorScheme colors) {
+    return DecoratedBox(
+      decoration: ShapeDecoration(color: colors.surface, shape: const StadiumBorder()),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Semantics(
+          liveRegion: true,
+          child: Text(
+            _logicalDropoffCount == 1
+                ? '1 parcel waiting'
+                : '$_logicalDropoffCount parcels waiting',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: colors.onSurface, fontSize: 12.5),
+          ),
+        ),
       ),
     );
   }

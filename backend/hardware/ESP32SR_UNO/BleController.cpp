@@ -357,16 +357,7 @@ bool startLocalBle(LocalBleMode selectedMode) {
     mac.toUpperCase();
     String qr = "SPDBLE:" + mac + ":" + encodeHex(setupSecret, sizeof(setupSecret));
     qr.toUpperCase();
-    tft.fillScreen(COLOR_TEXT);
-    tft.setTextColor(COLOR_BG);
-    tft.setFont();
-    tft.setTextSize(2);
-    tft.setCursor(42, 17);
-    tft.print("Bluetooth Wi-Fi");
-    drawQRCode(87, 55, 5, qr);
-    tft.setTextSize(1);
-    tft.setCursor(48, 229);
-    tft.print("Scan in SPD app within 2 minutes");
+    drawBleWifiSetupScreen(qr);
   } else {
     displayMessage("OFFLINE UNLOCK", "Confirm in the SPD app");
   }

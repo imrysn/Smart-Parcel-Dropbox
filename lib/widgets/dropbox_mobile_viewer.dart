@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -11,11 +13,13 @@ class DropboxMobileViewer extends StatefulWidget {
     required this.preview,
     required this.stateJson,
     required this.onDoorSelected,
+    this.onBackgroundTap,
   });
 
   final Widget preview;
   final String stateJson;
   final ValueChanged<String> onDoorSelected;
+  final VoidCallback? onBackgroundTap;
 
   @override
   State<DropboxMobileViewer> createState() => _DropboxMobileViewerState();
@@ -25,15 +29,25 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
   static const _files = {
     'cabinet-viewer.html': 'text/html',
     'cabinet-viewer.js': 'text/javascript',
+    'cabinet-display.js': 'text/javascript',
     'cabinet-viewer.css': 'text/css',
     'three-viewer-engine.js': 'text/javascript',
     'parcel-physics.js': 'text/javascript',
+    'cord-physics.js': 'text/javascript',
+    'rain-effects.js': 'text/javascript',
+    'flood-effects.js': 'text/javascript',
+    'flood-physics.js': 'text/javascript',
+    'outdoor-environment.js': 'text/javascript',
     'cannon-es.min.js': 'text/javascript',
     'smart-parcel-dropbox.glb': 'model/gltf-binary',
     'smart-parcel-dropbox.png': 'image/png',
   };
+  static final _sceneGestures = <Factory<OneSequenceGestureRecognizer>>{
+    Factory<EagerGestureRecognizer>(EagerGestureRecognizer.new),
+  };
   HttpServer? _server;
   WebViewController? _controller;
+  Timer? _loadTimeout;
   bool _ready = false;
   bool _failed = false;
 
@@ -56,6 +70,7 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
       final page = Uri.http('127.0.0.1:${server.port}', 'cabinet-viewer.html');
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await controller.setBackgroundColor(Colors.transparent);
+      await controller.enableZoom(false);
       await controller.addJavaScriptChannel(
         'SpdDoorSelection',
         onMessageReceived: (message) => _receiveMessage(message.message),
@@ -70,6 +85,7 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
       ));
       if (!mounted) return;
       setState(() => _controller = controller);
+      _loadTimeout = Timer(const Duration(seconds: 20), _showFallback);
       await controller.loadRequest(page);
     } catch (error) {
       debugPrint('Dropbox mobile viewer: $error');
@@ -102,16 +118,20 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
     if (!mounted || _failed) return;
     switch (message) {
       case 'viewer-ready':
+        _loadTimeout?.cancel();
         _ready = true;
         unawaited(_updateScene());
       case 'viewer-error':
         _showFallback();
+      case 'background-tap':
+        widget.onBackgroundTap?.call();
       case 'top' || 'pickup' || 'received':
         widget.onDoorSelected(message);
     }
   }
 
   void _showFallback() {
+    _loadTimeout?.cancel();
     if (mounted && !_failed) setState(() => _failed = true);
   }
 
@@ -134,6 +154,7 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
 
   @override
   void dispose() {
+    _loadTimeout?.cancel();
     unawaited(_server?.close(force: true));
     super.dispose();
   }
@@ -142,6 +163,9 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (_failed || controller == null) return widget.preview;
-    return WebViewWidget(controller: controller);
+    return WebViewWidget(
+      controller: controller,
+      gestureRecognizers: _sceneGestures,
+    );
   }
 }

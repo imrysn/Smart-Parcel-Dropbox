@@ -8,6 +8,7 @@ import '../services/database_service.dart';
 import '../services/delivery_push_service.dart';
 import '../services/dropbox_service.dart';
 import '../services/input_validator.dart';
+import '../services/secure_storage_service.dart';
 import '../services/websocket_service.dart';
 import '../services/service_locator.dart';
 import '../models/tracking_model.dart';
@@ -34,7 +35,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const _devModePreference = 'dropbox_dev_mode';
+
   final AuthService _authService = AuthService();
+  final _preferences = SecureStorageService();
   final DatabaseService _databaseService = DatabaseService();
   final DropboxService _dropboxService = getIt<DropboxService>();
   final BiometricService _biometricService = getIt.isRegistered<BiometricService>()
@@ -48,6 +52,17 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _hasDropbox = true;
   bool _biometricEnabled = false;
   bool _biometricAvailable = false;
+  bool _devModeEnabled =
+      kDebugMode && !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  bool _devModeBusy = true;
+
+  bool get _supportsDevMode =>
+      kIsWeb ||
+      const {
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+        TargetPlatform.windows,
+      }.contains(defaultTargetPlatform);
 
   // Stream subscriptions for cleanup
   StreamSubscription<bool>? _connectionSub;
@@ -56,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
   DeliveryPushService? _deliveryPush;
 
   bool _appConnected = false;
+  bool? _dropboxHardwareConnected;
 
   // Current user ID
   String? _userId;
@@ -67,6 +83,35 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _initUser();
+    if (_supportsDevMode) unawaited(_restoreDevMode());
+  }
+
+  Future<void> _restoreDevMode() async {
+    final saved = await _preferences.getPreference(_devModePreference);
+    if (!mounted) return;
+    setState(() {
+      if (saved != null) _devModeEnabled = saved == 'true';
+      _devModeBusy = false;
+    });
+  }
+
+  Future<void> _setDevMode(bool enabled) async {
+    if (_devModeBusy) return;
+    setState(() => _devModeBusy = true);
+    final saved = await _preferences.savePreference(
+      _devModePreference,
+      enabled.toString(),
+    );
+    if (!mounted) return;
+    setState(() {
+      if (saved) _devModeEnabled = enabled;
+      _devModeBusy = false;
+    });
+    if (!saved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save Dev mode. Try again.')),
+      );
+    }
   }
 
   Future<void> _initUser() async {
@@ -191,6 +236,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _selectTab(int index) {
+    if (index != _selectedIndex) _dropboxHardwareConnected = null;
+    _selectedIndex = index;
+  }
+
+  void _updateDropboxHardwareConnection(bool? connected) {
+    if (!mounted || _selectedIndex != 2 || _dropboxHardwareConnected == connected) {
+      return;
+    }
+    setState(() => _dropboxHardwareConnected = connected);
+  }
+
   Widget _buildConnectivityIndicator() {
     final ok = _appConnected;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -232,6 +289,9 @@ class _HomeScreenState extends State<HomeScreen> {
         appBar: UserTheme.appBarGradient(
           context: context,
           title: _getAppBarTitle(),
+          titleSuffix: showingCabinet && _dropboxHardwareConnected == false
+              ? UserUi.hardwareOfflineDot()
+              : null,
           centerTitle: false,
           backgroundColor: showingCabinet ? Colors.transparent : null,
           actions: [
@@ -259,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   databaseService: _databaseService,
                   onSelectTab: (tabIndex, {subTabIndex}) {
                     setState(() {
-                      _selectedIndex = tabIndex;
+                      _selectTab(tabIndex);
                       if (subTabIndex != null) {
                         if (subTabIndex == 2) {
                           _ordersMode = 1;
@@ -289,7 +349,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Container(
                   height: 62,
                   decoration: BoxDecoration(
-                    color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
+                    color: (isDark ? UserTheme.nightCard : UserTheme.dayCard)
+                        .withValues(alpha: UserTheme.floatingSurfaceOpacity),
                     borderRadius: BorderRadius.circular(28),
                     border: Border.all(
                       color: isDark
@@ -315,12 +376,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
 
                       final inactiveColor = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
+                      final selectedColor = index == 2
+                          ? (isDark ? UserTheme.primaryOrangeLight : UserTheme.primaryOrangeOnLight)
+                          : UserTheme.primaryOrange;
 
                       return Expanded(
                         child: GestureDetector(
                           onTap: () {
                             setState(() {
-                              _selectedIndex = index;
+                              _selectTab(index);
                               if (index <= 1 && _userId != null) {
                                 _databaseService.refreshTracking(_userId!);
                                 if (index == 0) _checkDropbox();
@@ -337,7 +401,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon(
                                   isSelected ? activeIcon : icon,
                                   size: 22,
-                                  color: isSelected ? UserTheme.primaryOrange : inactiveColor,
+                                  color: isSelected ? selectedColor : inactiveColor,
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
@@ -345,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   style: TextStyle(
                                     fontSize: 10.5,
                                     fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                    color: isSelected ? UserTheme.primaryOrange : inactiveColor,
+                                    color: isSelected ? selectedColor : inactiveColor,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -406,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 16),
             UserUi.premiumButton(
               label: 'Register Hardware',
-              onTap: () => setState(() => _selectedIndex = 2),
+              onTap: () => setState(() => _selectTab(2)),
               icon: Icons.arrow_forward_rounded,
             ),
           ],
@@ -561,7 +625,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             minimumSize: Size.zero,
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
-                          onPressed: () => setState(() => _selectedIndex = 1),
+                          onPressed: () => setState(() => _selectTab(1)),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -1123,7 +1187,11 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildAllOrdersTab();
       case 2:
-        return const DropboxControlScreen();
+        return DropboxControlScreen(
+          simulationEnabled: _devModeEnabled,
+          embeddedInTab: true,
+          onHardwareConnectionChanged: _updateDropboxHardwareConnection,
+        );
       case 3:
         return _buildProfileTab();
       default:
@@ -1371,6 +1439,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
+              if (_supportsDevMode) ...[
+                const SizedBox(height: 20),
+                UserUi.surfaceCard(
+                  context,
+                  padding: EdgeInsets.zero,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: SwitchListTile.adaptive(
+                      secondary: Icon(
+                        Icons.science_outlined,
+                        size: 20,
+                        color: secondaryText,
+                      ),
+                      title: const Text('Dev mode'),
+                      subtitle: const Text(
+                        'Enable weather and time-of-day simulation in Dropbox.',
+                      ),
+                      value: _devModeEnabled,
+                      activeTrackColor: UserTheme.primaryOrange,
+                      onChanged: _devModeBusy ? null : _setDevMode,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 28),
               SizedBox(
                 width: double.infinity,
