@@ -39,6 +39,8 @@
 		<true/>
 		<key>NSCameraUsageDescription</key>
 		<string>Scan dropbox setup codes, owner verification codes, and parcel waybills.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Use your approximate location to show local weather and daylight in the Dropbox tab.</string>
 		<key>NSBluetoothAlwaysUsageDescription</key>
 		<string>Set up Wi-Fi or unlock your paired Dropbox over Bluetooth.</string>
 		<key>NSBluetoothPeripheralUsageDescription</key>

@@ -11,10 +11,12 @@ class DropboxWindowsViewer extends StatefulWidget {
     required this.preview,
     required this.onDoorSelected,
     required this.stateJson,
+    this.onBackgroundTap,
   });
 
   final Widget preview;
   final ValueChanged<String> onDoorSelected;
+  final VoidCallback? onBackgroundTap;
   final String stateJson;
 
   @override
@@ -78,6 +80,8 @@ class _DropboxWindowsViewerState extends State<DropboxWindowsViewer> {
         unawaited(_updateModifiers());
       case 'viewer-error':
         _showFallback('The model could not be rendered');
+      case 'background-tap':
+        widget.onBackgroundTap?.call();
       case 'top' || 'pickup' || 'received':
         widget.onDoorSelected(message as String);
     }

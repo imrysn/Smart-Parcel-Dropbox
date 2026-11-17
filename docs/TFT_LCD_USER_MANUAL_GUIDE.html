@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Parcel Dropbox – TFT LCD Hardware UI User Manual & Operations Guide</title>
+  <style>
+    /* ============================================================
+       EXECUTIVE HARDWARE MANUAL STYLING (Print & Display Optimized)
+       ============================================================ */
+    :root {
+      --primary: #0284c7;
+      --primary-dark: #0369a1;
+      --accent: #00f0ff;
+      --bg: #ffffff;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #ffffff;
+      color: var(--text-main);
+      line-height: 1.6;
+      padding: 0;
+      margin: 0;
+    }
+
+    /* Top Sticky Action Bar (Hidden in Print) */
+    .top-action-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #e2e8f0;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .top-action-bar .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+      color: #38bdf8;
+    }
+
+    .top-action-bar .brand svg {
+      width: 22px;
+      height: 22px;
+      fill: #38bdf8;
+    }
+
+    .top-action-bar .btn-print {
+      background: #0284c7;
+      color: #0f172a;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+
+    .top-action-bar .btn-print:hover {
+      background: #0369a1;
+    }
+
+    /* Container */
+    .manual-container {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 40px 24px 100px;
+    }
+
+    /* Cover / Header Section */
+    .manual-header {
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 32px;
+      margin-bottom: 40px;
+    }
+
+    .doc-badge {
+      display: inline-block;
+      background: rgba(14, 165, 233, 0.15);
+      border: 1px solid rgba(14, 165, 233, 0.3);
+      color: #38bdf8;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 999px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .manual-header h1 {
+      font-size: 34px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.25;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+
+    .manual-header p.subtitle {
+      font-size: 17px;
+      color: var(--text-muted);
+      max-width: 820px;
+      margin-bottom: 20px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+
+    .meta-item .meta-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+
+    .meta-item .meta-val {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+    }
+
+    /* Table of Contents */
+    .toc-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 24px;
+      margin-bottom: 48px;
+    }
+
+    .toc-card h3 {
+      font-size: 16px;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    .toc-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 10px 24px;
+      list-style: none;
+    }
+
+    .toc-list li a {
+      color: #475569;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: color 0.15s;
+    }
+
+    .toc-list li a:hover {
+      color: #38bdf8;
+    }
+
+    .toc-list li a span.num {
+      color: #0284c7;
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    /* Section Styling */
+    .section-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 48px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .section-title span.badge {
+      background: #0369a1;
+      color: #fff;
+      font-size: 13px;
+      padding: 2px 10px;
+      border-radius: 4px;
+    }
+
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 15px;
+      margin-bottom: 28px;
+    }
+
+    /* Screen Card with Bezel Frame */
+    .screen-row {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 32px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 28px;
+      align-items: center;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    @media (max-width: 820px) {
+      .screen-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Pure LCD TFT Display Frame (No buttons, no outer bezel) */
+    .tft-display {
+      width: 320px;
+      height: 240px;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(15, 23, 42, 0.12);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #000000;
+      flex-shrink: 0;
+    }
+
+    .screen-canvas {
+      width: 320px;
+      height: 240px;
+      display: block;
+    }
+
+    /* Screen Description Details */
+    .screen-details h4 {
+      font-size: 19px;
+      color: #0f172a;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .screen-details .step-tag {
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 700;
+      background: #e0f2fe;
+      color: #0284c7;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .screen-details p.description {
+      font-size: 14px;
+      color: #334155;
+      margin-bottom: 16px;
+    }
+
+    .specs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+
+    .specs-table tr {
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .specs-table tr:last-child {
+      border-bottom: none;
+    }
+
+    .specs-table th {
+      text-align: left;
+      padding: 6px 0;
+      color: #64748b;
+      width: 130px;
+      font-weight: 600;
+    }
+
+    .specs-table td {
+      padding: 6px 0;
+      color: #0f172a;
+    }
+
+    .specs-table td code {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      color: #38bdf8;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 11.5px;
+    }
+
+    /* Status Bar Breakdown Callout */
+    .callout-box {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 32px;
+    }
+
+    .callout-box h4 {
+      color: #38bdf8;
+      font-size: 15px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .callout-box p {
+      font-size: 13.5px;
+      color: #334155;
+      margin-bottom: 8px;
+    }
+
+    .callout-box p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Workflow Pipeline Diagram */
+    .flow-pipeline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 20px 0 32px;
+      align-items: center;
+    }
+
+    .flow-step {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .flow-step.active {
+      background: #e0f2fe;
+      border-color: #38bdf8;
+      color: #0284c7;
+    }
+
+    .flow-arrow {
+      color: #64748b;
+      font-weight: bold;
+    }
+
+    /* Quick Reference Table */
+    .ref-table-wrap {
+      overflow-x: auto;
+      margin: 24px 0 48px;
+    }
+
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .ref-table th {
+      background: #ffffff;
+      border-bottom: 2px solid #e2e8f0;
+      padding: 12px 14px;
+      color: #38bdf8;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+
+    .ref-table td {
+      border-bottom: 1px solid #f1f5f9;
+      padding: 12px 14px;
+      color: #334155;
+    }
+
+    .ref-table tr:hover td {
+      background: #ffffff;
+    }
+
+    /* Print Optimizations */
+    @media print {
+      body {
+        background: #ffffff !important;
+        color: #0f172a !important;
+      }
+
+      .top-action-bar {
+        display: none !important;
+      }
+
+      .manual-container {
+        padding: 0 !important;
+        max-width: 100% !important;
+      }
+
+      .manual-header {
+        border-bottom-color: #cbd5e1 !important;
+      }
+
+      .manual-header h1 {
+        color: #0f172a !important;
+      }
+
+      .meta-grid, .toc-card, .callout-box {
+        background: #f8fafc !important;
+        border-color: #cbd5e1 !important;
+        color: #334155 !important;
+      }
+
+      .meta-item .meta-val {
+        color: #0f172a !important;
+      }
+
+      .section-title {
+        color: #0f172a !important;
+        border-bottom-color: #cbd5e1 !important;
+        page-break-after: avoid;
+      }
+
+      .screen-row {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        box-shadow: none !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-bottom: 20px !important;
+      }
+
+      .hardware-bezel {
+        background: #f1f5f9 !important;
+        border-color: #cbd5e1 !important;
+        box-shadow: none !important;
+      }
+
+      .screen-details h4 {
+        color: #0f172a !important;
+      }
+
+      .screen-details p.description, .specs-table td {
+        color: #334155 !important;
+      }
+
+      .specs-table th {
+        color: #64748b !important;
+      }
+
+      .specs-table tr {
+        border-bottom-color: #e2e8f0 !important;
+      }
+
+      .ref-table th {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border-bottom-color: #cbd5e1 !important;
+      }
+
+      .ref-table td {
+        border-bottom-color: #e2e8f0 !important;
+        color: #334155 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Action Bar -->
+  <div class="top-action-bar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24">
+        <path d="M21 16.5C21 16.88 20.79 17.21 20.47 17.38L12.57 21.82C12.41 21.91 12.23 21.96 12.05 21.96C11.87 21.96 11.69 21.91 11.53 21.82L3.63 17.38C3.31 17.21 3.1 16.88 3.1 16.5V7.5C3.1 7.12 3.31 6.79 3.63 6.62L11.53 2.18C11.85 2 12.25 2 12.57 2.18L20.47 6.62C20.79 6.79 21 7.12 21 7.5V16.5Z"/>
+      </svg>
+      <span>Smart Parcel Dropbox – Hardware UI Manual</span>
+    </div>
+    <button class="btn-print" onclick="window.print()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+        <path d="M6 14h12v8H6z"/>
+      </svg>
+      Print / Save as PDF
+    </button>
+  </div>
+
+  <div class="manual-container">
+
+    <!-- Document Header -->
+    <header class="manual-header">
+      <div class="doc-badge">Official Hardware Operations Guide</div>
+      <h1>Smart Parcel Dropbox – TFT LCD UI User Manual</h1>
+      <p class="subtitle">Complete visual workflow and screen reference guide for the 320×240 ILI9341 SPI color TFT display, mechanical buttons, optical scanner, and IoT sensors on the ESP32-S3 firmware.</p>
+
+      <div class="meta-grid">
+        <div class="meta-item">
+          <div class="meta-label">Firmware Architecture</div>
+          <div class="meta-val">Tesla Sleek Minimalist v4.2</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Target Hardware</div>
+          <div class="meta-val">ESP32-S3 (WROOM-1 / N16R8)</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Display Specs</div>
+          <div class="meta-val">320×240 ILI9341 16-bit Color SPI</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Input Peripherals</div>
+          <div class="meta-val">2× Tactile Buttons + Laser Scanner</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Table of Contents -->
+    <div class="toc-card">
+      <h3>Manual Index & Workflow Navigation</h3>
+      <ul class="toc-list">
+        <li><a href="#sec-overview"><span class="num">01.</span> Hardware Controls & Status Bar Architecture</a></li>
+        <li><a href="#sec-standby"><span class="num">02.</span> Idle & Standby Workflow (Home & Lockscreen)</a></li>
+        <li><a href="#sec-dropoff"><span class="num">03.</span> Courier Parcel Drop-Off Workflow (Complete Step-by-Step)</a></li>
+        <li><a href="#sec-pickup"><span class="num">04.</span> Recipient Package Pick-Up Workflow</a></li>
+        <li><a href="#sec-setup"><span class="num">05.</span> Hardware Setup & Provisioning Workflow (BLE + Cloud QR)</a></li>
+        <li><a href="#sec-errors"><span class="num">06.</span> Alerts, Security Violations & Error Modals</a></li>
+        <li><a href="#sec-matrix"><span class="num">07.</span> User Quick Reference Matrix</a></li>
+      </ul>
+    </div>
+
+    <!-- ============================================================
+         SECTION 1: HARDWARE CONTROLS & STATUS BAR
+         ============================================================ -->
+    <section id="sec-overview">
+      <h2 class="section-title"><span class="badge">01</span> Hardware Controls & Status Bar Architecture</h2>
+      <p class="section-desc">The Smart Parcel Dropbox is operated via two front-mounted physical tactile push buttons, an optical barcode/QR code laser scanner window, and internal sensors.</p>
+
+      <div class="callout-box">
+        <h4>Physical Button Mapping</h4>
+        <p><strong>BTN 1 (Left • Cyan Pill):</strong> GPIO 40 — Primary action button: triggers "DROP-OFF", starts "Begin Setup", and performs "RETRY" during failed scans.</p>
+        <p><strong>BTN 2 (Right • Red Pill):</strong> GPIO 2 — Secondary/Exit button: triggers "PICK-UP", "CANCEL / EXIT", and returns from scanner mode.</p>
+      </div>
+
+      <div class="callout-box">
+        <h4>Centered Telemetry Status Bar Breakdown (Zero-Text Sleek)</h4>
+        <p>The top 26 pixels of all operative screens host a centered status cluster that delivers vital system health at a single glance with zero flickering:</p>
+        <p><strong>1. Wi-Fi Signal Bars (Left, 4 bars):</strong> <span style="color:#10b981;">Green</span> = Connected to local Wi-Fi router; <span style="color:#ef4444;">Red</span> = Wi-Fi disconnected or scanning.</p>
+        <p><strong>2. Cloud Backend Socket (Center Cloud):</strong> <span style="color:#10b981;">Green</span> = Secure WebSocket connected to Cloud Backend; <span style="color:#ef4444;">Red</span> = Backend unreachable.</p>
+        <p><strong>3. Solenoid Locks Status (Right Padlock):</strong> <span style="color:#64748b;">Slate Closed</span> = All doors securely locked; <span style="color:#f59e0b;">Amber Open</span> = Top hopper lid or lower door currently unlocked.</p>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SECTION 2: IDLE & STANDBY WORKFLOW
+         ============================================================ -->
+    <section id="sec-standby">
+      <h2 class="section-title"><span class="badge">02</span> Idle & Standby Workflow</h2>
+      <p class="section-desc">When awaiting couriers or recipients, the device rests in standby or ambient lockscreen mode.</p>
+
+      <!-- Screen: Home -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-home" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">IDLE STANDBY</span> Home Screen (Dual Vertical Cards)</h4>
+          <p class="description">Features twin Tesla-inspired cards with high-contrast accent borders. Clearly distinguishes Drop-Off (Cyan) from Pick-Up (Crimson).</p>
+          <table class="specs-table">
+            <tr><th>Left Card Action</th><td>Press <code>BTN 1</code> to initiate courier drop-off sequence.</td></tr>
+            <tr><th>Right Card Action</th><td>Press <code>BTN 2</code> to initiate recipient package pick-up sequence.</td></tr>
+            <tr><th>Auto-Lock Timeout</th><td>Transitions to Robot Eye Lockscreen after 30 seconds of inactivity.</td></tr>
+            <tr><th>Admin Menu</th><td>Long-press <code>BTN 1</code> for 2.0s to open the Settings Menu.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Lockscreen -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-lockscreen" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">POWER SAVER</span> Ambient Robot Eye Lockscreen</h4>
+          <p class="description">Displays animated, friendly cybernetic eyes with blinking and emotion cycles. Minimizes backlight power while signaling that the box is actively monitoring.</p>
+          <table class="specs-table">
+            <tr><th>Visual Feedback</th><td>Cyan robotic pill eyes with realistic blinking and expressions.</td></tr>
+            <tr><th>Wake-up Action</th><td>Press either <code>BTN 1</code> or <code>BTN 2</code> to instantly wake up to Home.</td></tr>
+            <tr><th>Sensor Wake-up</th><td>Approaching motion or laser trigger immediately restores Home.</td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SECTION 3: PARCEL DROP-OFF WORKFLOW
+         ============================================================ -->
+    <section id="sec-dropoff">
+      <h2 class="section-title"><span class="badge">03</span> Courier Parcel Drop-Off Workflow</h2>
+      <p class="section-desc">The complete end-to-end delivery sequence followed by courier riders (Shopee, Lazada, J&T, FedEx, UPS, DHL).</p>
+
+      <div class="flow-pipeline">
+        <div class="flow-step">1. BTN 1 (Drop-Off)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">2. Scanner Active</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">3. Valid ID</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step active">4. UNLOCKED (2s)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">5. Place & Drop</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">6. Delivered</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">7. Close Door</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">8. LOCKED (2s)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">9. Thank You</div>
+      </div>
+
+      <!-- Screen: Scanner Standby -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-scanner" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 1 / 8</span> Laser Scanner Standby</h4>
+          <p class="description">Instructs the courier to position their tracking barcode or QR code beneath the physical scanner window located below the screen bezel.</p>
+          <table class="specs-table">
+            <tr><th>Scanner Cue</th><td>Static downward cyan chevron directing courier to optical scanner.</td></tr>
+            <tr><th>Hardware State</th><td>Serial2 scanner hardware enabled; red laser beam active.</td></tr>
+            <tr><th>Exit Action</th><td>Press <code>BTN 2</code> (Exit) anytime to cancel and return to Home.</td></tr>
+            <tr><th>Timeout</th><td>Auto-cancels if no scan occurs within 60 seconds.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Valid ID -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-valid" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 2 / 8</span> Barcode Verification Approved</h4>
+          <p class="description">Displays when the scanned barcode matches an expected delivery in the local offline cache or is verified by the cloud backend.</p>
+          <table class="specs-table">
+            <tr><th>Modal Styling</th><td>Unified emerald green card with checkmark badge.</td></tr>
+            <tr><th>Audio Cue</th><td>2 chirps (authorization success sound).</td></tr>
+            <tr><th>Dwell Time</th><td>1.0 second non-blocking pause before opening top hopper lid.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Unlocked -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-unlocked" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 3 / 8</span> Pure UNLOCKED Screen (2.0s)</h4>
+          <p class="description">Pure minimalist open padlock in gold with bold "UNLOCKED" headline. Kept clean with zero sub-text for 100% unified compatibility with the Mobile App remote controls.</p>
+          <table class="specs-table">
+            <tr><th>Solenoid Action</th><td>Top lock energized (Active LOW / Solenoid unlocks).</td></tr>
+            <tr><th>Telemetry</th><td>Status bar padlock icon updates to Amber Open.</td></tr>
+            <tr><th>Duration</th><td>Displays for exactly 2.0 seconds then transitions to action prompt.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Place & Drop -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-placedrop" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 4 / 8</span> Place & Drop Guide</h4>
+          <p class="description">Features a parcel box illustration with downward directional chevron, instructing the courier to pull open the top hopper lid and drop the package inside.</p>
+          <table class="specs-table">
+            <tr><th>Courier Action</th><td>Open lid, deposit package onto the receiving tray.</td></tr>
+            <tr><th>Sensor Monitored</th><td>Reed switch detects when top door is opened (`reed == 1`).</td></tr>
+            <tr><th>Timeout Guard</th><td>If door is never opened within 15 seconds, solenoid re-locks.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Parcel Delivered -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-delivered" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 5 / 8</span> Parcel Delivered (Ultrasonic Confirmation)</h4>
+          <p class="description">Unified green modal card. Triggers the split second the internal ultrasonic distance sensor confirms the package has dropped into the secure holding bin.</p>
+          <table class="specs-table">
+            <tr><th>Sensor Logic</th><td>Ultrasonic sensor detects $\ge 4.0\text{ cm}$ drop in distance (2 hits).</td></tr>
+            <tr><th>Cloud Socket</th><td>Emits <code>statusUpdate: delivered</code> to backend and mobile app.</td></tr>
+            <tr><th>Audio Cue</th><td>Double confirmation chirp.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Please Close Door -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-closedoor" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 6 / 8</span> Please Close Door Guide</h4>
+          <p class="description">Displays an angled gold lid illustration with a downward push arrow, reminding the courier to shut the top hopper lid firmly.</p>
+          <table class="specs-table">
+            <tr><th>Courier Action</th><td>Push lid firmly closed until mechanical slam latch clicks.</td></tr>
+            <tr><th>Sensor Logic</th><td>Magnetic reed switch detects contact (`REED_TOP == 0`).</td></tr>
+            <tr><th>Thermal Protection</th><td>Auto-secures lock if lid is abandoned open for $> 35\text{s}$.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Locked -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-locked" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 7 / 8</span> Pure LOCKED Screen (2.0s)</h4>
+          <p class="description">Pure minimalist closed padlock in emerald green with bold "LOCKED" headline. Confirms solenoid engagement with zero distracting subtitle text.</p>
+          <table class="specs-table">
+            <tr><th>Solenoid Action</th><td>Solenoid locked (`LOCK_TOP = HIGH`).</td></tr>
+            <tr><th>Telemetry</th><td>Status bar padlock icon returns to Slate Closed.</td></tr>
+            <tr><th>Duration</th><td>Displays for 2.0s before showing the final Thank You screen.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Thank You -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-thankyou" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 8 / 8</span> Transaction Logged (Thank You)</h4>
+          <p class="description">Cyan unified modal card with checkmark badge confirming that the delivery transaction has been permanently recorded to flash memory and the cloud server.</p>
+          <table class="specs-table">
+            <tr><th>Modal Styling</th><td>Cyan accent border with checkmark badge.</td></tr>
+            <tr><th>Subtitle</th><td><code>Transaction Logged</code></td></tr>
+            <tr><th>Completion</th><td>Dwells for 1.5 seconds then smoothly returns to Home Screen.</td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SECTION 4: RECIPIENT PACKAGE PICK-UP WORKFLOW
+         ============================================================ -->
+    <section id="sec-pickup">
+      <h2 class="section-title"><span class="badge">04</span> Recipient Package Pick-Up Workflow</h2>
+      <p class="section-desc">The retrieval workflow for the box owner or authorized household member to retrieve all collected parcels from the bottom compartment.</p>
+
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-pickup" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">RETRIEVAL</span> Pickup Compartment Unlocked</h4>
+          <p class="description">Triggered when recipient presses <code>BTN 2</code> (Pick-Up) and scans their personal pickup pass, or taps "Unlock Pickup Door" inside the Mobile App.</p>
+          <table class="specs-table">
+            <tr><th>Solenoid Action</th><td>Lower compartment lock unlatches (Hi-Z/GND mode).</td></tr>
+            <tr><th>User Action</th><td>Open bottom door, collect all delivered parcels, close door.</td></tr>
+            <tr><th>Sensors</th><td>Reed sensor `REED_PICKUP` monitors door; ultrasonic checks bin empty.</td></tr>
+            <tr><th>Completion</th><td>Closing door automatically displays <code>Thank you.</code> and re-locks.</td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SECTION 5: HARDWARE SETUP & PROVISIONING WORKFLOW
+         ============================================================ -->
+    <section id="sec-setup">
+      <h2 class="section-title"><span class="badge">05</span> Hardware Setup & Provisioning Workflow</h2>
+      <p class="section-desc">On first boot out of the box (or after a factory reset), the dropbox guides the user through Bluetooth Wi-Fi onboarding and Cloud Account pairing.</p>
+
+      <!-- Screen: Setup Required -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-setup" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 1 / 4</span> Setup Required (First Boot)</h4>
+          <p class="description">Displays a prominent 8-tooth mechanical gear icon in gold with a glowing cyan "Begin Setup" button. Informs user to pair the hardware with their Mobile App.</p>
+          <table class="specs-table">
+            <tr><th>User Action</th><td>Press <code>BTN 1</code> to start Bluetooth Wi-Fi setup.</td></tr>
+            <tr><th>Alternative</th><td>Open Mobile App and select "Add New Dropbox".</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: BLE Wi-Fi Setup -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-ble" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 2 / 4</span> Bluetooth Wi-Fi Provisioning</h4>
+          <p class="description">High-contrast pure white screen with clean QR code plate. Phone camera scans this QR code to securely pair via BLE and transmit Wi-Fi SSID & password.</p>
+          <table class="specs-table">
+            <tr><th>QR Payload</th><td>Encrypted string <code>SPDBLE:&lt;MAC&gt;:&lt;SETUP_SECRET&gt;</code>.</td></tr>
+            <tr><th>High-Contrast</th><td>White background eliminates LCD backlight moiré on phone cameras.</td></tr>
+            <tr><th>Timeout</th><td>Active for 2 minutes; press <code>BTN 2</code> to cancel.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Registration QR & PIN -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-regqr" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 3 / 4</span> Cloud Account Registration (QR & 6-Digit PIN)</h4>
+          <p class="description">Once Wi-Fi connects, the device contacts the Cloud Backend and receives a secure token. Displays a large QR code and human-readable 6-digit Code.</p>
+          <table class="specs-table">
+            <tr><th>App Pairing</th><td>Scan QR with app OR type the bold 6-digit PIN (e.g. <code>482-913</code>).</td></tr>
+            <tr><th>Live Countdown</th><td>Dynamic pill updates: <code>Expires in 58s - BTN 2 to cancel</code>.</td></tr>
+            <tr><th>Cancel Action</th><td>Press <code>BTN 2</code> anytime to cancel and return to Setup Prompt.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Device Paired -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-paired" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag">STEP 4 / 4</span> Device Paired Successfully</h4>
+          <p class="description">Emerald green unified modal card with checkmark badge confirming registration. The pairing token is saved to Non-Volatile Flash Storage (NVS).</p>
+          <table class="specs-table">
+            <tr><th>NVS Storage</th><td>Persists <code>registered: true</code> permanently across reboots.</td></tr>
+            <tr><th>Transition</th><td>Auto-transitions to operative Home Screen in 1.5 seconds.</td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SECTION 6: ALERTS, ERRORS & SECURITY MODALS
+         ============================================================ -->
+    <section id="sec-errors">
+      <h2 class="section-title"><span class="badge">06</span> Alerts, Errors & Security Modals</h2>
+      <p class="section-desc">All system alerts, barcode rejections, timeouts, and safety safeguards are unified in the Tesla Sleek modal format.</p>
+
+      <!-- Screen: Scan Rejected -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-rejected" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag" style="background:#450a0a; color:#f87171;">SECURITY ALERT</span> Scan Rejected (Invalid Tracking ID)</h4>
+          <p class="description">Unified crimson red card with circular 'X' badge. Triggers when a courier scans a tracking barcode not registered in the delivery log or rejected by the cloud.</p>
+          <table class="specs-table">
+            <tr><th>Security Rule</th><td>Dropbox remains locked; solenoid is NOT energized.</td></tr>
+            <tr><th>Audio Cue</th><td>Double low error buzz pattern.</td></tr>
+            <tr><th>Auto-Action</th><td>Dwells for 2.0s then returns to Scanner for another attempt.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Scan Failed 3x -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-scanfailed" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag" style="background:#450a0a; color:#f87171;">EXCEEDED</span> Scan Failed (3 Attempts Exceeded)</h4>
+          <p class="description">Displays when 3 consecutive invalid barcodes are scanned. Halts laser scanner to protect battery and hardware.</p>
+          <table class="specs-table">
+            <tr><th>Left Option</th><td>Press <code>BTN 1</code> (Cyan) to Retry scanner with fresh attempt counter.</td></tr>
+            <tr><th>Right Option</th><td>Press <code>BTN 2</code> (Red) to Exit and abort to Home Screen.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Drop Failed -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-dropfailed" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag" style="background:#450a0a; color:#f87171;">SENSOR WARNING</span> Drop Failed (No Parcel Detected)</h4>
+          <p class="description">Anti-fraud protection: if the top door was opened and closed, but ultrasonic sensor detects no change in bin volume (no package dropped), this alert appears.</p>
+          <table class="specs-table">
+            <tr><th>Integrity Safeguard</th><td>Package is NOT marked as delivered in backend or courier log.</td></tr>
+            <tr><th>Notification</th><td>Alert sent to Mobile App informing owner of empty drop cycle.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Screen: Offline / No Server -->
+      <div class="screen-row">
+        <div class="tft-display">
+          <canvas id="cv-noserver" class="screen-canvas" width="320" height="240"></canvas>
+        </div>
+        <div class="screen-details">
+          <h4><span class="step-tag" style="background:#450a0a; color:#f87171;">NETWORK ALERT</span> No Server (Device Offline)</h4>
+          <p class="description">Displays when Wi-Fi is lost or Cloud server is unreachable during an operation.</p>
+          <table class="specs-table">
+            <tr><th>Option 1</th><td>Press <code>BTN 1</code> (Cyan) to trigger immediate Wi-Fi reconnect retry.</td></tr>
+            <tr><th>Option 2</th><td>Press <code>BTN 2</code> (Red) to launch BLE Wi-Fi provisioning to reconfigure network.</td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SECTION 7: QUICK REFERENCE MATRIX
+         ============================================================ -->
+    <section id="sec-matrix">
+      <h2 class="section-title"><span class="badge">07</span> User Quick Reference Matrix</h2>
+      <p class="section-desc">Summary guide for all screens, triggers, user actions, and hardware responses.</p>
+
+      <div class="ref-table-wrap">
+        <table class="ref-table">
+          <thead>
+            <tr>
+              <th>Screen Name</th>
+              <th>Trigger Condition</th>
+              <th>Display Type</th>
+              <th>User Action</th>
+              <th>Next Screen</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Home Screen</strong></td>
+              <td>System boot or operational idle</td>
+              <td>Dual vertical cards</td>
+              <td>Press BTN 1 (Drop) / BTN 2 (Pickup)</td>
+              <td>Scanner / Pickup Door</td>
+            </tr>
+            <tr>
+              <td><strong>Robot Eye Lockscreen</strong></td>
+              <td>30s inactivity on Home</td>
+              <td>Animated eyes</td>
+              <td>Press any button to wake</td>
+              <td>Home Screen</td>
+            </tr>
+            <tr>
+              <td><strong>Scanner Standby</strong></td>
+              <td>BTN 1 pressed on Home</td>
+              <td>QR plate + chevron</td>
+              <td>Scan tracking barcode / BTN 2 Exit</td>
+              <td>Verifying / Valid / Rejected</td>
+            </tr>
+            <tr>
+              <td><strong>Valid ID</strong></td>
+              <td>Barcode matched locally/online</td>
+              <td>Green modal card</td>
+              <td>Wait 1.0s</td>
+              <td>UNLOCKED (2.0s)</td>
+            </tr>
+            <tr>
+              <td><strong>UNLOCKED</strong></td>
+              <td>Valid barcode or remote unlock</td>
+              <td>Gold open padlock</td>
+              <td>Prepare to open lid</td>
+              <td>Place & Drop Guide</td>
+            </tr>
+            <tr>
+              <td><strong>Place & Drop</strong></td>
+              <td>2.0s after UNLOCKED</td>
+              <td>Parcel box illustration</td>
+              <td>Open top lid & drop parcel</td>
+              <td>Parcel Delivered / Close Door</td>
+            </tr>
+            <tr>
+              <td><strong>Parcel Delivered</strong></td>
+              <td>Ultrasonic sensor detects drop</td>
+              <td>Green modal card</td>
+              <td>Wait for confirmation chirp</td>
+              <td>Please Close Door</td>
+            </tr>
+            <tr>
+              <td><strong>Please Close Door</strong></td>
+              <td>Top door opened & parcel dropped</td>
+              <td>Angled lid illustration</td>
+              <td>Push lid down firmly until locked</td>
+              <td>LOCKED (2.0s)</td>
+            </tr>
+            <tr>
+              <td><strong>LOCKED</strong></td>
+              <td>Reed switch detects door closed</td>
+              <td>Green closed lock</td>
+              <td>Wait 2.0s</td>
+              <td>Thank You Modal</td>
+            </tr>
+            <tr>
+              <td><strong>Thank You</strong></td>
+              <td>Transaction confirmed</td>
+              <td>Cyan modal card</td>
+              <td>Delivery complete!</td>
+              <td>Home Screen</td>
+            </tr>
+            <tr>
+              <td><strong>Setup Required</strong></td>
+              <td>First boot / Unregistered</td>
+              <td>Gold gear + cyan button</td>
+              <td>Press BTN 1 to Begin Setup</td>
+              <td>Bluetooth Wi-Fi Setup</td>
+            </tr>
+            <tr>
+              <td><strong>Bluetooth Wi-Fi</strong></td>
+              <td>BTN 1 on Setup screen</td>
+              <td>White BG + QR plate</td>
+              <td>Scan QR with Parcel Mobile App</td>
+              <td>Registration QR / Wi-Fi OK</td>
+            </tr>
+            <tr>
+              <td><strong>Registration QR</strong></td>
+              <td>Wi-Fi connected to server</td>
+              <td>White BG + QR + PIN</td>
+              <td>Scan QR or enter 6-digit Code</td>
+              <td>Device Paired Modal</td>
+            </tr>
+            <tr>
+              <td><strong>Scan Rejected</strong></td>
+              <td>Barcode not registered</td>
+              <td>Red modal card</td>
+              <td>Press BTN 1 Retry / BTN 2 Exit</td>
+              <td>Scanner Standby</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ============================================================
+       JAVASCRIPT CANVAS RENDERING ENGINE
+       Exact reproduction of DisplayController.ino Adafruit_GFX graphics
+       ============================================================ -->
+  <script>
+    function renderScreen(canvasId, type, params = {}) {
+      const cv = document.getElementById(canvasId);
+      if (!cv) return;
+      const ctx = cv.getContext('2d');
+      const W = 320, H = 240;
+
+      // Color Palette matching firmware exactly
+      const C = {
+        bg: '#000000',
+        card: '#0c131f',
+        cardBorder: '#1e293b',
+        text: '#ffffff',
+        grey: '#94a3b8',
+        darkGrey: '#334155',
+        cyan: '#00f0ff',
+        gold: '#f59e0b',
+        green: '#10b981',
+        red: '#ef4444',
+        blue: '#0284c7',
+        divider: '#182234',
+        pillBg: '#e2e8f0',
+        pillBorder: '#cbd5e1'
+      };
+
+      // Helper drawing routines
+      function clear(color = C.bg) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      function fillRoundRect(x, y, w, h, r, color) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+
+      function drawRoundRect(x, y, w, h, r, color, lw = 1.5) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lw;
+        ctx.stroke();
+      }
+
+      function fillCircle(x, y, r, color) {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+
+      function drawCircle(x, y, r, color, lw = 1.5) {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lw;
+        ctx.stroke();
+      }
+
+      function text(str, x, y, col, bold = false, size = 13, align = 'center') {
+        ctx.font = `${bold ? 'bold ' : ''}${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.fillStyle = col;
+        ctx.textAlign = align;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(str, x, y);
+      }
+
+      // ── Icon Helpers (Vector Bitmaps) ─────────────────────────
+      function drawCloudIcon(cx, cy, color) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cx - 3.5, cy + 1, 3, 0, Math.PI * 2);
+        ctx.arc(cx, cy - 1.5, 4, 0, Math.PI * 2);
+        ctx.arc(cx + 4, cy + 0.5, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(cx - 5.5, cy + 0.5, 12, 3.5);
+      }
+
+      function drawMiniPadlock(x, y, color, open) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        if (open) {
+          ctx.arc(x + 5, y + 4, 3, Math.PI, 0, false);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x + 2, y + 4); ctx.lineTo(x + 2, y + 6);
+          ctx.stroke();
+        } else {
+          ctx.arc(x + 5, y + 4, 3, Math.PI, 0, false);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x + 2, y + 4); ctx.lineTo(x + 2, y + 6);
+          ctx.moveTo(x + 8, y + 4); ctx.lineTo(x + 8, y + 6);
+          ctx.stroke();
+        }
+        fillRoundRect(x + 1, y + 5, 8, 7, 1.5, color);
+        ctx.fillStyle = C.bg;
+        ctx.fillRect(x + 4.5, y + 8, 1.2, 2.5);
+      }
+
+      function drawParcelIcon(x, y, color) {
+        ctx.fillStyle = C.card;
+        ctx.fillRect(x, y, 32, 24);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.8;
+        ctx.strokeRect(x, y, 32, 24);
+        ctx.fillStyle = color;
+        ctx.fillRect(x + 13, y, 6, 24);
+        ctx.fillStyle = C.card;
+        ctx.fillRect(x + 15, y, 2, 24);
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y + 11, 32, 2);
+      }
+
+      function drawPadlockIcon(cx, cy, color, open) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        if (open) {
+          ctx.arc(cx - 6, cy - 6, 9, Math.PI, 0, false);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(cx - 15, cy - 6); ctx.lineTo(cx - 15, cy + 3);
+          ctx.stroke();
+        } else {
+          ctx.arc(cx, cy - 6, 9, Math.PI, 0, false);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(cx - 9, cy - 6); ctx.lineTo(cx - 9, cy + 3);
+          ctx.moveTo(cx + 9, cy - 6); ctx.lineTo(cx + 9, cy + 3);
+          ctx.stroke();
+        }
+        fillRoundRect(cx - 15, cy + 2, 30, 22, 4, color);
+        ctx.fillStyle = C.bg;
+        ctx.beginPath();
+        ctx.arc(cx, cy + 10, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(cx - 1.5, cy + 10, 3, 6);
+      }
+
+      function drawGearIcon(cx, cy, color) {
+        ctx.fillStyle = color;
+        // Central hub disc
+        ctx.beginPath();
+        ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+        ctx.fill();
+        // 8 Square Teeth
+        for (let i = 0; i < 8; i++) {
+          const ang = i * Math.PI / 4;
+          const cos = Math.cos(ang);
+          const sin = Math.sin(ang);
+          ctx.save();
+          ctx.translate(cx + cos * 13, cy + sin * 13);
+          ctx.rotate(ang);
+          ctx.fillRect(-2.5, -2.5, 5, 5);
+          ctx.restore();
+        }
+        // Axle Hole
+        ctx.fillStyle = C.bg;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawExitPill(cx, cy, label, isWhiteScreen = false) {
+        const pw = 114, ph = 22;
+        if (isWhiteScreen) {
+          fillRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, '#f1f5f9');
+          drawRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, C.red, 1.2);
+        } else {
+          fillRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, C.card);
+          drawRoundRect(cx - pw/2, cy - ph/2, pw, ph, 11, C.red, 1.2);
+        }
+        ctx.strokeStyle = C.red;
+        ctx.lineWidth = 1.8;
+        ctx.lineCap = 'round';
+        const gx = cx - pw/2 + 14, gy = cy;
+        ctx.beginPath();
+        ctx.moveTo(gx - 4, gy - 4); ctx.lineTo(gx + 4, gy + 4);
+        ctx.moveTo(gx + 4, gy - 4); ctx.lineTo(gx - 4, gy + 4);
+        ctx.stroke();
+        text(label, cx + 8, cy, C.red, true, 10.5);
+      }
+
+      // ── Status Bar (Tesla Sleek Centered Telemetry) ───────────
+      function drawStatusBar(wifi = true, cloud = true, open = false) {
+        ctx.fillStyle = C.bg;
+        ctx.fillRect(0, 0, W, 26);
+        ctx.strokeStyle = C.divider;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, 25.5);
+        ctx.lineTo(W, 25.5);
+        ctx.stroke();
+
+        // 1. Wi-Fi Bars (x=130..142)
+        const wfColor = wifi ? C.green : C.red;
+        for (let i = 0; i < 4; i++) {
+          const bh = 4 + (i * 3);
+          ctx.fillStyle = wfColor;
+          ctx.fillRect(130 + (i * 4), 20 - bh, 2, bh);
+        }
+
+        // 2. Cloud Backend (Centered at 158, y=13) - Crisp Vector Icon
+        const cColor = (!wifi) ? C.red : (cloud ? C.green : C.red);
+        drawCloudIcon(158, 13, cColor);
+
+        // 3. Padlock (x=178, y=8) - Crisp Mini Lock
+        const pColor = open ? C.gold : '#64748b';
+        drawMiniPadlock(178, 8, pColor, open);
+      }
+
+      // ── Unified Modal Card Template (230x108) ────────────────
+      function drawModalCard(borderColor, isCheck, title, subtitle = '') {
+        drawStatusBar(params.wifi !== false, params.cloud !== false, params.open || false);
+
+        const cw = 230, ch = 108;
+        const cx = 160 - cw / 2, cy = 54;
+        fillRoundRect(cx + 2, cy + 2, cw - 4, ch - 4, 14, C.card);
+        drawRoundRect(cx, cy, cw, ch, 16, borderColor, 2);
+
+        // Circular Badge
+        fillCircle(160, 84, 18, borderColor);
+        ctx.strokeStyle = C.text;
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = 'round';
+
+        if (isCheck) {
+          ctx.beginPath();
+          ctx.moveTo(151, 84);
+          ctx.lineTo(158, 91);
+          ctx.lineTo(169, 77);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(153, 77);
+          ctx.lineTo(167, 91);
+          ctx.moveTo(167, 77);
+          ctx.lineTo(153, 91);
+          ctx.stroke();
+        }
+
+        // Headline & Subtitle
+        text(title, 160, 122, borderColor, true, 16);
+        if (subtitle) {
+          text(subtitle, 160, 143, C.grey, false, 11);
+        }
+      }
+
+      // QR Code Module Simulator
+      function drawMockQR(qx, qy, qs, darkColor = C.bg, lightColor = C.text) {
+        fillRoundRect(qx, qy, qs, qs, 4, lightColor);
+        ctx.fillStyle = darkColor;
+
+        // TL Finder
+        ctx.fillRect(qx + 4, qy + 4, 14, 14);
+        ctx.fillStyle = lightColor; ctx.fillRect(qx + 6, qy + 6, 10, 10);
+        ctx.fillStyle = darkColor;  ctx.fillRect(qx + 8, qy + 8, 6, 6);
+
+        // TR Finder
+        ctx.fillRect(qx + qs - 18, qy + 4, 14, 14);
+        ctx.fillStyle = lightColor; ctx.fillRect(qx + qs - 16, qy + 6, 10, 10);
+        ctx.fillStyle = darkColor;  ctx.fillRect(qx + qs - 14, qy + 8, 6, 6);
+
+        // BL Finder
+        ctx.fillRect(qx + 4, qy + qs - 18, 14, 14);
+        ctx.fillStyle = lightColor; ctx.fillRect(qx + 6, qy + qs - 16, 10, 10);
+        ctx.fillStyle = darkColor;  ctx.fillRect(qx + 8, qy + qs - 14, 6, 6);
+
+        // Data pattern simulation
+        for (let r = 0; r < 7; r++) {
+          for (let c = 0; c < 7; c++) {
+            if ((r + c * 3) % 2 === 0) {
+              ctx.fillRect(qx + 22 + c * 6, qy + 12 + r * 6, 4, 4);
+            }
+          }
+        }
+      }
+
+      // ==========================================================
+      // SWITCH RENDER SCREEN LOGIC
+      // ==========================================================
+      clear();
+
+      switch (type) {
+        case 'HOME': {
+          drawStatusBar(true, true, false);
+
+          // Left Card: DROP-OFF
+          fillRoundRect(20, 36, 134, 188, 16, C.card);
+          drawRoundRect(20, 36, 134, 188, 16, C.cyan, 1.8);
+
+          // Drop-off Icon: Crisp Parcel Box (Centered at 87, 74)
+          drawParcelIcon(71, 62, C.cyan);
+
+          // Downward Chevron
+          ctx.strokeStyle = C.cyan;
+          ctx.lineWidth = 2.2;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(81, 100); ctx.lineTo(87, 106); ctx.lineTo(93, 100);
+          ctx.stroke();
+
+          text('DROP-OFF', 87, 138, C.cyan, true, 16);
+          text('Touch / BTN 1', 87, 166, C.text, false, 11);
+
+          // BTN 1 Blue Dot Indicator
+          fillCircle(87, 202, 5, C.cyan);
+
+          // Right Card: PICK-UP
+          fillRoundRect(166, 36, 134, 188, 16, C.card);
+          drawRoundRect(166, 36, 134, 188, 16, C.red, 1.8);
+
+          // Pick-up Icon: Crisp Padlock (Centered at 233, 74)
+          drawPadlockIcon(233, 74, C.red, false);
+
+          text('PICK-UP', 233, 138, C.red, true, 16);
+          text('Touch / BTN 2', 233, 166, C.text, false, 11);
+
+          // BTN 2 Red Dot Indicator
+          fillCircle(233, 202, 5, C.red);
+          break;
+        }
+
+        case 'LOCKSCREEN': {
+          drawStatusBar(true, true, false);
+          // Robot Eyes
+          const lx = 115, rx = 205, ey = 100;
+          fillRoundRect(lx - 25, ey - 22, 50, 38, 19, C.cyan);
+          fillRoundRect(rx - 25, ey - 22, 50, 38, 19, C.cyan);
+          // Happy mouth
+          fillRoundRect(160 - 15, ey + 25, 30, 8, 4, C.cyan);
+
+          text('SYSTEM READY', 160, 185, C.text, true, 16);
+          text('Press any button to activate', 160, 210, C.grey, false, 11);
+          break;
+        }
+
+        case 'SCANNER': {
+          drawStatusBar(true, true, false);
+          text("Please scan the Parcel's QR below.", 160, 42, C.text, false, 11.5);
+          drawMockQR(134, 62, 52, C.bg, C.text);
+
+          // Downward bold chevron
+          ctx.strokeStyle = C.cyan;
+          ctx.lineWidth = 3;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(146, 136); ctx.lineTo(160, 148); ctx.lineTo(174, 136);
+          ctx.stroke();
+
+          // Footer: Press (red dot) to exit.
+          text('Press', 136, 218, C.grey, false, 11.5);
+          fillCircle(158, 218, 4, C.red);
+          text('to exit.', 184, 218, C.grey, false, 11.5);
+          break;
+        }
+
+        case 'VALID': {
+          drawModalCard(C.green, true, 'VALID ID', 'Authorized Access');
+          break;
+        }
+
+        case 'UNLOCKED': {
+          drawStatusBar(true, true, true);
+          // Crisp Open Padlock Bitmap Icon
+          drawPadlockIcon(160, 84, C.gold, true);
+          text('UNLOCKED', 160, 148, C.text, true, 20);
+          break;
+        }
+
+        case 'PLACEDROP': {
+          drawStatusBar(true, true, true);
+          // Crisp Parcel Box Bitmap Icon
+          drawParcelIcon(144, 60, C.cyan);
+
+          // Chevron
+          ctx.strokeStyle = C.cyan;
+          ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(148, 104); ctx.lineTo(160, 114); ctx.lineTo(172, 104); ctx.stroke();
+
+          // Bin frame
+          ctx.strokeStyle = C.grey; ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(124, 126); ctx.lineTo(124, 136); ctx.lineTo(196, 136); ctx.lineTo(196, 126);
+          ctx.stroke();
+
+          text('Place & Drop the parcel inside', 160, 172, C.text, true, 15);
+          break;
+        }
+
+        case 'DELIVERED': {
+          drawModalCard(C.green, true, 'Parcel Delivered', 'Detected by Ultrasonic Sensor');
+          break;
+        }
+
+        case 'CLOSEDOOR': {
+          drawStatusBar(true, true, true);
+          // Box frame
+          drawRoundRect(134, 100, 52, 26, 4, C.cardBorder, 1.5);
+
+          // Angled lid
+          ctx.strokeStyle = C.gold; ctx.lineWidth = 3; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(134, 100); ctx.lineTo(176, 72); ctx.stroke();
+
+          // Push arrow
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(175, 78); ctx.lineTo(175, 94);
+          ctx.moveTo(170, 89); ctx.lineTo(175, 94); ctx.lineTo(180, 89);
+          ctx.stroke();
+
+          text('Please close the door', 160, 160, C.text, true, 16);
+          break;
+        }
+
+        case 'LOCKED': {
+          drawStatusBar(true, true, false);
+          // Crisp Closed Padlock Bitmap Icon
+          drawPadlockIcon(160, 84, C.green, false);
+          text('LOCKED', 160, 148, C.text, true, 20);
+          break;
+        }
+
+        case 'THANKYOU': {
+          drawModalCard(C.cyan, true, 'Thank you.', 'Transaction Logged');
+          break;
+        }
+
+        case 'PICKUP_UNLOCKED': {
+          drawStatusBar(true, true, true);
+          // Crisp Open Padlock Bitmap Icon
+          drawPadlockIcon(160, 80, C.gold, true);
+
+          text('UNLOCKED', 160, 146, C.text, true, 20);
+          text('Retrieve parcels & close door', 160, 178, C.grey, false, 11.5);
+          break;
+        }
+
+        case 'SETUP': {
+          drawStatusBar(false, false, false);
+          // Crisp 32x32 Mechanical Gear Bitmap Icon
+          drawGearIcon(160, 76, C.gold);
+
+          text('SETUP REQUIRED', 160, 120, C.gold, true, 16);
+          text('Pair this box with Mobile App', 160, 142, C.grey, false, 11);
+
+          // Sleek Begin Setup Button
+          fillRoundRect(95, 168, 130, 28, 14, C.cyan);
+          text('Begin Setup', 160, 182, C.bg, true, 12);
+          text('Press BTN 1', 142, 216, C.grey, false, 10.5);
+          fillCircle(172, 216, 3.5, C.cyan);
+          text('to start', 194, 216, C.grey, false, 10.5);
+          break;
+        }
+
+        case 'BLE': {
+          clear(C.text); // High-contrast White Background
+          text('Bluetooth Wi-Fi Setup', 160, 22, C.bg, true, 14);
+          text('Scan in Parcel App to configure Wi-Fi', 160, 38, '#64748b', false, 10.5);
+
+          drawMockQR(116, 52, 88, C.bg, C.text);
+
+          // Status Pill with Bluetooth Rune
+          fillRoundRect(85, 154, 150, 24, 12, '#f1f5f9');
+          drawRoundRect(85, 154, 150, 24, 12, '#cbd5e1', 1);
+          text('ᛒ  BLE ACTIVE', 160, 166, C.blue, true, 11);
+
+          // Footer: Press (red dot) to cancel.
+          text('Press', 146, 208, '#64748b', false, 10.5);
+          fillCircle(158, 208, 3.5, C.red);
+          text('to cancel', 172, 208, '#64748b', false, 10.5);
+          break;
+        }
+
+        case 'REGQR': {
+          clear(C.text); // High-contrast White Background
+          text('Scan QR with Parcel App', 160, 22, C.bg, true, 14);
+          text('Or enter the 6-digit Code below', 160, 38, '#64748b', false, 10.5);
+
+          drawMockQR(116, 52, 88, C.bg, C.text);
+
+          text('CODE: 482-913', 160, 164, C.bg, true, 15);
+
+          // Expiry & Cancel Pill
+          fillRoundRect(45, 190, 230, 24, 12, '#f1f5f9');
+          drawRoundRect(45, 190, 230, 24, 12, '#cbd5e1', 1);
+          text('Expires in 60s  |  BTN 2', 138, 200, '#64748b', true, 10);
+          fillCircle(195, 200, 3, C.red);
+          text('Cancel', 220, 200, '#64748b', true, 10);
+          break;
+        }
+
+        case 'PAIRED': {
+          drawModalCard(C.green, true, 'Device Paired!', 'Ready for deliveries');
+          break;
+        }
+
+        case 'REJECTED': {
+          drawModalCard(C.red, false, 'SCAN REJECTED', 'Barcode not registered in delivery log');
+          break;
+        }
+
+        case 'SCANFAILED': {
+          drawModalCard(C.red, false, 'SCAN FAILED', '3 attempts exceeded');
+          // Buttons
+          fillRoundRect(70, 192, 70, 22, 6, C.cyan);
+          text('RETRY', 105, 203, C.bg, true, 10);
+          fillRoundRect(180, 192, 70, 22, 6, C.red);
+          text('EXIT', 215, 203, C.text, true, 10);
+          break;
+        }
+
+        case 'DROPFAILED': {
+          drawModalCard(C.red, false, 'DROP FAILED', 'No Parcel Detected');
+          break;
+        }
+
+        case 'NOSERVER': {
+          drawModalCard(C.red, false, 'NO SERVER', 'Device is offline');
+          fillRoundRect(70, 192, 70, 22, 6, C.cyan);
+          text('RETRY', 105, 203, C.bg, true, 10);
+          fillRoundRect(180, 192, 70, 22, 6, C.red);
+          text('BLE SETUP', 215, 203, C.text, true, 9.5);
+          break;
+        }
+      }
+    }
+
+    // Initialize all canvas renders on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      renderScreen('cv-home', 'HOME');
+      renderScreen('cv-lockscreen', 'LOCKSCREEN');
+      renderScreen('cv-scanner', 'SCANNER');
+      renderScreen('cv-valid', 'VALID');
+      renderScreen('cv-unlocked', 'UNLOCKED');
+      renderScreen('cv-placedrop', 'PLACEDROP');
+      renderScreen('cv-delivered', 'DELIVERED');
+      renderScreen('cv-closedoor', 'CLOSEDOOR');
+      renderScreen('cv-locked', 'LOCKED');
+      renderScreen('cv-thankyou', 'THANKYOU');
+      renderScreen('cv-pickup', 'PICKUP_UNLOCKED');
+      renderScreen('cv-setup', 'SETUP');
+      renderScreen('cv-ble', 'BLE');
+      renderScreen('cv-regqr', 'REGQR');
+      renderScreen('cv-paired', 'PAIRED');
+      renderScreen('cv-rejected', 'REJECTED');
+      renderScreen('cv-scanfailed', 'SCANFAILED');
+      renderScreen('cv-dropfailed', 'DROPFAILED');
+      renderScreen('cv-noserver', 'NOSERVER');
+    });
+  </script>
+</body>
+</html>

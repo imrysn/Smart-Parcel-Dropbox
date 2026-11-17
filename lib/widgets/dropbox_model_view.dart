@@ -2,47 +2,61 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'dropbox_mobile_viewer.dart';
 import 'dropbox_web_viewer_stub.dart'
     if (dart.library.js_interop) 'dropbox_web_viewer.dart';
+import 'dropbox_weather_scene.dart';
 import 'dropbox_windows_viewer.dart';
 
-class DropboxModelView extends StatefulWidget {
+class DropboxModelView extends StatelessWidget {
   const DropboxModelView({
     super.key,
     required this.onDoorSelected,
     required this.openDoors,
     required this.parcelCount,
+    required this.hardwareOnline,
+    required this.anyDoorUnlocked,
+    required this.headerBuilder,
+    this.latestDelivery,
+    this.simulationEnabled = false,
   });
 
   final ValueChanged<String> onDoorSelected;
   final Map<String, bool> openDoors;
   final int parcelCount;
+  final bool hardwareOnline;
+  final bool? anyDoorUnlocked;
+  final DateTime? latestDelivery;
+  final Widget Function(Widget? weatherControl) headerBuilder;
+  final bool simulationEnabled;
 
   @override
-  State<DropboxModelView> createState() => _DropboxModelViewState();
-}
+  Widget build(BuildContext context) => DropboxWeatherScene(
+        simulationEnabled: simulationEnabled,
+        builder: _buildScene,
+      );
 
-class _DropboxModelViewState extends State<DropboxModelView> {
-  Map<String, Object>? _view;
-  int _viewId = 0;
-
-  void _showSide(String side) {
-    setState(() => _view = {'side': side, 'id': ++_viewId});
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildScene(
+    BuildContext context,
+    Map<String, Object> environment,
+    Widget? weatherControl,
+    VoidCallback? onBackgroundTap,
+  ) {
     final windows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     final mobile = !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
     final stateJson = jsonEncode({
-      'doors': widget.openDoors,
-      'parcels': widget.parcelCount,
-      'view': _view,
+      'doors': openDoors,
+      'parcels': parcelCount,
+      'display': {
+        'online': hardwareOnline,
+        'unlocked': anyDoorUnlocked,
+        'deliveredAt': latestDelivery?.millisecondsSinceEpoch,
+      },
+      'environment': environment,
+      'backgroundTapEnabled': onBackgroundTap != null,
     });
     final preview = Image.asset(
       'assets/dropbox/smart-parcel-dropbox.png',
@@ -53,17 +67,20 @@ class _DropboxModelViewState extends State<DropboxModelView> {
       (true, _, _) => DropboxWebViewer(
           preview: preview,
           stateJson: stateJson,
-          onDoorSelected: widget.onDoorSelected,
+          onDoorSelected: onDoorSelected,
+          onBackgroundTap: onBackgroundTap,
         ),
       (_, true, _) => DropboxWindowsViewer(
           preview: preview,
           stateJson: stateJson,
-          onDoorSelected: widget.onDoorSelected,
+          onDoorSelected: onDoorSelected,
+          onBackgroundTap: onBackgroundTap,
         ),
       (_, _, true) => DropboxMobileViewer(
           preview: preview,
           stateJson: stateJson,
-          onDoorSelected: widget.onDoorSelected,
+          onDoorSelected: onDoorSelected,
+          onBackgroundTap: onBackgroundTap,
         ),
       _ => preview,
     };
@@ -72,31 +89,7 @@ class _DropboxModelViewState extends State<DropboxModelView> {
       fit: StackFit.expand,
       children: [
         viewer,
-        if (kIsWeb || windows || mobile)
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: SafeArea(
-              top: false,
-              child: PointerInterceptor(
-                intercepting:
-                    kIsWeb || defaultTargetPlatform == TargetPlatform.iOS,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextButton(
-                      onPressed: () => _showSide('front'),
-                      child: const Text('Front'),
-                    ),
-                    const SizedBox(width: 12),
-                    TextButton(
-                      onPressed: () => _showSide('rear'),
-                      child: const Text('Rear'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        headerBuilder(kIsWeb || windows || mobile ? weatherControl : null),
       ],
     );
   }

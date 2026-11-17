@@ -152,10 +152,15 @@ export function createParcelPhysics(cabinet, groundHeight, reducedMotion) {
     return true;
   }
 
+  function hasMotion() {
+    return group.visible && !reducedMotion && parcels.length > 0 &&
+      (pendingCount > 0 || world.hasActiveBodies || tiltRemaining > 0);
+  }
+
   function advance(now) {
     const elapsed = previousFrame === undefined ? 0 : (now - previousFrame) / 1000;
     previousFrame = now;
-    if (!parcels.length || reducedMotion || (!pendingCount && !world.hasActiveBodies && !tiltRemaining)) return;
+    if (!hasMotion()) return;
     accumulated += Math.min(elapsed, 0.05);
     while (accumulated >= stepSeconds) {
       arrivalDelay -= stepSeconds;
@@ -190,5 +195,7 @@ export function createParcelPhysics(cabinet, groundHeight, reducedMotion) {
     }
   }
 
-  return { setCount, setRearOpen, jostle, advance };
+  return { setCount, setRearOpen, jostle, advance, hasMotion,
+    setVisible(visible) { group.visible = visible; },
+  };
 }

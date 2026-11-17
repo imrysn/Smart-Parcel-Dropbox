@@ -168,8 +168,8 @@ void setup() {
   // Scanner serial: Arduino Uno TX → GPIO17 (ESP32 RX). TX=-1 as no return wire exists.
   // We use a pullup on RX to prevent floating noise from being interpreted as data.
   pinMode(17, INPUT_PULLUP);
+  Serial2.setRxBufferSize(1024); // Set RX buffer size before begin() for ESP32 UART driver
   Serial2.begin(9600, SERIAL_8N1, 17, -1);
-  Serial2.setRxBufferSize(1024); // Increase RX buffer to handle long barcodes without dropping
 
   // TFT Display Hardware Reset
   pinMode(TFT_RST, OUTPUT);
@@ -211,16 +211,18 @@ void setup() {
   
   printSerialMenu();
 
-  // Final Step: Initialize Task Watchdog Timer (v3.x API)
+  // Final Step: Initialize Task Watchdog Timer (v2.x & v3.x core compatible)
   // Move this last so it doesn't trigger during the initial setup/WiFi sync
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   esp_task_wdt_config_t twdt_config = {
       .timeout_ms = 8000, // 8-second window for the main loop
       .idle_core_mask = (1 << 0) | (1 << 1),
       .trigger_panic = true
   };
-  
-  // Try initializing, but ignore "already initialized" errors
   esp_err_t err = esp_task_wdt_init(&twdt_config);
+#else
+  esp_err_t err = esp_task_wdt_init(WDT_TIMEOUT, true);
+#endif
   if (err == ESP_OK || err == ESP_ERR_INVALID_STATE) {
     // We REMOVED esp_task_wdt_add(NULL) because socketIO.loop() blocks during TCP 
     // reconnection attempts when the server is offline, which causes the WDT to 
@@ -466,20 +468,29 @@ void loop() {
         int remaining = max(0, 60 - elapsed);
         if (remaining != lastRegSec) {
           lastRegSec = remaining;
-          tft.fillRect(0, 218, 320, 22, COLOR_TEXT);
-          tft.setTextSize(1); tft.setTextColor(COLOR_BG);
-          tft.setCursor(100, 222);
-          tft.print("Expires in "); tft.print(remaining); tft.print(" seconds — scan in app");
+          char expBuf[48];
+          snprintf(expBuf, sizeof(expBuf), "Expires in %ds - BTN 2 to cancel", remaining);
+          tft.fillRoundRect(50, 192, 220, 24, 12, 0xE71C);
+          _smallText(expBuf, 160, 204, COLOR_GREY);
+          tft.setFont();
         }
         // 60s QR timeout
         if (remaining == 0) {
-          tft.fillScreen(COLOR_BG);
-          tft.setTextSize(2); tft.setTextColor(COLOR_RED);
-          tft.setCursor(70, 80); tft.print("TIMED OUT");
-          tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-          tft.setCursor(50, 110); tft.print("Token expired. Press BTN1 to retry.");
+          displayModalCard(COLOR_RED, false, "TIMED OUT", "Token expired. Press BTN 1 to retry.");
           regQrDrawn = false;
           regTokenReceived = false;
+        }
+      }
+
+      // Cancel: BTN 2 returns to DEVICE_UNREGISTERED
+      if (digitalRead(BTN_PICKUP) == LOW) {
+        delay(50);
+        if (digitalRead(BTN_PICKUP) == LOW) {
+          Serial.println("[SETUP] Registration canceled via BTN 2.");
+          regQrDrawn = false;
+          regTokenReceived = false;
+          changeState(DEVICE_UNREGISTERED);
+          break;
         }
       }
 
@@ -609,7 +620,7 @@ void loop() {
         Serial.println("[FLOW] Pickup compartment door CLOSED → Locked. Pickup complete!");
         triggerBuzzer(1);
         triggerCyberChirp(1);
-        displayMessage("SUCCESS", "Pickup Complete");
+        drawThankYouScreen();
 
         // If a tracking ID was scanned for this pickup, notify server it was retrieved
         if (strlen(currentTrackingId) > 0) {
@@ -646,13 +657,7 @@ void loop() {
     // ── WAITING FOR SCAN ──────────────────────────────────
     case WAITING_FOR_SCAN:
       if (!stateInitialized) {
-        tft.fillScreen(COLOR_BG);
-        drawStatusBar();
         drawScannerBg();
-        tft.setCursor(65, 185); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
-        tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
-        tft.setCursor(35, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-        tft.print(isReceivingMode ? "Scan Parcel Barcode" : "Scan Pass, Code or Rider ID");
         Serial.print("[FLOW] Waiting for scan data on Serial2 in mode: ");
         Serial.println(isReceivingMode ? "DROP OFF" : "PICK UP");
         while (Serial2.available()) Serial2.read(); // Flush hardware buffer
@@ -671,7 +676,8 @@ void loop() {
       }
       
       // Feature: Manual EXIT via BTN_PICKUP (BTN2)
-      if (digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
+      // Guard: Require state to be active >300ms so button press from Home screen doesn't cause instant exit
+      if (millis() - stateStartTime > 300 && digitalRead(BTN_PICKUP) == LOW && !actionDelayActive) {
         delay(50);
         if (digitalRead(BTN_PICKUP) == LOW) {
            triggerBuzzer(2);
@@ -754,13 +760,7 @@ void loop() {
           actionDelayActive = false;
           if (pendingNextState == WAITING_FOR_SCAN) {
             // Redraw scanner UI before looping back
-            tft.fillScreen(COLOR_BG);
-            drawStatusBar();
             drawScannerBg();
-            tft.setCursor(65, 185); tft.setTextSize(2); tft.setTextColor(COLOR_TEXT);
-            tft.print(isReceivingMode ? "Mode: DROP OFF" : "Mode: PICK UP");
-            tft.setCursor(35, 210); tft.setTextSize(1); tft.setTextColor(COLOR_GREY);
-            tft.print(isReceivingMode ? "Scan Parcel Barcode" : "Scan Pass, Code or Rider ID");
             pendingNextState = IDLE;  // reset flag, stay in WAITING_FOR_SCAN
           } else {
             changeState(pendingNextState);
@@ -836,22 +836,39 @@ void loop() {
     // ── UNLOCKING ENTRY ───────────────────────────────────
     case UNLOCKING_ENTRY:
       {
+        static int displayStage = 0; // 0 = UNLOCKED (2s), 1 = Place & Drop, 2 = Please Close Door
+        static unsigned long doorOpenedTime = 0;
+
         if (!stateInitialized) {
           digitalWrite(LOCK_TOP, LOW);  // UNLOCK
           lockTopOpen = true;
           emitDoorState();             // 🔔 notify app: door is now unlocked
-          displayMessage("UNLOCKED", "Drop In & Close");
-          doorWasOpened   = false;
+          drawUnlockedScreen();
+          displayStage     = 0;
+          doorWasOpened    = false;
+          doorOpenedTime   = 0;
           stateInitialized = true;
           triggerBuzzer(2);
           Serial.println("[FLOW] Lock: UNLOCKED. Waiting for Top Door Reed (1=Open).");
+        }
+
+        // After 2.0s, transition from pure UNLOCKED to Place & Drop guide
+        if (displayStage == 0 && (millis() - stateStartTime >= 2000)) {
+          drawPlaceDropScreen();
+          displayStage = 1;
         }
 
         if (readReedDebounced(REED_TOP) == 1) {
           if (!doorWasOpened) {
             Serial.println("[FLOW] Reed: Top Door OPEN. Deposit parcel inside.");
             triggerBuzzer(1);
-            doorWasOpened = true;
+            doorWasOpened  = true;
+            doorOpenedTime = millis();
+          }
+          // After door has been opened for 2s, guide user to close the lid firmly
+          if (displayStage == 1 && doorOpenedTime > 0 && (millis() - doorOpenedTime >= 2000)) {
+            drawPleaseCloseDoorScreen();
+            displayStage = 2;
           }
         }
 
@@ -890,6 +907,7 @@ void loop() {
       {
         static bool dropConfirmed = false;
         static bool dropFailed = false;
+        static bool thankYouShown = false;
         static unsigned long confirmStartTime = 0;
         static unsigned long confirmResultTime = 0;
         static unsigned long lastSampleTime = 0;
@@ -898,6 +916,7 @@ void loop() {
         if (!stateInitialized) {
           dropConfirmed     = false;
           dropFailed        = false;
+          thankYouShown     = false;
           confirmStartTime  = millis();
           confirmResultTime = 0;
           lastSampleTime    = 0;
@@ -960,7 +979,7 @@ void loop() {
                 Serial.print(delta, 1);
                 Serial.println(" cm)");
 
-                displayMessage("SUCCESS", "Stored Safely");
+                drawParcelDeliveredScreen();
                 triggerBuzzer(2);
 
                 String newStatus = isReceivingMode ? "delivered" : "awaiting_pickup";
@@ -987,8 +1006,16 @@ void loop() {
           }
         }
 
-        // Dwell 2.5s on Result screen (SUCCESS or DROP FAILED) before resetting
-        if ((dropConfirmed || dropFailed) && (millis() - confirmResultTime >= 2500)) {
+        // Transition from "Parcel Delivered" to "Thank you." after 1.5s
+        if (dropConfirmed && !thankYouShown && (millis() - confirmResultTime >= 1500)) {
+          drawThankYouScreen();
+          thankYouShown = true;
+        }
+
+        // Dwell total 3.5s (1.5s Delivered + 2s Thank You) before resetting to Home
+        if (dropConfirmed && (millis() - confirmResultTime >= 3500)) {
+          changeState(RESETTING);
+        } else if (dropFailed && (millis() - confirmResultTime >= 2500)) {
           changeState(RESETTING);
         }
       }
@@ -1194,7 +1221,7 @@ void loop() {
          stateStartTime = millis();
          stateInitialized = true;
        }
-       if (millis() - stateStartTime > 3000) {
+       if (millis() - stateStartTime > 800) {
          changeState(IDLE);
          showHomeScreen();
        }

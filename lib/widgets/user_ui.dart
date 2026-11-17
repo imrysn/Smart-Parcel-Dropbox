@@ -235,6 +235,11 @@ class UserUi {
     return StatusPill(label: label, color: color);
   }
 
+  static Widget hardwareOfflineDot() => Semantics(
+        label: 'Dropbox offline',
+        child: const Icon(Icons.circle, size: 8, color: UserTheme.statusError),
+      );
+
   /// Responsive empty state with optional action button.
   static Widget emptyState(BuildContext context, {
     required IconData icon,

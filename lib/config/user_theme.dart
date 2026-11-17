@@ -12,6 +12,7 @@ class UserTheme {
   static const Color primaryOrange = Color(0xFFFF9800);
   static const Color primaryOrangeLight = Color(0xFFFFB74D);
   static const Color primaryOrangeDark = Color(0xFFF57C00);
+  static const Color primaryOrangeOnLight = Color(0xFF924600);
 
   static const Color accentAmber = Color(0xFFFFA726);
   static const Color accentAmberLight = Color(0xFFFFB74D);
@@ -63,6 +64,7 @@ class UserTheme {
   static const double radiusM = 16;
   static const double radiusL = 20;
   static const double radiusXL = 28;
+  static const double floatingSurfaceOpacity = 0.88;
 
   static LinearGradient get sunsetGradient => const LinearGradient(
         begin: Alignment.topLeft,
@@ -217,10 +219,20 @@ class UserTheme {
     bool centerTitle = true,
     PreferredSizeWidget? bottom,
     Widget? leading,
+    Widget? titleSuffix,
     BuildContext? context,
     Color? backgroundColor,
   }) {
     final bool isDark = context != null && Theme.of(context).brightness == Brightness.dark;
+    final titleText = Text(
+      title,
+      style: TextStyle(
+        color: isDark ? nightTextPrimary : dayTextPrimary,
+        fontSize: 18,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.5,
+      ),
+    );
 
     return AppBar(
       leading: leading,
@@ -229,15 +241,16 @@ class UserTheme {
       scrolledUnderElevation: 0,
       backgroundColor:
           backgroundColor ?? (isDark ? nightBackground : dayBackground),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: isDark ? nightTextPrimary : dayTextPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.5,
-        ),
-      ),
+      title: titleSuffix == null
+          ? titleText
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(child: titleText),
+                const SizedBox(width: 8),
+                titleSuffix,
+              ],
+            ),
       iconTheme: IconThemeData(color: isDark ? nightTextPrimary : dayTextPrimary),
       actions: actions,
       bottom: bottom,

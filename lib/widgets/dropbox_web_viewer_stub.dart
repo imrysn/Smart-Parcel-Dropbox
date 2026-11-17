@@ -6,6 +6,7 @@ class DropboxWebViewer extends StatelessWidget {
     required this.preview,
     required String stateJson,
     required ValueChanged<String> onDoorSelected,
+    VoidCallback? onBackgroundTap,
   });
 
   final Widget preview;
