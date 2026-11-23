@@ -19,6 +19,10 @@ const userSchema = new mongoose.Schema({
     fullName: String,
     phoneNumber: String,
     address: String,
+    profileImage: {
+        type: String,
+        default: null
+    },
     role: {
         type: String,
         enum: ['user', 'admin', 'courier'],

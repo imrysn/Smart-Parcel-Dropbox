@@ -21,6 +21,7 @@ class DropboxModelView extends StatelessWidget {
     required this.headerBuilder,
     this.latestDelivery,
     this.simulationEnabled = false,
+    this.soundEnabled = true,
   });
 
   final ValueChanged<String> onDoorSelected;
@@ -31,6 +32,7 @@ class DropboxModelView extends StatelessWidget {
   final DateTime? latestDelivery;
   final Widget Function(Widget? weatherControl) headerBuilder;
   final bool simulationEnabled;
+  final bool soundEnabled;
 
   @override
   Widget build(BuildContext context) => DropboxWeatherScene(
@@ -51,6 +53,7 @@ class DropboxModelView extends StatelessWidget {
     final stateJson = jsonEncode({
       'doors': openDoors,
       'parcels': parcelCount,
+      'soundEnabled': soundEnabled,
       'display': {
         'online': hardwareOnline,
         'unlocked': anyDoorUnlocked,

@@ -248,8 +248,12 @@ class UserUi {
     String? actionLabel,
     VoidCallback? onActionTap,
     Widget? action,
+    Color? iconColor,
+    Color? buttonColor,
+    Color? buttonTextColor,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final defaultAccent = isDark ? Colors.white : Colors.black;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
@@ -264,14 +268,7 @@ class UserUi {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: (isDark ? UserTheme.nightCard : UserTheme.daySurface).withValues(alpha: 0.6),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, size: 42, color: UserTheme.primaryOrange.withValues(alpha: 0.85)),
-                ),
+                Icon(icon, size: 48, color: iconColor ?? defaultAccent),
                 const SizedBox(height: sM),
                 Text(
                   title,
@@ -301,6 +298,8 @@ class UserUi {
                     fullWidth: false,
                     fontSize: 13,
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    color: buttonColor ?? defaultAccent,
+                    textColor: buttonTextColor ?? (isDark ? Colors.black : Colors.white),
                   ),
                 ],
               ],

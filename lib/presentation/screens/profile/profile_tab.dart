@@ -1,4 +1,10 @@
+import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
+import 'package:image_picker/image_picker.dart';
 import '../../../config/user_theme.dart';
 import '../../../screens/access_log_screen.dart';
 import '../../../screens/login_screen.dart';
@@ -71,26 +77,30 @@ class _ProfileTabState extends State<ProfileTab> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? Colors.white : Colors.black;
     final primaryText =
         isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
     final secondaryText =
         isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
     final dividerColor = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.06);
+        ? Colors.white.withValues(alpha: 0.12)
+        : Colors.black.withValues(alpha: 0.08);
 
     return FutureBuilder<Map<String, dynamic>?>(
       future: _userDataFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: UserTheme.primaryOrange),
+          return Center(
+            child: CircularProgressIndicator(
+              color: isDark ? Colors.white : Colors.black,
+            ),
           );
         }
 
         Map<String, dynamic>? userData = snapshot.data;
         final fullName = (userData?['fullName'] as String?)?.trim();
         final email = (userData?['email'] as String?)?.trim() ?? '';
+        final profileImage = (userData?['profileImage'] as String?)?.trim();
         final initial = (fullName != null && fullName.isNotEmpty)
             ? fullName[0].toUpperCase()
             : (email.isNotEmpty ? email[0].toUpperCase() : 'U');
@@ -100,32 +110,20 @@ class _ProfileTabState extends State<ProfileTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Minimalist Profile Identity Header
-              UserUi.surfaceCard(
-                context,
+              // Minimalist Profile Identity Header (Solid Black 0% Transparency Border)
+              Container(
                 padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: isDark ? UserTheme.nightCard : Colors.white,
+                  borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1.0,
+                  ),
+                ),
                 child: Row(
                   children: [
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: UserTheme.primaryOrange.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: UserTheme.primaryOrange.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        initial,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          color: UserTheme.primaryOrange,
-                        ),
-                      ),
-                    ),
+                    _buildAvatar(context, initial, profileImage, isDark),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -168,15 +166,22 @@ class _ProfileTabState extends State<ProfileTab> {
                 child: Text(
                   'Contact information',
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: secondaryText,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: primaryText,
                   ),
                 ),
               ),
-              UserUi.surfaceCard(
-                context,
-                padding: EdgeInsets.zero,
+              Container(
+                decoration: BoxDecoration(
+                  color: isDark ? UserTheme.nightCard : Colors.white,
+                  borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1.0,
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
                     _buildInfoTile(
@@ -210,15 +215,22 @@ class _ProfileTabState extends State<ProfileTab> {
                 child: Text(
                   'Activity & security',
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: secondaryText,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: primaryText,
                   ),
                 ),
               ),
-              UserUi.surfaceCard(
-                context,
-                padding: EdgeInsets.zero,
+              Container(
+                decoration: BoxDecoration(
+                  color: isDark ? UserTheme.nightCard : Colors.white,
+                  borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1.0,
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
                     _buildInfoTile(
@@ -278,9 +290,7 @@ class _ProfileTabState extends State<ProfileTab> {
                           Icon(
                             Icons.fingerprint_rounded,
                             size: 20,
-                            color: isDark
-                                ? UserTheme.nightTextSecondary
-                                : UserTheme.dayTextSecondary,
+                            color: secondaryText,
                           ),
                           const SizedBox(width: 16),
                           Expanded(
@@ -312,7 +322,8 @@ class _ProfileTabState extends State<ProfileTab> {
                           ),
                           Switch.adaptive(
                             value: _biometricEnabled && _biometricAvailable,
-                            activeTrackColor: UserTheme.primaryOrange,
+                            activeTrackColor: isDark ? Colors.white : Colors.black,
+                            activeThumbColor: isDark ? Colors.black : Colors.white,
                             onChanged: _biometricAvailable
                                 ? _toggleBiometricLock
                                 : null,
@@ -326,9 +337,16 @@ class _ProfileTabState extends State<ProfileTab> {
 
               if (widget.supportsDevMode) ...[
                 const SizedBox(height: 20),
-                UserUi.surfaceCard(
-                  context,
-                  padding: EdgeInsets.zero,
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? UserTheme.nightCard : Colors.white,
+                    borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                    border: Border.all(
+                      color: borderColor,
+                      width: 1.0,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
                   child: Material(
                     type: MaterialType.transparency,
                     child: SwitchListTile.adaptive(
@@ -337,12 +355,26 @@ class _ProfileTabState extends State<ProfileTab> {
                         size: 20,
                         color: secondaryText,
                       ),
-                      title: const Text('Dev mode'),
-                      subtitle: const Text(
+                      title: Text(
+                        'Dev mode',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: primaryText,
+                        ),
+                      ),
+                      subtitle: Text(
                         'Enable weather and time-of-day simulation in Dropbox.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? UserTheme.nightTextMuted
+                              : UserTheme.dayTextMuted,
+                        ),
                       ),
                       value: widget.devModeEnabled,
-                      activeTrackColor: UserTheme.primaryOrange,
+                      activeTrackColor: isDark ? Colors.white : Colors.black,
+                      activeThumbColor: isDark ? Colors.black : Colors.white,
                       onChanged: widget.devModeBusy
                           ? null
                           : widget.onDevModeChanged,
@@ -351,28 +383,41 @@ class _ProfileTabState extends State<ProfileTab> {
                 ),
               ],
               const SizedBox(height: 28),
-              SizedBox(
+              Container(
                 width: double.infinity,
-                child: TextButton.icon(
-                  onPressed: _logout,
-                  icon: const Icon(Icons.logout_rounded,
-                      color: UserTheme.statusError, size: 18),
-                  label: const Text(
-                    'Log out',
-                    style: TextStyle(
-                      color: UserTheme.statusError,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                    ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1.0,
                   ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor:
-                        UserTheme.statusError.withValues(alpha: 0.06),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(UserTheme.radiusM),
-                      side: BorderSide(
-                          color: UserTheme.statusError.withValues(alpha: 0.2)),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _logout,
+                    borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.logout_rounded,
+                            color: isDark ? Colors.white : Colors.black,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Log out',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -398,6 +443,254 @@ class _ProfileTabState extends State<ProfileTab> {
         );
       },
     );
+  }
+
+  Widget _buildAvatar(
+    BuildContext context,
+    String initial,
+    String? profileImage,
+    bool isDark,
+  ) {
+    final borderColor = isDark ? Colors.white : Colors.black;
+    final textColor = isDark ? Colors.white : Colors.black;
+
+    Widget imageWidget;
+    final hasImage = profileImage != null && profileImage.trim().isNotEmpty;
+
+    if (hasImage) {
+      if (profileImage.startsWith('data:image') || !profileImage.startsWith('http')) {
+        try {
+          final cleanBase64 = profileImage.contains(',')
+              ? profileImage.split(',').last
+              : profileImage;
+          imageWidget = Image.memory(
+            base64Decode(cleanBase64),
+            width: 64,
+            height: 64,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _buildFallbackInitial(initial, textColor),
+          );
+        } catch (_) {
+          imageWidget = _buildFallbackInitial(initial, textColor);
+        }
+      } else {
+        imageWidget = CachedNetworkImage(
+          imageUrl: profileImage,
+          width: 64,
+          height: 64,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: textColor),
+            ),
+          ),
+          errorWidget: (_, __, ___) => _buildFallbackInitial(initial, textColor),
+        );
+      }
+    } else {
+      imageWidget = _buildFallbackInitial(initial, textColor);
+    }
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        GestureDetector(
+          onTap: () => _pickAndUploadPhoto(profileImage),
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: isDark ? UserTheme.nightCard : Colors.white,
+              borderRadius: BorderRadius.circular(UserTheme.radiusL),
+              border: Border.all(
+                color: borderColor,
+                width: 1.0,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: imageWidget,
+          ),
+        ),
+        Positioned(
+          bottom: -4,
+          right: -4,
+          child: GestureDetector(
+            onTap: () => _pickAndUploadPhoto(profileImage),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.black : Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: borderColor,
+                  width: 1.0,
+                ),
+              ),
+              child: Icon(
+                Icons.camera_alt_outlined,
+                size: 13,
+                color: textColor,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFallbackInitial(String initial, Color textColor) {
+    return Center(
+      child: Text(
+        initial,
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w800,
+          color: textColor,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadPhoto(String? currentPhoto) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? Colors.white : Colors.black;
+    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+    final source = await showModalBottomSheet<ImageSource?>(
+      context: context,
+      backgroundColor: isDark ? UserTheme.nightCard : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(UserTheme.radiusL)),
+        side: BorderSide(color: borderColor, width: 1.0),
+      ),
+      builder: (bottomSheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Profile Photo',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: primaryText,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              if (!isDesktop)
+                ListTile(
+                  leading: Icon(Icons.photo_camera_outlined, color: primaryText),
+                  title: Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w700, color: primaryText)),
+                  onTap: () => Navigator.of(bottomSheetContext).pop(ImageSource.camera),
+                ),
+              ListTile(
+                leading: Icon(isDesktop ? Icons.folder_open_rounded : Icons.photo_library_outlined, color: primaryText),
+                title: Text(isDesktop ? 'Choose Image File' : 'Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w700, color: primaryText)),
+                onTap: () => Navigator.of(bottomSheetContext).pop(ImageSource.gallery),
+              ),
+              if (currentPhoto != null && currentPhoto.isNotEmpty) ...[
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded, color: UserTheme.statusError),
+                  title: const Text('Remove Photo', style: TextStyle(fontWeight: FontWeight.w700, color: UserTheme.statusError)),
+                  onTap: () async {
+                    Navigator.of(bottomSheetContext).pop();
+                    await _removePhoto();
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    try {
+      final picker = ImagePicker();
+      final XFile? file = await picker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 85,
+      );
+
+      if (file == null) return;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Updating profile photo...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+
+      final bytes = await file.readAsBytes();
+      final base64String = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+
+      await widget.databaseService.updateUserProfile(
+        userId: widget.userId,
+        profileImage: base64String,
+      );
+
+      if (mounted) {
+        _loadProfileData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile photo updated successfully'),
+            backgroundColor: UserTheme.statusSuccess,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        String message = 'Failed to update photo: $e';
+        if (e is PlatformException &&
+            (e.code == 'channel-error' || e.message?.contains('FileSelectorApi') == true)) {
+          message = 'Please restart the app to link the Windows file picker plugin.';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: UserTheme.statusError,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _removePhoto() async {
+    try {
+      await widget.databaseService.updateUserProfile(
+        userId: widget.userId,
+        profileImage: '',
+      );
+      if (mounted) {
+        _loadProfileData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile photo removed'),
+            backgroundColor: UserTheme.statusSuccess,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to remove photo: $e'),
+            backgroundColor: UserTheme.statusError,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildInfoTile(

@@ -402,9 +402,7 @@ class _DropboxHeroCardState extends State<DropboxHeroCard> {
                                   Icon(
                                     Icons.inventory_2_rounded,
                                     size: 16,
-                                    color: widget.parcelCount > 0
-                                        ? UserTheme.primaryOrangeLight
-                                        : Colors.white.withValues(alpha: 0.90),
+                                    color: Colors.white.withValues(alpha: 0.95),
                                     shadows: const [
                                       Shadow(
                                         color: Colors.black87,
@@ -416,13 +414,11 @@ class _DropboxHeroCardState extends State<DropboxHeroCard> {
                                   const SizedBox(width: 4),
                                   Text(
                                     '${widget.parcelCount}',
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 14.5,
                                       fontWeight: FontWeight.w800,
-                                      color: widget.parcelCount > 0
-                                          ? UserTheme.primaryOrangeLight
-                                          : Colors.white,
-                                      shadows: const [
+                                      color: Colors.white,
+                                      shadows: [
                                         Shadow(
                                           color: Colors.black87,
                                           blurRadius: 6,

@@ -63,7 +63,7 @@ class HomeDashboardTab extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return RefreshIndicator(
-      color: UserTheme.primaryOrange,
+      color: isDark ? Colors.white : Colors.black,
       onRefresh: onRefresh ??
           () async {
             await databaseService.refreshTracking(userId);
@@ -211,12 +211,12 @@ class HomeDashboardTab extends StatelessWidget {
 
                     const SizedBox(height: 22),
 
-                    // ─── 4. Recent Deliveries Section Header ───
+                    // ─── 4. Recent Orders Section Header ───
                     Row(
                       children: [
                         Expanded(
                           child: Text(
-                            'Recent Deliveries',
+                            'Recent Orders',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -236,7 +236,7 @@ class HomeDashboardTab extends StatelessWidget {
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                           onPressed: onViewOrders,
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
@@ -244,14 +244,14 @@ class HomeDashboardTab extends StatelessWidget {
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12,
-                                  color: UserTheme.primaryOrange,
+                                  color: isDark ? Colors.white : Colors.black,
                                 ),
                               ),
-                              SizedBox(width: 4),
+                              const SizedBox(width: 4),
                               Icon(
                                 Icons.arrow_forward_rounded,
                                 size: 14,
-                                color: UserTheme.primaryOrange,
+                                color: isDark ? Colors.white : Colors.black,
                               ),
                             ],
                           ),
@@ -260,12 +260,12 @@ class HomeDashboardTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
 
-                    // ─── 5. Recent 2 Deliveries Stream or Smart Vault Empty State ───
+                    // ─── 5. Recent 2 Orders Stream or Smart Vault Empty State ───
                     if (recentOrders.isEmpty) ...[
                       UserUi.emptyState(
                         context,
                         icon: Icons.inventory_2_outlined,
-                        title: 'No Recent Deliveries',
+                        title: 'No Recent Orders',
                         subtitle:
                             'Incoming courier deliveries and staged pickups will appear here.',
                       ),
@@ -285,20 +285,27 @@ class HomeDashboardTab extends StatelessWidget {
   }
 
   Widget _buildNoDropboxBanner(BuildContext context, bool isDark) {
+    final borderColor = isDark ? Colors.white : Colors.black;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      child: UserUi.surfaceCard(
-        context,
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? UserTheme.nightCard : Colors.white,
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        border: Border.all(
+          color: borderColor,
+          width: 1.0,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+            Row(
               children: [
                 Icon(Icons.qr_code_scanner_rounded,
-                    color: UserTheme.primaryOrange, size: 22),
-                SizedBox(width: 10),
-                Expanded(
+                    color: borderColor, size: 22),
+                const SizedBox(width: 10),
+                const Expanded(
                   child: Text(
                     'Set Up Your Dropbox',
                     style: TextStyle(
@@ -326,11 +333,12 @@ class HomeDashboardTab extends StatelessWidget {
               label: 'Register Hardware',
               onTap: onSetupDropbox,
               icon: Icons.arrow_forward_rounded,
+              color: isDark ? Colors.white : Colors.black,
+              textColor: isDark ? Colors.black : Colors.white,
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildQuickActionButton({

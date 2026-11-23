@@ -226,30 +226,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _dropboxHardwareConnected = connected);
   }
 
-  Widget _buildConnectivityIndicator() {
-    final ok = _appConnected;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final statusColor = ok ? UserTheme.statusSuccess : (isDark ? UserTheme.nightTextSecondary : UserTheme.primaryOrange);
-
-    return Container(
-      margin: const EdgeInsets.only(left: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: statusColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        ok ? 'Live' : 'Offline',
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.2,
-          color: statusColor,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -267,9 +243,6 @@ class _HomeScreenState extends State<HomeScreen> {
         appBar: UserTheme.appBarGradient(
           context: context,
           title: _getAppBarTitle(),
-          titleSuffix: showingCabinet && _dropboxHardwareConnected == false
-              ? UserUi.hardwareOfflineDot()
-              : null,
           centerTitle: false,
           backgroundColor: showingCabinet ? Colors.transparent : null,
           actions: [
@@ -310,7 +283,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ),
-            if (_selectedIndex != 2) _buildConnectivityIndicator(),
             const SizedBox(width: 12),
           ],
         ),
@@ -354,9 +326,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
 
                       final inactiveColor = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
-                      final selectedColor = index == 2
-                          ? (isDark ? UserTheme.primaryOrangeLight : UserTheme.primaryOrangeOnLight)
-                          : UserTheme.primaryOrange;
+                      final selectedColor = index == 0
+                          ? (isDark ? Colors.white : Colors.black)
+                          : (index == 2
+                              ? (isDark ? UserTheme.primaryOrangeLight : UserTheme.primaryOrangeOnLight)
+                              : UserTheme.primaryOrange);
 
                       return Expanded(
                         child: GestureDetector(

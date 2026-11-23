@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../config/user_theme.dart';
 import '../../models/tracking_model.dart';
 import '../../screens/tracking_details_screen.dart';
-import '../../widgets/user_ui.dart';
 import 'carrier_badge.dart';
 import 'delivery_timeline.dart';
 
@@ -118,92 +117,101 @@ class OrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final statusColor = UserTheme.getStatusColor(order.status);
+    final borderColor = isDark ? Colors.white : Colors.black;
     final stage = stageForOrder(order);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      child: UserUi.surfaceCard(
-        context,
-        padding: EdgeInsets.zero,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap ??
-                () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => TrackingDetailsScreen(tracking: order),
+      decoration: BoxDecoration(
+        color: isDark ? UserTheme.nightCard : Colors.white,
+        borderRadius: BorderRadius.circular(UserTheme.radiusL),
+        border: Border.all(
+          color: borderColor,
+          width: 1.0,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap ??
+              () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => TrackingDetailsScreen(tracking: order),
+                  ),
+                );
+              },
+          borderRadius: BorderRadius.circular(UserTheme.radiusL),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: CarrierBadge(shopName: order.shopName)),
+                    const SizedBox(width: 8),
+                    Text(
+                      order.getStatusText(),
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                        letterSpacing: 0.3,
+                      ),
                     ),
-                  );
-                },
-            borderRadius: BorderRadius.circular(UserTheme.radiusL),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: CarrierBadge(shopName: order.shopName)),
+                    if (showDelete && onDelete != null) ...[
                       const SizedBox(width: 8),
-                      UserUi.statusPill(
-                        label: order.getStatusText(),
-                        color: statusColor,
-                      ),
-                      if (showDelete && onDelete != null) ...[
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: Icon(
-                            Icons.delete_outline_rounded,
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                            size: 18,
-                          ),
-                          onPressed: onDelete,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          visualDensity: VisualDensity.compact,
-                          tooltip: 'Delete Tracking',
+                      IconButton(
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                          size: 18,
                         ),
-                      ],
+                        onPressed: onDelete,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Delete Tracking',
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          order.trackingId,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: 'monospace',
-                          ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        order.trackingId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'monospace',
                         ),
                       ),
-                      if (order.registeredAt != null) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          timeAgo(order.registeredAt),
-                          style: TextStyle(
-                            color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w500,
-                          ),
+                    ),
+                    if (order.registeredAt != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        timeAgo(order.registeredAt),
+                        style: TextStyle(
+                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
                         ),
-                      ],
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 14),
-                  DeliveryTimeline(
-                    stageIndex: stage.stageIndex,
-                    isPickup: stage.isPickup,
-                  ),
-                ],
-              ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                DeliveryTimeline(
+                  stageIndex: stage.stageIndex,
+                  isPickup: stage.isPickup,
+                ),
+              ],
             ),
           ),
         ),

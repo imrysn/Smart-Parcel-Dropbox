@@ -62,8 +62,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   int _manageFilterIndex = 0; // 0: All, 1: Doors, 2: Bins, 3: Access & Unit
   bool _diagnosticsExpanded = false;
   bool _isRefreshing = false;
-  bool _headerTogglePressed = false;
-  bool _headerToggleHovered = false;
   final Map<String, bool> _doorOpen = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
   final Map<String, bool> _doorProcessing = {kDoorTop: false, kDoorPickup: false, kDoorReceived: false};
   static const _reedKeys = {kDoorTop: 'REED_TOP', kDoorPickup: 'REED_PICKUP', kDoorReceived: 'REED_RECEIVED'};
@@ -86,6 +84,7 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   String? _ownerQrToken;
   bool _ownerQrLoading = false;
   Timer? _ownerQrExpiry;
+  final bool _soundEnabled = true;
 
   @override
   void initState() {
@@ -178,7 +177,9 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
     _deliverySub?.cancel();
     _deliverySub = _ws.trackingStatusChanges.listen((data) {
       if (!mounted || !_matchesDropbox(data) ||
-          data['mode'] != 'drop_off' || data['status'] != 'delivered') return;
+          data['mode'] != 'drop_off' || data['status'] != 'delivered') {
+        return;
+      }
       setState(() => _latestDelivery = DateTime.now());
     });
     _binSub = _ws.binStatusUpdates.listen((data) {
@@ -466,9 +467,6 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
             ? UserTheme.appBarGradient(
                 context: context,
                 title: 'Dropbox Control',
-                titleSuffix: _hardwareConnected == false
-                    ? UserUi.hardwareOfflineDot()
-                    : null,
                 centerTitle: false,
                 backgroundColor: Colors.transparent,
                 leading: PointerInterceptor(
@@ -480,53 +478,59 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
                 ),
               )
             : null,
-        body: IndexedStack(
-          index: _showManagement ? 1 : 0,
-          sizing: StackFit.expand,
+        body: Stack(
+          fit: StackFit.expand,
           children: [
-            DropboxModelView(
-              key: ValueKey(_dropbox?.deviceId),
-              simulationEnabled: widget.simulationEnabled,
-              onDoorSelected: _selectModelDoor,
-              openDoors: {
-                for (final door in _reedKeys.keys) door: _modelDoorOpen(door),
-              },
-              parcelCount: _logicalDropoffCount,
-              hardwareOnline: _esp32Connected,
-              anyDoorUnlocked: _doorStateKnown ? _doorOpen.containsValue(true) : null,
-              latestDelivery: _latestDelivery,
-              headerBuilder: (weatherControl) => Align(
-                alignment: Alignment.topCenter,
-                child: SafeArea(
-                  bottom: false,
-                  child: _buildCabinetHeader(weatherControl: weatherControl),
+            IndexedStack(
+              index: _showManagement ? 1 : 0,
+              sizing: StackFit.expand,
+              children: [
+                DropboxModelView(
+                  key: ValueKey(_dropbox?.deviceId),
+                  simulationEnabled: widget.simulationEnabled,
+                  soundEnabled: _soundEnabled,
+                  onDoorSelected: _selectModelDoor,
+                  openDoors: {
+                    for (final door in _reedKeys.keys) door: _modelDoorOpen(door),
+                  },
+                  parcelCount: _logicalDropoffCount,
+                  hardwareOnline: _esp32Connected,
+                  anyDoorUnlocked: _doorStateKnown ? _doorOpen.containsValue(true) : null,
+                  latestDelivery: _latestDelivery,
+                  headerBuilder: (weatherControl) => Align(
+                    alignment: Alignment.topCenter,
+                    child: SafeArea(
+                      bottom: false,
+                      child: _buildCabinetHeader(weatherControl: weatherControl),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            if (_showManagement)
-              SafeArea(
-                bottom: false,
-                child: Column(
-                  children: [
-                    _buildCabinetHeader(),
-                    Expanded(
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween<double>(begin: 0.0, end: 1.0),
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOutCubic,
-                        builder: (context, value, child) => Opacity(
-                          opacity: value,
-                          child: Transform.translate(
-                            offset: Offset(0, (1 - value) * 10),
-                            child: child,
+                if (_showManagement)
+                  SafeArea(
+                    bottom: false,
+                    child: Column(
+                      children: [
+                        _buildCabinetHeader(),
+                        Expanded(
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween<double>(begin: 0.0, end: 1.0),
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            builder: (context, value, child) => Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, (1 - value) * 10),
+                                child: child,
+                              ),
+                            ),
+                            child: _buildManagementPage(),
                           ),
                         ),
-                        child: _buildManagementPage(),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
+                  ),
+              ],
+            ),
           ],
         ),
       ),
@@ -624,172 +628,57 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
   }
 
   Widget _buildHeaderToggleButton() {
-    final openDoors = _doorOpen.values.where((open) => open).length;
-    final ajarDoors = _reedState.values.where((open) => open == true).length;
     final busyDoors = _doorProcessing.values.any((busy) => busy);
     final isManageTarget = !_showManagement;
     final showBusySpinner = _isRefreshing || (isManageTarget && busyDoors);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final colors = Theme.of(context).colorScheme;
-    final fillAlpha = _showManagement
-        ? (_headerTogglePressed ? 0.22 : (_headerToggleHovered ? 0.18 : 0.14))
-        : UserTheme.floatingSurfaceOpacity;
-    final bgColor = _showManagement
-        ? UserTheme.primaryOrange.withValues(alpha: fillAlpha)
-        : colors.surface.withValues(alpha: fillAlpha);
-    final fgColor = _showManagement ? UserTheme.primaryOrange : colors.onSurface;
-
-    final borderColor = (isManageTarget && ajarDoors > 0)
-        ? UserTheme.statusWarning.withValues(alpha: _headerTogglePressed ? 0.8 : 0.6)
-        : UserTheme.primaryOrange.withValues(
-            alpha: _headerTogglePressed ? 0.72 : (_headerToggleHovered ? 0.56 : 0.42),
-          );
-    final scale = _headerTogglePressed
-        ? 0.94
-        : (_headerToggleHovered ? 1.03 : 1.0);
-
-    Widget? trailingCue;
-    if (isManageTarget) {
-      if (ajarDoors > 0) {
-        trailingCue = _buildHeaderMicroBadge(
-          label: ajarDoors == 1 ? 'Ajar' : '$ajarDoors ajar',
-          color: UserTheme.statusWarning,
-        );
-      } else if (openDoors > 0) {
-        trailingCue = _buildHeaderMicroBadge(
-          label: '$openDoors open',
-          color: UserTheme.statusSuccess,
-        );
-      } else {
-        trailingCue = _buildHeaderLiveDot(_esp32Connected);
-      }
-    } else if (_logicalDropoffCount > 0) {
-      trailingCue = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: UserTheme.primaryOrange,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          '$_logicalDropoffCount',
-          style: const TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-            height: 1.1,
-          ),
-        ),
-      );
-    } else {
-      trailingCue = _buildHeaderLiveDot(_esp32Connected);
-    }
-
-    return AnimatedScale(
-      scale: scale,
-      duration: const Duration(milliseconds: 120),
-      curve: Curves.easeOutCubic,
-      child: TextButton(
-        onPressed: () {
-          HapticFeedback.selectionClick();
-          setState(() {
-            _headerTogglePressed = false;
-            _showManagement = !_showManagement;
-          });
-        },
-        onHover: (hovered) {
-          if (_headerToggleHovered != hovered) {
-            setState(() => _headerToggleHovered = hovered);
-          }
-        },
-        style: TextButton.styleFrom(
-          backgroundColor: bgColor,
-          foregroundColor: fgColor,
-          side: _showManagement ? BorderSide(color: borderColor) : BorderSide.none,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, anim) => FadeTransition(
-            opacity: anim,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.92, end: 1.0).animate(anim),
-              child: child,
+    return Semantics(
+      button: true,
+      label: _showManagement ? 'View 3D Dropbox' : 'Open Dropbox Management',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            setState(() {
+              _showManagement = !_showManagement;
+            });
+          },
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            width: 110,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isDark ? UserTheme.nightCard : Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-          ),
-          child: Row(
-            key: ValueKey<bool>(_showManagement),
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (showBusySpinner)
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: UserTheme.primaryOrange,
+            child: showBusySpinner
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.black,
+                    ),
+                  )
+                : Text(
+                    _showManagement ? 'Dropbox' : 'Manage',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? UserTheme.nightTextPrimary : Colors.black,
+                    ),
                   ),
-                )
-              else
-                Icon(
-                  _showManagement ? Icons.view_in_ar_rounded : Icons.tune_rounded,
-                  size: 16,
-                  color: UserTheme.primaryOrange,
-                ),
-              const SizedBox(width: 6),
-              Text(
-                _showManagement ? 'Dropbox' : 'Manage',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: UserTheme.primaryOrange,
-                ),
-              ),
-              const SizedBox(width: 6),
-              trailingCue,
-            ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeaderLiveDot(bool online) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      width: 7,
-      height: 7,
-      decoration: BoxDecoration(
-        color: online
-            ? UserTheme.statusSuccess
-            : UserTheme.primaryOrange.withValues(alpha: 0.5),
-        shape: BoxShape.circle,
-      ),
-    );
-  }
-
-  Widget _buildHeaderMicroBadge({required String label, required Color color}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-          color: color,
-          height: 1.1,
         ),
       ),
     );

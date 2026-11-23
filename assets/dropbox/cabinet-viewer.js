@@ -10,6 +10,9 @@ import { createFloodEffects } from './flood-effects.js';
 import { createFloodPhysics } from './flood-physics.js';
 import { createOutdoorEnvironment } from './outdoor-environment.js';
 import { createCabinetDisplay } from './cabinet-display.js';
+import {
+  playButtonClick, playButtonRelease, playCardboardSlide, playDoorCloseImpact, playDoorCloseSwing, playDoorOpen, playScannerBeep, playSolenoid, setSoundEnabled,
+} from './viewer-audio.js';
 
 const canvas = document.querySelector('canvas');
 const doorNames = {
@@ -67,6 +70,7 @@ function attachScannerLight(strip) {
   return active => {
     strip.material = active ? lit : original;
     spill.visible = active;
+    if (active) playScannerBeep(0.12);
   };
 }
 
@@ -74,7 +78,7 @@ try {
   await startViewer();
 } catch (error) {
   console.error('Dropbox viewer could not start', error);
-  send('viewer-error');
+  send('viewer-error: ' + (error?.message || error));
 }
 
 async function startViewer() {
@@ -123,7 +127,7 @@ async function startViewer() {
     for (const [id, name] of Object.entries(doorNames)) {
       if (node.userData.name === name) {
         node.userData.door = id;
-        doors[id] = { hinge: node, closedAngle: node.rotation.y, open: false };
+        doors[id] = { hinge: node, closedAngle: node.rotation.y, open: false, progress: 0, closingLatching: false };
       }
     }
   });
@@ -215,8 +219,15 @@ async function startViewer() {
     orbit.update();
     requestRender();
   }
+  const homeCameraPos = new Vector3();
+  const homeTarget = new Vector3();
+  function saveHomeCamera() {
+    homeCameraPos.copy(camera.position);
+    homeTarget.copy(orbit.target);
+  }
   new ResizeObserver(resize).observe(canvas);
   resize();
+  saveHomeCamera();
 
   if (windowsBridge) {
     let controlHeld = false;
@@ -319,12 +330,25 @@ async function startViewer() {
         canvas.removeAttribute('aria-description');
       }
     }
+    if (typeof state.soundEnabled === 'boolean') {
+      setSoundEnabled(state.soundEnabled);
+    }
     setEnvironment(state.environment);
     let changedDoorOpen;
     if (state.doors) {
       for (const [id, door] of Object.entries(doors)) {
         const open = state.doors[id] === true;
-        if (hasDoorState && open !== door.open) changedDoorOpen = open || changedDoorOpen === true;
+        if (hasDoorState && open !== door.open) {
+          changedDoorOpen = open || changedDoorOpen === true;
+          const pan = id === 'top' ? -0.2 : id === 'pickup' ? -0.15 : 0.25;
+          if (open) {
+            playDoorOpen(pan);
+            door.closingLatching = false;
+          } else {
+            playDoorCloseSwing(pan);
+            door.closingLatching = true;
+          }
+        }
         door.open = open;
       }
       hasDoorState = true;
@@ -381,6 +405,16 @@ async function startViewer() {
     const button = panelButtons.get(action);
     if (!button) {
       if (Object.prototype.hasOwnProperty.call(doors, action)) {
+        const door = doors[action];
+        const nextOpen = !door.open;
+        const pan = action === 'top' ? -0.2 : action === 'pickup' ? -0.15 : 0.25;
+        if (nextOpen) {
+          playDoorOpen(pan);
+          door.closingLatching = false;
+        } else {
+          playDoorCloseSwing(pan);
+          door.closingLatching = true;
+        }
         if (floodPhysics.active) {
           const open = floodPhysics.toggleDoor(action);
           display?.update(displayState, open);
@@ -391,10 +425,13 @@ async function startViewer() {
       }
       return;
     }
+    const pan = action === 'drop-off' ? 0.08 : 0.14;
+    playButtonClick(pan);
     window.clearTimeout(button.timer);
     button.cap.position.z = button.restZ - 0.003;
     button.timer = window.setTimeout(() => {
       button.cap.position.z = button.restZ;
+      playButtonRelease(pan);
       requestRender();
     }, 130);
     display?.press(action);
@@ -505,22 +542,38 @@ async function startViewer() {
   window.addEventListener('blur', finishCordGrab);
 
   function render(now) {
-    orbit.update();
     const frameTime = previousFrame === undefined ? 16.7 : now - previousFrame;
     const elapsed = Math.min(frameTime, 33.4);
     const floodElapsed = Math.min(frameTime, 100) / 1000;
     previousFrame = now;
+
+    // Free interactive OrbitControls: User maintains 100% camera control (orbit, pan, zoom) at all times
+    orbit.update();
     let doorsMoving = false;
     if (!floodPhysics.active) {
-      for (const door of Object.values(doors)) {
-        const target = door.closedAngle + (door.open ? Math.PI / 1.85 : 0);
-        const current = door.hinge.rotation.y;
-        if (reducedMotion || Math.abs(target - current) < 0.001) {
-          door.hinge.rotation.y = target;
-        } else {
-          door.hinge.rotation.y = MathUtils.lerp(current, target, 1 - Math.pow(0.83, elapsed / 16.7));
+      const doorSpeed = (elapsed / 1000) / 1.25; // 1.25s slow, realistic mechanical swing
+      for (const [id, door] of Object.entries(doors)) {
+        const pan = id === 'top' ? -0.2 : id === 'pickup' ? -0.15 : 0.25;
+        const targetProgress = door.open ? 1.0 : 0.0;
+        if (reducedMotion) {
+          door.progress = targetProgress;
+        } else if (door.progress !== targetProgress) {
+          if (door.progress < targetProgress) {
+            door.progress = Math.min(targetProgress, door.progress + doorSpeed);
+          } else {
+            door.progress = Math.max(targetProgress, door.progress - doorSpeed);
+          }
           doorsMoving = true;
+
+          // When door arrives at frame on close, trigger solid close impact (thud + latch snap)
+          if (door.progress <= 0.001 && door.closingLatching) {
+            door.closingLatching = false;
+            playDoorCloseImpact(pan);
+          }
         }
+        const t = door.progress;
+        const eased = t * t * (3 - 2 * t); // Smoothstep curve
+        door.hinge.rotation.y = door.closedAngle + eased * (Math.PI / 1.85);
       }
     }
     const rearDoor = doors.received;
@@ -542,7 +595,7 @@ async function startViewer() {
     const skyMoving = outdoor.advance(elapsed / 1000);
     renderer.render(scene, camera);
     frame = null;
-    if (doorsMoving || cordMoving || parcels.hasMotion() || rainMoving || skyMoving || floodMoving || debrisMoving) requestRender();
+    if (doorsMoving || cordMoving || parcels.hasMotion() || rainMoving || skyMoving || floodMoving || debrisMoving || !orbit.enabled) requestRender();
   }
 
   document.body.classList.add('ready');

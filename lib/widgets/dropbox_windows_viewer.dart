@@ -78,7 +78,8 @@ class _DropboxWindowsViewerState extends State<DropboxWindowsViewer> {
         _ready = true;
         unawaited(_updateScene());
         unawaited(_updateModifiers());
-      case 'viewer-error':
+      case String s when s.startsWith('viewer-error'):
+        debugPrint('Dropbox Windows Viewer error: $message');
         _showFallback('The model could not be rendered');
       case 'background-tap':
         widget.onBackgroundTap?.call();

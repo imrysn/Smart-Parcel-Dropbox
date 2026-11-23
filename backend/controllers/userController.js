@@ -25,6 +25,7 @@ function sanitizeUserResponse(user) {
         fullName: user.fullName || '',
         phoneNumber: user.phoneNumber || '',
         address: user.address || '',
+        profileImage: user.profileImage || null,
         role: user.role || 'user'
     };
 }
@@ -164,6 +165,8 @@ exports.updateUser = async (req, res) => {
         if (typeof req.body?.fullName === 'string') updateData.fullName = req.body.fullName.trim();
         if (typeof req.body?.phoneNumber === 'string') updateData.phoneNumber = req.body.phoneNumber.trim();
         if (typeof req.body?.address === 'string') updateData.address = req.body.address.trim();
+        if (typeof req.body?.profileImage === 'string') updateData.profileImage = req.body.profileImage;
+        if (req.body?.profileImage === null || req.body?.profileImage === '') updateData.profileImage = null;
 
         const user = await User.findByIdAndUpdate(
             userId,

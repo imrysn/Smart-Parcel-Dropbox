@@ -5,11 +5,13 @@ import '../../config/user_theme.dart';
 class DeliveryTimeline extends StatelessWidget {
   final int stageIndex;
   final bool isPickup;
+  final Color? activeColor;
 
   const DeliveryTimeline({
     super.key,
     required this.stageIndex,
     this.isPickup = false,
+    this.activeColor,
   });
 
   @override
@@ -20,7 +22,8 @@ class DeliveryTimeline extends StatelessWidget {
         : const ['Registered', 'In Transit', 'In Box', 'Collected'];
     final clampedIndex = stageIndex.clamp(0, stages.length - 1);
     final isComplete = clampedIndex == stages.length - 1;
-    final activeColor = isComplete ? UserTheme.statusSuccess : UserTheme.primaryOrange;
+    final primaryTrack = activeColor ?? (isDark ? Colors.white : Colors.black);
+    final effectiveActiveColor = isComplete ? UserTheme.statusSuccess : primaryTrack;
     final inactiveTrack = isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.08);
 
     return Column(
@@ -36,7 +39,7 @@ class DeliveryTimeline extends StatelessWidget {
                   duration: const Duration(milliseconds: 220),
                   height: 4,
                   decoration: BoxDecoration(
-                    color: isReached ? activeColor : inactiveTrack,
+                    color: isReached ? effectiveActiveColor : inactiveTrack,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -56,7 +59,7 @@ class DeliveryTimeline extends StatelessWidget {
                 fontSize: 10.5,
                 fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
                 color: isCurrent
-                    ? activeColor
+                    ? effectiveActiveColor
                     : (isReached
                         ? (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary)
                         : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted)),
