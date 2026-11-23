@@ -90,10 +90,15 @@ exports.stageOutboundPackage = async (req, res) => {
     const courierOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const courierOtpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
+    let effectiveShopName = (shopName || '').trim();
+    if (!effectiveShopName) {
+      effectiveShopName = customerName || courierName || 'Outbound Pickup';
+    }
+
     const newTracking = await Tracking.create({
       trackingId,
       userId,
-      shopName: shopName || 'My Business Store',
+      shopName: effectiveShopName,
       direction: 'OUTBOUND_CUSTOMER',
       customerName,
       customerPhone: customerPhone || '',
@@ -178,6 +183,11 @@ exports.batchStageOutboundPackages = async (req, res) => {
     if (existing) return res.status(409).json({ success: false, message: 'A tracking ID is already registered' });
     const createdList = [];
 
+    let effectiveShopName = (shopName || '').trim();
+    if (!effectiveShopName) {
+      effectiveShopName = 'Outbound Pickup';
+    }
+
     for (const pkg of packages) {
       const courierOtp = Math.floor(100000 + Math.random() * 900000).toString();
       const courierOtpExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -185,10 +195,9 @@ exports.batchStageOutboundPackages = async (req, res) => {
       const created = await Tracking.create({
         trackingId: pkg.trackingId.trim(),
         userId,
-        shopName: shopName || 'My Business Store',
+        shopName: pkg.customerName || effectiveShopName,
         direction: 'OUTBOUND_CUSTOMER',
         customerName: pkg.customerName || 'Valued Customer',
-        customerPhone: pkg.customerPhone || '',
         courierName: pkg.courierName || 'General Courier',
         courierOtp,
         courierOtpExpiresAt,

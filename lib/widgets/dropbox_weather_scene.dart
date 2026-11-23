@@ -17,6 +17,32 @@ typedef DropboxSceneBuilder = Widget Function(
   VoidCallback? onBackgroundTap,
 );
 
+/// Shared developer simulation state for daylight and weather overrides.
+///
+/// Ensures simulated day/weather conditions survive tab switching and
+/// stay 100% in sync across the Home tab Hero Card and Dropbox tab.
+class DropboxWeatherSimulation {
+  static DropboxDaylight? daylight;
+  static DropboxWeatherKind? weather;
+  static bool floodActive = false;
+  static final List<VoidCallback> _listeners = [];
+
+  static void addListener(VoidCallback listener) => _listeners.add(listener);
+  static void removeListener(VoidCallback listener) => _listeners.remove(listener);
+  static void notify() {
+    for (final l in List.of(_listeners)) {
+      l();
+    }
+  }
+
+  static void reset() {
+    daylight = null;
+    weather = null;
+    floodActive = false;
+    notify();
+  }
+}
+
 class DropboxWeatherScene extends StatefulWidget {
   const DropboxWeatherScene({
     super.key,
@@ -51,12 +77,30 @@ class _DropboxWeatherSceneState extends State<DropboxWeatherScene>
   bool _loading = false;
   bool _weatherUnavailable = false;
   int _generation = 0;
-  DropboxDaylight? _simulatedDaylight;
-  DropboxWeatherKind? _simulatedWeather;
   Timer? _weatherTapTimer;
   Timer? _floodButtonLock;
   int _weatherTapCount = 0;
-  bool _floodActive = false;
+
+  DropboxDaylight? get _simulatedDaylight =>
+      widget.simulationEnabled ? DropboxWeatherSimulation.daylight : null;
+  set _simulatedDaylight(DropboxDaylight? val) {
+    DropboxWeatherSimulation.daylight = val;
+    DropboxWeatherSimulation.notify();
+  }
+
+  DropboxWeatherKind? get _simulatedWeather =>
+      widget.simulationEnabled ? DropboxWeatherSimulation.weather : null;
+  set _simulatedWeather(DropboxWeatherKind? val) {
+    DropboxWeatherSimulation.weather = val;
+    DropboxWeatherSimulation.notify();
+  }
+
+  bool get _floodActive =>
+      widget.simulationEnabled && DropboxWeatherSimulation.floodActive;
+  set _floodActive(bool val) {
+    DropboxWeatherSimulation.floodActive = val;
+    DropboxWeatherSimulation.notify();
+  }
 
   bool get _simulationActive =>
       widget.simulationEnabled &&
@@ -71,17 +115,20 @@ class _DropboxWeatherSceneState extends State<DropboxWeatherScene>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    DropboxWeatherSimulation.addListener(_onSimulationChanged);
     _startClock();
     if (_supportsWeather) unawaited(_restorePreference());
+  }
+
+  void _onSimulationChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void didUpdateWidget(DropboxWeatherScene oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.simulationEnabled && !widget.simulationEnabled) {
-      _simulatedDaylight = null;
-      _simulatedWeather = null;
-      _floodActive = false;
+      DropboxWeatherSimulation.reset();
       _clearWeatherTapSequence();
       _floodButtonLock?.cancel();
       _floodButtonLock = null;
@@ -167,6 +214,7 @@ class _DropboxWeatherSceneState extends State<DropboxWeatherScene>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    DropboxWeatherSimulation.removeListener(_onSimulationChanged);
     _clock?.cancel();
     _clearWeatherTapSequence();
     _floodButtonLock?.cancel();

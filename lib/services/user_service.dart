@@ -81,6 +81,7 @@ class UserService {
     String? fullName,
     String? phoneNumber,
     String? address,
+    String? profileImage,
   }) async {
     try {
       final headers = await _authService.getAuthHeaders();
@@ -92,6 +93,7 @@ class UserService {
               if (fullName != null) 'fullName': fullName,
               if (phoneNumber != null) 'phoneNumber': phoneNumber,
               if (address != null) 'address': address,
+              if (profileImage != null) 'profileImage': profileImage,
             }),
           )
           .timeout(const Duration(seconds: 15));

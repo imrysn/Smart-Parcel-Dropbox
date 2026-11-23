@@ -10,13 +10,13 @@ import 'package:webview_flutter/webview_flutter.dart';
 class DropboxMobileViewer extends StatefulWidget {
   const DropboxMobileViewer({
     super.key,
-    required this.preview,
+    required this.placeholder,
     required this.stateJson,
     required this.onDoorSelected,
     this.onBackgroundTap,
   });
 
-  final Widget preview;
+  final Widget placeholder;
   final String stateJson;
   final ValueChanged<String> onDoorSelected;
   final VoidCallback? onBackgroundTap;
@@ -31,6 +31,8 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
     'cabinet-viewer.js': 'text/javascript',
     'cabinet-display.js': 'text/javascript',
     'cabinet-viewer.css': 'text/css',
+    'viewer-audio.js': 'text/javascript',
+    'door-audio-data.js': 'text/javascript',
     'three-viewer-engine.js': 'text/javascript',
     'parcel-physics.js': 'text/javascript',
     'cord-physics.js': 'text/javascript',
@@ -40,10 +42,15 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
     'outdoor-environment.js': 'text/javascript',
     'cannon-es.min.js': 'text/javascript',
     'smart-parcel-dropbox.glb': 'model/gltf-binary',
-    'smart-parcel-dropbox.png': 'image/png',
+    'door_open.ogg': 'audio/ogg',
+    'door_close.ogg': 'audio/ogg',
+    'door_close_impact.ogg': 'audio/ogg',
+    'door_open.wav': 'audio/wav',
+    'door_close.wav': 'audio/wav',
+    'door_close_impact.wav': 'audio/wav',
   };
   static final _sceneGestures = <Factory<OneSequenceGestureRecognizer>>{
-    Factory<EagerGestureRecognizer>(EagerGestureRecognizer.new),
+    const Factory<EagerGestureRecognizer>(EagerGestureRecognizer.new),
   };
   HttpServer? _server;
   WebViewController? _controller;
@@ -162,7 +169,7 @@ class _DropboxMobileViewerState extends State<DropboxMobileViewer> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    if (_failed || controller == null) return widget.preview;
+    if (_failed || controller == null) return widget.placeholder;
     return WebViewWidget(
       controller: controller,
       gestureRecognizers: _sceneGestures,

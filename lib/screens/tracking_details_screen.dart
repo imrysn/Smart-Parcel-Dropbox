@@ -127,8 +127,23 @@ class TrackingDetailsScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    _buildDetailRow(context, 'Merchant / Courier', CarrierBadge.resolveLabel(tracking.shopName)),
-                    const Divider(height: 28),
+                    if (tracking.mode == 'pickup' || tracking.mode == 'pick_up') ...[
+                      if (tracking.customerName != null && tracking.customerName!.trim().isNotEmpty) ...[
+                        _buildDetailRow(context, 'Recipient Customer', tracking.customerName!.trim()),
+                        const Divider(height: 28),
+                      ],
+                      if (tracking.courierName != null && tracking.courierName!.trim().isNotEmpty) ...[
+                        _buildDetailRow(context, 'Courier Partner', tracking.courierName!.trim()),
+                        const Divider(height: 28),
+                      ],
+                      if (tracking.customerPhone != null && tracking.customerPhone!.trim().isNotEmpty) ...[
+                        _buildDetailRow(context, 'Customer Phone', tracking.customerPhone!.trim()),
+                        const Divider(height: 28),
+                      ],
+                    ] else ...[
+                      _buildDetailRow(context, 'Merchant / Courier', CarrierBadge.resolveLabel(tracking.shopName)),
+                      const Divider(height: 28),
+                    ],
                     _buildDetailRow(context, 'Tracking ID', tracking.trackingId, isMonospace: true),
                     if (tracking.expectedDeliveryDate != null) ...[
                       const Divider(height: 28),
@@ -219,7 +234,21 @@ class TrackingDetailsScreen extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: CarrierBadge(shopName: tracking.shopName, fontSize: 16)),
+              Expanded(
+                child: (isPickup && tracking.customerName != null && tracking.customerName!.trim().isNotEmpty)
+                    ? Text(
+                        'To: ${tracking.customerName!.trim()}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                        ),
+                      )
+                    : CarrierBadge(shopName: tracking.shopName, fontSize: 16),
+              ),
               const SizedBox(width: 12),
               UserUi.statusPill(label: tracking.getStatusText(), color: statusColor),
             ],

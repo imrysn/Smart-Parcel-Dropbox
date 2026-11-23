@@ -194,12 +194,14 @@ class DatabaseService {
     String? fullName,
     String? phoneNumber,
     String? address,
+    String? profileImage,
   }) =>
       _user.updateUserProfile(
         userId: userId,
         fullName: fullName,
         phoneNumber: phoneNumber,
         address: address,
+        profileImage: profileImage,
       );
 
   Future<void> changePassword({

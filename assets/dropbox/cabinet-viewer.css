@@ -6,11 +6,7 @@ html, body, canvas {
 }
 
 body {
-  background: transparent url('smart-parcel-dropbox.png') center / contain no-repeat;
-}
-
-body.ready {
-  background-image: none;
+  background: transparent;
 }
 
 canvas {

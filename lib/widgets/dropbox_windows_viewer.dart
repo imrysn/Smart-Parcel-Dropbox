@@ -8,13 +8,13 @@ import 'package:webview_flutter_windows/webview_flutter_windows.dart';
 class DropboxWindowsViewer extends StatefulWidget {
   const DropboxWindowsViewer({
     super.key,
-    required this.preview,
+    required this.placeholder,
     required this.onDoorSelected,
     required this.stateJson,
     this.onBackgroundTap,
   });
 
-  final Widget preview;
+  final Widget placeholder;
   final ValueChanged<String> onDoorSelected;
   final VoidCallback? onBackgroundTap;
   final String stateJson;
@@ -78,7 +78,8 @@ class _DropboxWindowsViewerState extends State<DropboxWindowsViewer> {
         _ready = true;
         unawaited(_updateScene());
         unawaited(_updateModifiers());
-      case 'viewer-error':
+      case String s when s.startsWith('viewer-error'):
+        debugPrint('Dropbox Windows Viewer error: $message');
         _showFallback('The model could not be rendered');
       case 'background-tap':
         widget.onBackgroundTap?.call();
@@ -144,13 +145,31 @@ class _DropboxWindowsViewerState extends State<DropboxWindowsViewer> {
     if (_initialized && !_failed) {
       return Webview(_controller);
     }
-    if (!_failed) return widget.preview;
-    return Column(
-      children: [
-        Expanded(child: widget.preview),
-        Text('3D viewer unavailable',
-            style: Theme.of(context).textTheme.bodySmall),
-      ],
+    if (!_failed) return widget.placeholder;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.view_in_ar_outlined,
+            size: 32,
+            color:
+                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '3D viewer unavailable',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.50),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

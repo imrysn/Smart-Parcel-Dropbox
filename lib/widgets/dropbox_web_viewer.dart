@@ -7,13 +7,13 @@ import 'package:web/web.dart' as web;
 class DropboxWebViewer extends StatefulWidget {
   const DropboxWebViewer({
     super.key,
-    required this.preview,
+    required this.placeholder,
     required this.stateJson,
     required this.onDoorSelected,
     this.onBackgroundTap,
   });
 
-  final Widget preview;
+  final Widget placeholder;
   final String stateJson;
   final ValueChanged<String> onDoorSelected;
   final VoidCallback? onBackgroundTap;
@@ -36,7 +36,9 @@ class _DropboxWebViewerState extends State<DropboxWebViewer> {
       if (!mounted ||
           source == null ||
           event.origin != web.window.location.origin ||
-          event.source?.strictEquals(source).toDart != true) return;
+          event.source?.strictEquals(source).toDart != true) {
+        return;
+      }
       switch (event.data.dartify()) {
         case 'viewer-ready':
           _ready = true;
@@ -76,7 +78,7 @@ class _DropboxWebViewerState extends State<DropboxWebViewer> {
 
   @override
   Widget build(BuildContext context) {
-    if (_failed) return widget.preview;
+    if (_failed) return widget.placeholder;
     return HtmlElementView.fromTagName(
       tagName: 'iframe',
       onElementCreated: (element) {
