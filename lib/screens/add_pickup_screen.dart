@@ -27,7 +27,6 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
 
   // Single Outbound Customer Staging Controllers
   final _outboundTrackingController = TextEditingController();
-  final _shopNameController = TextEditingController(text: 'My Business Store');
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
   final _riderPhoneController = TextEditingController();
@@ -36,7 +35,6 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
 
   // Batch Outbound Staging Controllers
   final _batchTrackingTextController = TextEditingController();
-  final _batchShopNameController = TextEditingController(text: 'My Business Store');
   String _selectedCourierBatch = 'J&T Express';
   bool _openDoorForBatch = true;
 
@@ -70,13 +68,11 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
   void dispose() {
     _tabController.dispose();
     _outboundTrackingController.dispose();
-    _shopNameController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _riderPhoneController.dispose();
     _riderNameController.dispose();
     _batchTrackingTextController.dispose();
-    _batchShopNameController.dispose();
     _personalTrackingIdController.dispose();
     _descriptionController.dispose();
     super.dispose();
@@ -303,7 +299,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
 
       await _trackingService.stageOutboundPackage(
         trackingId: trackingId,
-        shopName: _shopNameController.text.trim(),
+        shopName: customerName,
         customerName: customerName,
         customerPhone: customerPhone,
         courierName: courierName,
@@ -596,7 +592,7 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
 
       final result = await _trackingService.batchStageOutboundPackages(
         packages: packages,
-        shopName: _batchShopNameController.text.trim(),
+        shopName: _selectedCourierBatch,
         openDoor: _openDoorForBatch,
       );
 
@@ -959,7 +955,6 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
                     icon: Icons.qr_code_scanner_rounded,
                   ),
                   const SizedBox(height: 20),
-
                   TextFormField(
                     controller: _batchTrackingTextController,
                     maxLines: 5,

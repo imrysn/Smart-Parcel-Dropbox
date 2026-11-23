@@ -149,7 +149,21 @@ class OrderCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Expanded(child: CarrierBadge(shopName: order.shopName)),
+                    Expanded(
+                      child: (stage.isPickup && order.customerName != null && order.customerName!.trim().isNotEmpty)
+                          ? Text(
+                              'To: ${order.customerName!.trim()}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+                              ),
+                            )
+                          : CarrierBadge(shopName: order.shopName),
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       order.getStatusText(),
@@ -182,14 +196,18 @@ class OrderCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        order.trackingId,
+                        (stage.isPickup && order.courierName != null && order.courierName!.trim().isNotEmpty)
+                            ? '${order.courierName!.trim()} • ${order.trackingId}'
+                            : order.trackingId,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          fontFamily: 'monospace',
+                          fontFamily: (stage.isPickup && order.courierName != null && order.courierName!.trim().isNotEmpty)
+                              ? null
+                              : 'monospace',
                         ),
                       ),
                     ),
