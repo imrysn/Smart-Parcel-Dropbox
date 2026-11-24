@@ -41,7 +41,9 @@ const SESSION_COOLDOWN_MS = 10000; // 10 seconds
 // Device Registration — one-time tokens { token → { deviceId, expiresAtMs } }
 const { pendingRegistrations } = require('./controllers/hardwareController');
 
-// Automated Admin Tracking — disabled by default so random barcodes/QRs are rejected
+// Auto-Accept is reserved for explicitly enabled development servers.
+const allowAutoAccept = process.env.NODE_ENV === 'development' &&
+  process.env.SPD_ALLOW_AUTO_ACCEPT === 'true';
 const autoAcceptDevices = new Set();
 
 function escapeRegex(text) {
@@ -448,7 +450,7 @@ io.on('connection', (socket) => {
 
       // Case 1: Tracking ID doesn't exist at all
       if (!tracking) {
-        if (autoAcceptDevices.has(box.deviceId)) {
+        if (allowAutoAccept && autoAcceptDevices.has(box.deviceId)) {
           console.log(`  ✨ AUTO-REGISTER (TEST MODE): Creating new tracking for ${trackingId}`);
           const userId = box.primaryUserId || userIds[0];
           tracking = await Tracking.create({
@@ -947,14 +949,15 @@ io.on('connection', (socket) => {
   });
 
   on('toggleAutoAccept', async ({ enabled } = {}) => {
+    if (!allowAutoAccept) return socket.emit('autoAcceptStatus', { enabled: false });
     const box = await pairedBoxForUser(socket.userId);
-    if (!box || (box.primaryUserId || box.userId) !== socket.userId || process.env.SPD_ALLOW_AUTO_ACCEPT !== 'true') return;
+    if (!box || (box.primaryUserId || box.userId) !== socket.userId) return;
     if (enabled === true) autoAcceptDevices.add(box.deviceId);
     else autoAcceptDevices.delete(box.deviceId);
     emitToMembers(io, box, 'autoAcceptStatus', { enabled: autoAcceptDevices.has(box.deviceId) });
   });
   on('getAutoAcceptStatus', async () => {
-    const box = await pairedBoxForUser(socket.userId);
+    const box = allowAutoAccept ? await pairedBoxForUser(socket.userId) : null;
     socket.emit('autoAcceptStatus', { enabled: Boolean(box && autoAcceptDevices.has(box.deviceId)) });
   });
 
