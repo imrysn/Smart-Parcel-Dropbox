@@ -115,7 +115,7 @@ void finishBatchScanning() {
   scanRequest = 0;
   closeBatchLatch();
   if (batchStage != BatchStage::passage) enterBatchStage(BatchStage::closing);
-  displayMessage("FINISH DROPOFF", finishRequested ? "Close door to finish" : "Press Red, then close door");
+  displayMessage("FINISH DROPOFF", opened || finishRequested ? "Close door to finish" : "Press Red to exit");
 }
 
 void saveBatchOutcome(BatchOutcome outcome) {
@@ -129,7 +129,7 @@ void saveBatchOutcome(BatchOutcome outcome) {
   if (ledger.count >= SPD_BATCH_MAX_ITEMS) finishBatchScanning();
   if (finishing) {
     enterBatchStage(BatchStage::closing);
-    displayMessage("FINISH DROPOFF", finishRequested ? "Close door to finish" : "Press Red, then close door");
+    displayMessage("FINISH DROPOFF", opened || finishRequested ? "Close door to finish" : "Press Red to exit");
   } else if (outcome == BatchOutcome::review) {
     clearAt = 0;
     enterBatchStage(BatchStage::rearming);
@@ -151,6 +151,7 @@ void finalizeBatch() {
   }
   closeBatchLatch();
   changeState(RESETTING);
+  if (ledger.closed) displayMessage("BATCH SAVED", "Drop-off complete");
 }
 }
 
@@ -194,6 +195,7 @@ void updateBatchDropoff() {
   }
   if (now - doorChangedAt >= 20) stableDoorOpen = rawDoorOpen;
   const bool doorOpen = stableDoorOpen;
+  const bool doorClosed = !rawDoorOpen && !doorOpen && now - doorChangedAt >= 20;
   if (batchStage == BatchStage::opening && doorOpen) {
     opened = true;
     closeBatchLatch();
@@ -214,9 +216,9 @@ void updateBatchDropoff() {
     saveBatchOutcome(BatchOutcome::review);
     finishBatchScanning();
   }
-  if (!finishing && now - lastActivity >= batchIdleMs) finishBatchScanning();
+  if (!finishing && ((opened && doorClosed) || now - lastActivity >= batchIdleMs)) finishBatchScanning();
   if (batchStage == BatchStage::closing) {
-    if (finishRequested && !doorOpen && !storageFault) finalizeBatch();
+    if ((opened || finishRequested) && doorClosed && !storageFault) finalizeBatch();
     return;
   }
 
@@ -244,14 +246,14 @@ void updateBatchDropoff() {
     discardScan = false;
     if (nearSeen && clear) {
       saveBatchOutcome(BatchOutcome::confirmed);
-    } else if (now - stageAt >= attemptMs || (!doorOpen && !nearSeen)) {
+    } else if (now - stageAt >= attemptMs || (doorClosed && !nearSeen)) {
       // A healthy, clear chute lets the rider keep going after a missed detection.
       if (!clear) finishing = true;
       saveBatchOutcome(BatchOutcome::review);
     }
     return;
   }
-  if (now - validSampleAt >= 1500 || (opened && !doorOpen)) {
+  if (now - validSampleAt >= 1500) {
     finishBatchScanning();
     return;
   }
@@ -277,7 +279,7 @@ void updateBatchDropoff() {
           enterBatchStage(BatchStage::authorizing);
           displayMessage("VERIFYING", "Wait before dropping");
         } else {
-          displayMessage("NO SERVER", "Press Red to finish");
+          displayMessage("NO SERVER", opened ? "Close door to finish" : "Press Red to exit");
         }
       }
       batchScanLength = 0;
