@@ -77,6 +77,13 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 #include "StateMetrics.h"
 #include "BleController.h"
 
+// Keep the pre-unlock reading separate from the idle bin estimate.
+static float dropoffAttemptBaseline = 999.0;
+
+static bool validDropoffDistance(float distance) {
+  return distance > 1.0 && distance < 900.0;
+}
+
 // ============================================================
 //  FORWARD DECLARATIONS
 // ============================================================
@@ -712,12 +719,11 @@ void loop() {
               Serial.println("[FLOW] LOCAL AUTHORIZATION: Match found in manual registry.");
               displayMessage("VALID ID", "LOCAL AUTH");
               triggerBuzzer(2);
-              if (socketIO.isConnected()) {
-                emitStatusUpdate(scanned, isReceivingMode ? "delivered" : "retrieved", modeName);
+              // Inbound authorization is consumed only after a confirmed deposit.
+              if (!isReceivingMode) {
+                if (socketIO.isConnected()) emitStatusUpdate(scanned, "retrieved", modeName);
+                registeredPickup[0] = '\0';
               }
-              // BUG-04 Fix: Clear manual offline ID once consumed
-              if (isReceivingMode) registeredDropOff[0] = '\0';
-              else registeredPickup[0] = '\0';
 
               consecutiveScanFails = 0; 
               pendingNextState  = isReceivingMode ? UNLOCKING_ENTRY : PICKUP_DOOR_OPEN;
@@ -840,6 +846,12 @@ void loop() {
         static unsigned long doorOpenedTime = 0;
 
         if (!stateInitialized) {
+          dropoffAttemptBaseline = getDistance(US_DROPOFF);
+          if (readReedDebounced(REED_TOP) != 0 || !validDropoffDistance(dropoffAttemptBaseline)) {
+            changeState(RESETTING);
+            displayMessage("DROP UNAVAILABLE", "Check Door and Bin Sensor");
+            break;
+          }
           digitalWrite(LOCK_TOP, LOW);  // UNLOCK
           lockTopOpen = true;
           emitDoorState();             // 🔔 notify app: door is now unlocked
@@ -924,12 +936,8 @@ void loop() {
           stateInitialized  = true;
           displayMessage("VERIFYING", "Checking Bin...");
           Serial.println("\n[FLOW] === STRICT DROP VERIFICATION (US ONLY) ===");
-          Serial.print("[FLOW] DropOff Bin Baseline: ");
-          if (dropoffBaselineDist < 900.0) {
-            Serial.print(dropoffBaselineDist, 1); Serial.println(" cm");
-          } else {
-            Serial.println("OUT_OF_RANGE (Will detect parcel < 30.0 cm)");
-          }
+          Serial.print("[FLOW] DropOff attempt baseline: ");
+          Serial.print(dropoffAttemptBaseline, 1); Serial.println(" cm");
         }
 
         // Sampling loop: rate-limited to 120ms to allow clean ultrasonic echo reflections
@@ -937,21 +945,10 @@ void loop() {
           if (millis() - lastSampleTime >= 120) {
             lastSampleTime = millis();
             float currentDist = getDistance(US_DROPOFF);
-            bool detected = false;
-            float delta = 0.0;
-
-            if (currentDist > 1.0 && currentDist < 900.0) {
-              if (dropoffBaselineDist < 900.0) {
-                delta = dropoffBaselineDist - currentDist;
-                // Distance must decrease by at least 4.0 cm to confirm parcel presence
-                if (delta >= 4.0) {
-                  detected = true;
-                }
-              } else if (currentDist < 30.0) {
-                detected = true;
-                delta = 30.0 - currentDist;
-              }
-            }
+            const float delta = dropoffAttemptBaseline - currentDist;
+            const bool detected = validDropoffDistance(dropoffAttemptBaseline) &&
+                validDropoffDistance(currentDist) && delta >= 4.0 &&
+                readReedDebounced(REED_TOP) == 0;
 
             Serial.print("[US CONFIRM] Current: ");
             if (currentDist < 900.0) {
@@ -982,10 +979,11 @@ void loop() {
                 drawParcelDeliveredScreen();
                 triggerBuzzer(2);
 
-                String newStatus = isReceivingMode ? "delivered" : "awaiting_pickup";
-                String modeStr   = isReceivingMode ? "drop_off"  : "pick_up";
                 if (strlen(currentTrackingId) > 0) {
-                  emitStatusUpdate(String(currentTrackingId), newStatus, modeStr);
+                  if (strcmp(registeredDropOff, currentTrackingId) == 0) {
+                    registeredDropOff[0] = '\0';
+                  }
+                  emitStatusUpdate(String(currentTrackingId), "delivered", "drop_off");
                 }
               }
             } else {
@@ -1457,11 +1455,11 @@ void forceNextStep() {
       changeState(isReceivingMode ? UNLOCKING_ENTRY : PICKUP_DOOR_OPEN);
       break;
     case UNLOCKING_ENTRY:
-      Serial.println("[FLOW] Bypass: Bypassing Top Door Cycle.");
+      Serial.println("[FLOW] Bypass: Canceling unconfirmed drop-off.");
       digitalWrite(LOCK_TOP, HIGH);
       lockTopOpen = false;
       emitDoorState();
-      changeState(CONFIRMING_DROP);
+      changeState(RESETTING);
       break;
     case CONFIRMING_DROP:
       Serial.println("[FLOW] Bypass: Bypassing Drop Confirmation.");
