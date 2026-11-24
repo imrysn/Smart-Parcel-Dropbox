@@ -17,6 +17,7 @@ const Tracking = require('./models/Tracking');
 const ScanLog = require('./models/ScanLog');
 const Notification = require('./models/Notification');
 const deliveryPush = require('./utils/deliveryPush');
+const { recordConfirmedDeposit } = require('./utils/depositReplay');
 const Rider = require('./models/Rider');
 const User = require('./models/User');
 const Dropbox = require('./models/Dropbox');
@@ -655,6 +656,26 @@ io.on('connection', (socket) => {
     if (!result.modifiedCount) return;
     await Dropbox.updateOne({ _id: box._id }, { $inc: { pickupCount: 1 } });
     io.to(tracking.userId).emit('trackingStatusChanged', { trackingId: tracking.trackingId, status: 'awaiting_pickup', mode: 'pick_up' });
+  });
+
+  on('confirmedDeposit', async (event, reply) => {
+    if (typeof reply !== 'function') return;
+    const { ack, delivery } = await recordConfirmedDeposit(socket.deviceId, event);
+    reply(ack);
+    if (!delivery) return;
+
+    const { tracking, box, notification } = delivery;
+    const { pushDueAt, ...visibleNotification } = notification.toJSON();
+    const room = io.to(tracking.userId);
+    room.emit('notificationNew', visibleNotification);
+    room.emit('trackingStatusChanged', {
+      trackingId: tracking.trackingId, status: 'delivered', mode: 'drop_off',
+      deviceId: box.deviceId, timestamp: tracking.deliveredAt,
+      notificationId: ack.notificationId, pushQueued: !!pushDueAt,
+    });
+    emitToMembers(io, box, 'binStatusUpdate', {
+      logicalDropoffCount: box.dropoffCount, logicalPickupCount: box.pickupCount,
+    });
   });
 
   on('statusUpdate', async ({ trackingId, status, mode } = {}) => {

@@ -125,6 +125,14 @@ Check ESP32 connection status.
 
 ## WebSocket Events
 
+### `confirmedDeposit`
+
+Authenticated firmware can replay one confirmed inbound deposit at a time using a Socket.IO acknowledgment callback. Send a stable `eventId` (1–64 letters, digits, underscores, or hyphens) and the MongoDB `trackingRecordId` from the box's authorization record. Include `occurredAt` as a UTC ISO timestamp with milliseconds when the box has trusted time. Otherwise omit it, and the server uses its receipt time.
+
+Discard the local event only after the matching `{ ok: true, eventId, duplicate, notificationId }` acknowledgment. Retry a lost acknowledgment or server failure with the same payload. Keep an event with an eligibility or identity conflict for operator review. The replay transaction requires a [MongoDB replica set or sharded cluster](https://www.mongodb.com/docs/manual/core/transactions/).
+
+To exercise replay from a simulated box, set `SPD_TEST_MONGO_URI` to an isolated test replica set and run `node --test backend/tests/deposit_replay_integration.test.js` from the repository root. The test creates and drops its own randomly named database.
+
 ### `doorStateUpdate`
 
 Emitted when door state changes.
