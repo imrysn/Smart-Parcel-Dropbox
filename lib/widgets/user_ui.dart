@@ -14,6 +14,230 @@ class UserUi {
   static const double sL = 24.0;
   static const double sXL = 32.0;
 
+  static const double dashboardSpacing = 20;
+  static const double dashboardCardRadius = 24;
+  static const double dashboardControlRadius = 14;
+
+  static ({
+    Color background,
+    Color surface,
+    Color border,
+    Color foreground,
+    Color secondary,
+    Color accent,
+  }) dashboardColors(BuildContext context) {
+    return Theme.of(context).brightness == Brightness.dark
+        ? (
+            background: const Color(0xFF171615),
+            surface: const Color(0xFF201F1D),
+            border: const Color(0xFF423A33),
+            foreground: const Color(0xFFF7F1E9),
+            secondary: const Color(0xFFC2B7AA),
+            accent: UserTheme.primaryOrangeLight,
+          )
+        : (
+            background: const Color(0xFFF6F5F3),
+            surface: const Color(0xFFFFFDFA),
+            border: const Color(0xFFE7E0D8),
+            foreground: const Color(0xFF211C17),
+            secondary: const Color(0xFF62584F),
+            accent: UserTheme.primaryOrangeOnLight,
+          );
+  }
+
+  static ButtonStyle dashboardFilledStyle(
+    BuildContext context, {
+    bool destructive = false,
+  }) {
+    final colors = dashboardColors(context);
+    return FilledButton.styleFrom(
+      backgroundColor: destructive ? UserTheme.statusError : colors.foreground,
+      foregroundColor: destructive ? Colors.white : colors.surface,
+      disabledBackgroundColor: colors.foreground.withValues(alpha: 0.10),
+      disabledForegroundColor: colors.secondary,
+      minimumSize: const Size(0, 48),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(dashboardControlRadius),
+      ),
+      textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+    );
+  }
+
+  static InputDecorationThemeData dashboardInputTheme(BuildContext context) {
+    final colors = dashboardColors(context);
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(dashboardControlRadius),
+      borderSide: BorderSide(color: colors.border),
+    );
+    return InputDecorationThemeData(
+      labelStyle: TextStyle(color: colors.secondary),
+      floatingLabelStyle: TextStyle(color: colors.accent),
+      hintStyle: TextStyle(color: colors.secondary),
+      suffixIconColor: colors.secondary,
+      prefixIconColor: colors.secondary,
+      filled: true,
+      fillColor: colors.background,
+      border: border,
+      enabledBorder: border,
+      focusedBorder: border.copyWith(
+        borderSide: BorderSide(color: colors.accent, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    );
+  }
+
+  static ThemeData _dashboardModalTheme(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = dashboardColors(context);
+    final text = theme.textTheme;
+    return theme.copyWith(
+      textTheme: text.copyWith(
+        titleLarge: text.titleLarge?.copyWith(
+          color: colors.foreground,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+        ),
+        bodyLarge: text.bodyLarge?.copyWith(color: colors.foreground),
+        bodyMedium: text.bodyMedium?.copyWith(color: colors.secondary),
+        bodySmall: text.bodySmall?.copyWith(color: colors.secondary),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        constraints: const BoxConstraints(minWidth: 280, maxWidth: 440),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(dashboardCardRadius),
+          side: BorderSide(color: colors.border),
+        ),
+        titleTextStyle: text.headlineSmall?.copyWith(color: colors.foreground),
+        contentTextStyle: text.bodyMedium?.copyWith(color: colors.secondary),
+      ),
+      inputDecorationTheme: dashboardInputTheme(context),
+      filledButtonTheme: FilledButtonThemeData(
+        style: dashboardFilledStyle(context),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: dashboardOutlineStyle(context),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: colors.accent),
+      ),
+    );
+  }
+
+  static Future<T?> showDashboardDialog<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+    bool barrierDismissible = true,
+  }) {
+    return showDialog<T>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      builder: (context) => Theme(
+        data: _dashboardModalTheme(context),
+        child: Builder(builder: builder),
+      ),
+    );
+  }
+
+  static Future<T?> showDashboardSheet<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+    bool isScrollControlled = false,
+  }) {
+    final colors = dashboardColors(context);
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: isScrollControlled,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: colors.surface,
+      constraints: const BoxConstraints(maxWidth: 520),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(dashboardCardRadius),
+        ),
+        side: BorderSide(color: colors.border),
+      ),
+      builder: (context) => Theme(
+        data: _dashboardModalTheme(context),
+        child: Builder(builder: builder),
+      ),
+    );
+  }
+
+  static Widget dashboardCard(
+    BuildContext context, {
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(dashboardSpacing),
+    EdgeInsetsGeometry margin = EdgeInsets.zero,
+  }) {
+    final colors = dashboardColors(context);
+    return Card(
+      color: colors.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      margin: margin,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(dashboardCardRadius),
+        side: BorderSide(color: colors.border),
+      ),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: colors.foreground),
+        child: Padding(padding: padding, child: child),
+      ),
+    );
+  }
+
+  static ButtonStyle dashboardOutlineStyle(BuildContext context) {
+    final colors = dashboardColors(context);
+    return OutlinedButton.styleFrom(
+      foregroundColor: colors.foreground,
+      backgroundColor: colors.surface,
+      disabledForegroundColor: colors.secondary.withValues(alpha: 0.7),
+      side: BorderSide(color: colors.border),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(dashboardControlRadius),
+      ),
+      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      minimumSize: const Size(0, 44),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    );
+  }
+
+  static Widget dashboardFilterChip(
+    BuildContext context, {
+    required String label,
+    required bool selected,
+    required ValueChanged<bool> onSelected,
+  }) {
+    final colors = dashboardColors(context);
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      onSelected: onSelected,
+      backgroundColor: colors.surface,
+      selectedColor: colors.foreground,
+      side: BorderSide(color: selected ? colors.foreground : colors.border),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(dashboardControlRadius),
+      ),
+      labelStyle: TextStyle(
+        color: selected ? colors.surface : colors.foreground,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
   /// Responsive horizontal page gutter prioritizing mobile viewports.
   static double horizontalGutter(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
@@ -195,7 +419,12 @@ class UserUi {
   }
 
   /// Modern Section Title.
-  static Widget sectionTitle(BuildContext context, String title, {String? subtitle}) {
+  static Widget sectionTitle(
+    BuildContext context,
+    String title, {
+    String? subtitle,
+    double fontSize = 20,
+  }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -208,7 +437,7 @@ class UserUi {
             title,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
-              fontSize: 20,
+              fontSize: fontSize,
               letterSpacing: -0.5,
             ),
           ),

@@ -9,6 +9,7 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../config/user_theme.dart';
 import '../services/dropbox_weather_service.dart';
 import '../services/secure_storage_service.dart';
+import 'user_ui.dart';
 
 typedef DropboxSceneBuilder = Widget Function(
   BuildContext context,
@@ -225,16 +226,16 @@ class _DropboxWeatherSceneState extends State<DropboxWeatherScene>
   Future<void> _showWeather() async {
     final weather = _weather;
     final problem = _locationProblem;
-    final action = await showModalBottomSheet<_WeatherAction>(
+    final action = await UserUi.showDashboardSheet<_WeatherAction>(
       context: context,
-      showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) {
         final theme = Theme.of(context);
         return PointerInterceptor(
           intercepting: defaultTargetPlatform == TargetPlatform.iOS,
           child: SafeArea(
             top: false,
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,

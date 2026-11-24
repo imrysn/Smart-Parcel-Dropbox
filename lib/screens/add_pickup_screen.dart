@@ -150,27 +150,33 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
   }
 
   /// Opens camera scanner sheet to scan waybill barcode/QR
-  Future<void> _scanBarcode({required Function(String code) onScanned, bool continuous = false}) async {
+  Future<void> _scanBarcode(
+      {required Function(String code) onScanned,
+      bool continuous = false}) async {
     if (!_isMobile) {
       // Desktop / Fallback Dialog
       final textController = TextEditingController();
-      final code = await showDialog<String>(
+      final code = await UserUi.showDashboardDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Simulate Barcode Scan'),
+          title: const Text('Enter waybill barcode'),
+          scrollable: true,
           content: TextField(
             controller: textController,
             autofocus: true,
             decoration: const InputDecoration(
-              labelText: 'Enter/Scan Waybill Barcode',
+              labelText: 'Waybill barcode',
               hintText: 'e.g. JNT998822001',
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('CANCEL')),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(textController.text.trim()),
-              child: const Text('ADD BARCODE'),
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(textController.text.trim()),
+              child: const Text('Add barcode'),
             ),
           ],
         ),
@@ -182,101 +188,69 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     }
 
     // Mobile Camera Scanner Sheet powered by unified SmartScannerView
-    await showModalBottomSheet(
+    await UserUi.showDashboardSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (sheetCtx) {
-        final isDark = Theme.of(sheetCtx).brightness == Brightness.dark;
-        return Center(
-          heightFactor: 1,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Container(
-              height: MediaQuery.sizeOf(sheetCtx).height * 0.76,
-              decoration: BoxDecoration(
-                color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(UserTheme.radiusXL),
+        return SizedBox(
+          height: MediaQuery.sizeOf(sheetCtx).height * 0.76,
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          continuous
+                              ? 'Scan multiple waybills'
+                              : 'Scan waybill barcode',
+                          style: Theme.of(sheetCtx).textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: 'Close scanner',
+                        onPressed: () => Navigator.of(sheetCtx).pop(),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(
-                    width: 38,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white24 : Colors.black12,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.qr_code_scanner_rounded,
-                          color: UserTheme.primaryOrange,
-                          size: 21,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            continuous
-                                ? 'Continuous Waybill Scanner'
-                                : 'Scan Waybill Barcode',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: isDark
-                                  ? UserTheme.nightTextPrimary
-                                  : UserTheme.dayTextPrimary,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close_rounded),
-                          onPressed: () => Navigator.of(sheetCtx).pop(),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(UserTheme.radiusL),
-                        child: SmartScannerView(
-                          isSquare: false,
-                          continuous: continuous,
-                          verticalCenterFraction: 0.44,
-                          instructionText: continuous
-                              ? 'Point camera at each package waybill.\nContinuous scan cooldown is active.'
-                              : 'Align package waybill barcode inside the frame.',
-                          onCodeScanned: (val) {
-                            onScanned(val);
-                            if (!continuous) {
-                              if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
-                            } else if (sheetCtx.mounted) {
-                              ScaffoldMessenger.of(sheetCtx).clearSnackBars();
-                              ScaffoldMessenger.of(sheetCtx).showSnackBar(
-                                SnackBar(
-                                  content: Text('Scanned: $val'),
-                                  duration: const Duration(milliseconds: 900),
-                                  behavior: SnackBarBehavior.floating,
-                                  backgroundColor: UserTheme.statusSuccess,
-                                ),
-                              );
-                            }
-                          },
-                        ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(UserTheme.radiusL),
+                      child: SmartScannerView(
+                        isSquare: false,
+                        continuous: continuous,
+                        verticalCenterFraction: 0.44,
+                        instructionText: continuous
+                            ? 'Point camera at each package waybill.\nContinuous scan cooldown is active.'
+                            : 'Align package waybill barcode inside the frame.',
+                        onCodeScanned: (val) {
+                          onScanned(val);
+                          if (!continuous) {
+                            if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+                          } else if (sheetCtx.mounted) {
+                            ScaffoldMessenger.of(sheetCtx).clearSnackBars();
+                            ScaffoldMessenger.of(sheetCtx).showSnackBar(
+                              SnackBar(
+                                content: Text('Scanned: $val'),
+                                duration: const Duration(milliseconds: 900),
+                                behavior: SnackBarBehavior.floating,
+                                backgroundColor: UserTheme.statusSuccess,
+                              ),
+                            );
+                          }
+                        },
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );
@@ -307,245 +281,82 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
         riderPhone: riderPhone.isNotEmpty ? riderPhone : null,
       );
 
-      final pickupPassText =
-          "SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
+      final pickupPassText = "SMART PARCEL DROPBOX - COURIER PICKUP PASS\n\n"
           "Tracking ID: $trackingId\n"
           "Courier: $courierName\n"
           "Customer: $customerName\n\n"
           "At the dropbox, select Pickup and scan the waybill barcode.";
 
       if (mounted) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        await showDialog(
+        var copied = false;
+        await UserUi.showDashboardDialog(
           context: context,
-          builder: (dialogContext) {
-            String? feedbackMsg;
-            bool isPassCopied = false;
-
-            return StatefulBuilder(
-              builder: (context, setModalState) {
-                void triggerFeedback(String msg, {bool passCopied = false}) {
-                  setModalState(() {
-                    feedbackMsg = msg;
-                    if (passCopied) isPassCopied = true;
-                  });
-                  Future.delayed(const Duration(milliseconds: 2500), () {
-                    if (dialogContext.mounted) {
-                      setModalState(() {
-                        if (feedbackMsg == msg) feedbackMsg = null;
-                        isPassCopied = false;
-                      });
-                    }
-                  });
-                }
-
-                return Dialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                  backgroundColor: isDark ? UserTheme.nightCard : Colors.white,
-                  insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-                  child: Container(
-                    width: 360,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Top Header Row with Status & Close button
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '$courierName Pickup QR',
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Send this QR to rider to access the dropbox',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              InkWell(
-                                onTap: () => Navigator.of(dialogContext).pop(),
-                                borderRadius: BorderRadius.circular(20),
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: isDark ? UserTheme.nightSurface : Colors.grey.shade100,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    size: 18,
-                                    color: isDark ? Colors.white70 : Colors.black54,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          // HERO CENTERPIECE: Elevated High-Contrast QR Code Pass
-                          Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.grey.shade200, width: 1.5),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.06),
-                                    blurRadius: 16,
-                                    offset: const Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // Main BIG QR Code
-                                  QrImageView(
-                                    data: trackingId,
-                                    version: QrVersions.auto,
-                                    size: 220,
-                                    backgroundColor: Colors.white,
-                                    padding: const EdgeInsets.all(6),
-                                  ),
-                                  const SizedBox(height: 8),
-
-                                  // Clean, non-bold Tracking ID
-                                  SelectableText(
-                                    trackingId,
-                                    style: const TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontWeight: FontWeight.normal,
-                                      fontSize: 16,
-                                      color: Color(0xFF334155),
-                                      letterSpacing: 1.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          if (riderPhone.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Text('Rider: $riderPhone', textAlign: TextAlign.center),
-                          ],
-
-                          // In-Modal Immediate Feedback Toast (In front of dialog)
-                          if (feedbackMsg != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: UserTheme.statusSuccess,
-                                borderRadius: BorderRadius.circular(10),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.12),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 15),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      feedbackMsg!,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-
-                          const SizedBox(height: 16),
-
-                          // Action Controls: Balanced & Modern
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: isPassCopied ? Colors.green.shade700 : UserTheme.primaryOrange,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  icon: Icon(
-                                    isPassCopied ? Icons.check_rounded : Icons.share_rounded,
-                                    size: 16,
-                                  ),
-                                  label: Text(
-                                    isPassCopied ? 'Pass Copied!' : 'Copy Pickup Pass',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                  ),
-                                  onPressed: () async {
-                                    await Clipboard.setData(ClipboardData(text: pickupPassText));
-                                    triggerFeedback('Pickup Pass copied to clipboard!', passCopied: true);
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          // Subtle Done button
-                          Center(
-                            child: TextButton(
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              onPressed: () => Navigator.of(dialogContext).pop(),
-                              child: Text(
-                                'DONE',
-                                style: TextStyle(
-                                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setModalState) => AlertDialog(
+              title: Text('$courierName pickup QR'),
+              scrollable: true,
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Send this pass to the rider for Dropbox pickup.'),
+                  const SizedBox(height: 16),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius:
+                          BorderRadius.circular(UserUi.dashboardControlRadius),
+                      border: Border.all(
+                          color: UserUi.dashboardColors(context).border),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SizedBox.square(
+                        dimension: (MediaQuery.sizeOf(context).width - 112)
+                            .clamp(0.0, 220.0),
+                        child: QrImageView(
+                          data: trackingId,
+                          version: QrVersions.auto,
+                          backgroundColor: Colors.white,
+                        ),
                       ),
                     ),
                   ),
-                );
-              },
-            );
-          },
+                  const SizedBox(height: 12),
+                  SelectableText(
+                    trackingId,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                  if (riderPhone.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('Rider: $riderPhone', textAlign: TextAlign.center),
+                  ],
+                  if (copied)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Semantics(
+                        liveRegion: true,
+                        child: const Text('Pickup pass copied to clipboard.'),
+                      ),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Done'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    await Clipboard.setData(
+                        ClipboardData(text: pickupPassText));
+                    if (context.mounted) setModalState(() => copied = true);
+                  },
+                  child: const Text('Copy pickup pass'),
+                ),
+              ],
+            ),
+          ),
         );
 
         if (mounted) Navigator.of(context).pop();
@@ -553,7 +364,9 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: UserTheme.statusError),
+          SnackBar(
+              content: Text(e.toString()),
+              backgroundColor: UserTheme.statusError),
         );
       }
     } finally {
@@ -565,7 +378,10 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     final rawText = _batchTrackingTextController.text.trim();
     if (rawText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please scan, paste, or enter at least one tracking ID'), backgroundColor: UserTheme.statusWarning),
+        const SnackBar(
+            content:
+                Text('Please scan, paste, or enter at least one tracking ID'),
+            backgroundColor: UserTheme.statusWarning),
       );
       return;
     }
@@ -597,41 +413,46 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
       );
 
       if (mounted) {
-        await showDialog(
+        final doorStatusColor = result.doorConfirmed
+            ? UserTheme.statusSuccess
+            : UserTheme.statusWarning;
+        await UserUi.showDashboardDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.inventory_2_outlined, color: UserTheme.statusSuccess),
-                SizedBox(width: 8),
-                Text('Batch Deposit Staged!'),
-              ],
-            ),
+            title: const Text('Batch ready for deposit'),
+            scrollable: true,
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Successfully registered ${result.packages.length} packages for pickup via $_selectedCourierBatch.'),
+                Text(
+                    'Successfully registered ${result.packages.length} packages for pickup via $_selectedCourierBatch.'),
                 const SizedBox(height: 12),
                 if (_openDoorForBatch)
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: UserTheme.statusSuccess.withOpacity(0.12),
+                      color: doorStatusColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: UserTheme.statusSuccess.withOpacity(0.3)),
+                      border: Border.all(
+                        color: doorStatusColor.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Row(
                       children: [
-                        Icon(result.doorConfirmed ? Icons.lock_open : Icons.warning_amber_rounded,
-                          color: result.doorConfirmed ? UserTheme.statusSuccess : UserTheme.statusWarning),
+                        Icon(
+                            result.doorConfirmed
+                                ? Icons.lock_open
+                                : Icons.warning_amber_rounded,
+                            color: doorStatusColor),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             result.doorConfirmed
                                 ? 'Pickup lock confirmed unlocked. You can deposit the parcels.'
                                 : 'Parcels registered. The dropbox did not confirm an unlock.',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                         ),
                       ],
@@ -640,9 +461,9 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
               ],
             ),
             actions: [
-              ElevatedButton(
+              FilledButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('DONE'),
+                child: const Text('Done'),
               ),
             ],
           ),
@@ -653,7 +474,9 @@ class _AddPickupScreenState extends State<AddPickupScreen> with SingleTickerProv
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: UserTheme.statusError),
+          SnackBar(
+              content: Text(e.toString()),
+              backgroundColor: UserTheme.statusError),
         );
       }
     } finally {

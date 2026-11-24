@@ -155,7 +155,7 @@ void main() {
     });
 
     Future<void> openTab(String tab) async {
-      await tester.tap(find.text(tab).last);
+      await tester.tap(find.byTooltip(tab));
       await tester.pumpAndSettle();
     }
 
@@ -214,8 +214,9 @@ void main() {
         .widget<Container>(find.descendant(
           of: find.byWidget(navigation),
           matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is Container && widget.decoration is BoxDecoration,
+            (widget) => widget is Container &&
+                widget.decoration is BoxDecoration &&
+                (widget.decoration as BoxDecoration).boxShadow != null,
           ),
         ))
         .decoration as BoxDecoration;
@@ -231,9 +232,11 @@ void main() {
           greaterThanOrEqualTo(4.5));
     }
 
-    final navigationLabel = tester.widget<Text>(find.text('Dropbox').last);
+    final navigationIcon = tester.widget<IconButton>(find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == 'Dropbox',
+    ));
     expect(
-        textContrast(navigationLabel.style!.color!,
+        textContrast(navigationIcon.color!,
             Color.alphaBlend(navigationFill, Colors.black)),
         greaterThanOrEqualTo(4.5));
 

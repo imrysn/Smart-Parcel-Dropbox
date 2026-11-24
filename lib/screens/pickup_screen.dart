@@ -230,17 +230,19 @@ class _PickupScreenState extends State<PickupScreen> {
   }
 
   void _confirmDelete(TrackingModel tracking) {
-    showDialog(
+    UserUi.showDashboardDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete Pickup?'),
-        content: Text('Are you sure you want to remove ${tracking.shopName} (${tracking.trackingId}) from your list?\n\nThis action cannot be undone.'),
+        title: const Text('Delete pickup?'),
+        scrollable: true,
+        content: Text(
+            'Are you sure you want to remove ${tracking.shopName} (${tracking.trackingId}) from your list?\n\nThis action cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('CANCEL'),
+            child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () async {
               Navigator.of(dialogContext).pop();
 
@@ -273,11 +275,9 @@ class _PickupScreenState extends State<PickupScreen> {
                 }
               }
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: UserTheme.statusError,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('DELETE'),
+            style:
+                UserUi.dashboardFilledStyle(dialogContext, destructive: true),
+            child: const Text('Delete'),
           ),
         ],
       ),

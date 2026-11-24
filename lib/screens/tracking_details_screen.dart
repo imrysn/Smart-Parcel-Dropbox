@@ -17,75 +17,67 @@ class TrackingDetailsScreen extends StatelessWidget {
   });
 
   void _showFullscreenBarcodeModal(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
+    UserUi.showDashboardSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white24 : Colors.black12,
-                  borderRadius: BorderRadius.circular(2),
+        final colors = UserUi.dashboardColors(context);
+        final messenger = ScaffoldMessenger.of(context);
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CarrierBadge(shopName: tracking.shopName, fontSize: 18),
+                const SizedBox(height: 4),
+                Text(
+                  tracking.trackingId,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontFamily: 'monospace',
+                    color: colors.secondary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              CarrierBadge(shopName: tracking.shopName, fontSize: 18),
-              const SizedBox(height: 4),
-              Text(
-                tracking.trackingId,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontFamily: 'monospace',
-                  color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: colors.border),
+                  ),
+                  child: QrImageView(
+                    data: tracking.trackingId,
+                    version: QrVersions.auto,
+                    size: (MediaQuery.sizeOf(context).shortestSide * 0.52)
+                        .clamp(160.0, 220.0),
+                    eyeStyle: const QrEyeStyle(
+                        eyeShape: QrEyeShape.square, color: Colors.black),
+                    dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleShape: QrDataModuleShape.square,
+                        color: Colors.black),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: tracking.trackingId));
+                    Navigator.of(context).pop();
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('Waybill tracking ID copied to clipboard!'),
+                        backgroundColor: UserTheme.statusSuccess,
+                      ),
+                    );
+                  },
+                  child: const Text('Copy tracking ID'),
                 ),
-                child: QrImageView(
-                  data: tracking.trackingId,
-                  version: QrVersions.auto,
-                  size: (MediaQuery.sizeOf(context).shortestSide * 0.52).clamp(160.0, 220.0),
-                  eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
-                  dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
-                ),
-              ),
-              const SizedBox(height: 24),
-              UserUi.premiumButton(
-                label: 'Copy Tracking ID',
-                icon: Icons.copy_rounded,
-                fontSize: 14,
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: tracking.trackingId));
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Waybill tracking ID copied to clipboard!'),
-                      backgroundColor: UserTheme.statusSuccess,
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
-            ],
+              ],
+            ),
           ),
         );
       },
