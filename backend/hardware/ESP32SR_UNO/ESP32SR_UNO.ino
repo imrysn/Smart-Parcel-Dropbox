@@ -255,12 +255,13 @@ void loop() {
   }
   // esp_task_wdt_reset(); // Disabled to prevent "task not found" spam after detaching main loop
   processSensors();
+  serviceBatchReplay();
   
-  if (!localBle) checkSerialCommands();
+  if (!localBle && currentState != BATCH_DROPOFF) checkSerialCommands();
 
   // Continuous Ultrasonic Live Stream (toggled via 'D' command)
   static unsigned long lastUsStreamTime = 0;
-  if (isUsDiagContinuousActive && (millis() - lastUsStreamTime >= 250)) {
+  if (currentState != BATCH_DROPOFF && isUsDiagContinuousActive && (millis() - lastUsStreamTime >= 250)) {
     lastUsStreamTime = millis();
     float d3 = getDistance(US_DROPOFF);
     Serial.print("[US LIVE] DropOff: ");
@@ -308,7 +309,7 @@ void loop() {
               }
             }
     }
-  } else if (!cooldownActive && currentState != WAITING_FOR_SCAN) {
+  } else if (!cooldownActive && currentState != WAITING_FOR_SCAN && currentState != BATCH_DROPOFF) {
     // Regular Drainage: Clear buffer when NOT in a scan-expectant state
     while (Serial2.available() > 0) Serial2.read();
     serial2Buffer[0] = '\0'; 
@@ -570,7 +571,7 @@ void loop() {
               Serial.println(" cm");
             }
             triggerCyberChirp(3);
-            changeState(WAITING_FOR_SCAN);
+            changeState(batchDropoffAvailable() ? DROPOFF_MODE : WAITING_FOR_SCAN);
           }
         }
       }
@@ -601,6 +602,27 @@ void loop() {
       if (millis() - stateStartTime > IDLE_TIMEOUT_MS) {
         changeState(LOCKSCREEN);
       }
+      break;
+
+    case DROPOFF_MODE: {
+      static bool buttonsReleased;
+      if (!stateInitialized) {
+        displayMessage("DROP OFF", "Blue: Single   Red: Multiple");
+        buttonsReleased = false;
+        stateInitialized = true;
+      }
+      if (digitalRead(BTN_RECEIVE) == HIGH && digitalRead(BTN_PICKUP) == HIGH) buttonsReleased = true;
+      if (!buttonsReleased) break;
+      if (digitalRead(BTN_RECEIVE) == LOW) changeState(WAITING_FOR_SCAN);
+      else if (digitalRead(BTN_PICKUP) == LOW) {
+        buttonsReleased = false;
+        startBatchDropoff();
+      } else if (millis() - stateStartTime >= IDLE_TIMEOUT_MS) changeState(IDLE);
+      break;
+    }
+
+    case BATCH_DROPOFF:
+      updateBatchDropoff();
       break;
 
     // ── PICKUP DOOR OPEN (unlock pickup compartment, wait open+close) ──────
@@ -1237,7 +1259,8 @@ void checkFactoryReset() {
   static bool          holding   = false;
   if (currentState == DEVICE_UNREGISTERED || currentState == SHOWING_REGISTRATION_QR ||
       currentState == WAITING_FOR_WIFI_CONFIG || currentState == WAITING_FOR_BLE_UNLOCK ||
-      currentState == SETUP_NO_SERVER || currentState == SETTINGS_MENU) {
+      currentState == SETUP_NO_SERVER || currentState == SETTINGS_MENU ||
+      currentState == DROPOFF_MODE || currentState == BATCH_DROPOFF || currentState == RESETTING) {
     holding = false;
     return;
   }

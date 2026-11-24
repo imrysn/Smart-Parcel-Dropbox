@@ -133,6 +133,14 @@ Discard the local event only after the matching `{ ok: true, eventId, duplicate,
 
 To exercise replay from a simulated box, set `SPD_TEST_MONGO_URI` to an isolated test replica set and run `node --test backend/tests/deposit_replay_integration.test.js` from the repository root. The test creates and drops its own randomly named database.
 
+### Multiple Parcels bench trial
+
+Enable the ESP32's Multiple Parcels menu only after testing the chute and latch on a supervised unit. In its private `device_secrets.h`, set the measured `SPD_BATCH_CHUTE_NEAR_CM`, the sensor's supported `SPD_BATCH_CHUTE_SAMPLE_MS`, and the supervised `SPD_BATCH_MAX_ITEMS` (up to 32 saved items). This limit bounds the batch; it does not measure remaining bin capacity.
+
+The rider scans and drops one parcel at a time, then presses **Red** and closes the entry door. The firmware waits for reed-confirmed closure before replaying the batch. It retains one batch in flash until acknowledged. New scans require an online authorization in this trial. If the connection drops, the box can finish and preserve the items already authorized. A reboot during an open batch sends its retained items for owner review after the door is closed.
+
+The owner opens **Dropbox → Manage → Drop-off batches** and scans the waybill for any item marked **Needs review**. The backend applies delivery status, bin count, and notification together after confirmation. A rejected flash record stays available for reconciliation and prevents another batch on that unit.
+
 ### `doorStateUpdate`
 
 Emitted when door state changes.

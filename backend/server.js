@@ -17,7 +17,7 @@ const Tracking = require('./models/Tracking');
 const ScanLog = require('./models/ScanLog');
 const Notification = require('./models/Notification');
 const deliveryPush = require('./utils/deliveryPush');
-const { recordConfirmedDeposit } = require('./utils/depositReplay');
+const { recordConfirmedDeposit, publishDelivery } = require('./utils/depositReplay');
 const Rider = require('./models/Rider');
 const User = require('./models/User');
 const Dropbox = require('./models/Dropbox');
@@ -662,20 +662,25 @@ io.on('connection', (socket) => {
     if (typeof reply !== 'function') return;
     const { ack, delivery } = await recordConfirmedDeposit(socket.deviceId, event);
     reply(ack);
-    if (!delivery) return;
+    publishDelivery(io, delivery);
+  });
 
-    const { tracking, box, notification } = delivery;
-    const { pushDueAt, ...visibleNotification } = notification.toJSON();
-    const room = io.to(tracking.userId);
-    room.emit('notificationNew', visibleNotification);
-    room.emit('trackingStatusChanged', {
-      trackingId: tracking.trackingId, status: 'delivered', mode: 'drop_off',
-      deviceId: box.deviceId, timestamp: tracking.deliveredAt,
-      notificationId: ack.notificationId, pushQueued: !!pushDueAt,
-    });
-    emitToMembers(io, box, 'binStatusUpdate', {
-      logicalDropoffCount: box.dropoffCount, logicalPickupCount: box.pickupCount,
-    });
+  on('verifyBatchScan', async ({ barcode } = {}, reply) => {
+    if (typeof reply !== 'function') return;
+    const box = await registeredBoxForDevice(socket.deviceId);
+    const tracking = await findTrackingFlexibly(barcode, membersOf(box));
+    if (!tracking || tracking.mode !== 'drop_off' || !['pending', 'in_transit'].includes(tracking.status) ||
+        await Tracking.exists({ _id: tracking._id, pendingDropoffReviewId: { $exists: true } })) {
+      return reply({ ok: false, reason: 'tracking_ineligible' });
+    }
+    reply({ ok: true, trackingRecordId: String(tracking._id) });
+  });
+
+  on('batchDropoffItem', async (event, reply) => {
+    if (typeof reply !== 'function') return;
+    const { ack, delivery } = await recordConfirmedDeposit(socket.deviceId, event, true);
+    reply(ack);
+    publishDelivery(io, delivery);
   });
 
   on('statusUpdate', async ({ trackingId, status, mode } = {}) => {

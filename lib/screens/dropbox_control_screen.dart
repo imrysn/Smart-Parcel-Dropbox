@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'dropoff_batches_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -1490,6 +1491,14 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
           subtitle: 'Emergency BLE access for the received-parcel door',
           onTap: _openOfflineUnlock,
         ),
+      if (_dropbox != null)
+        _buildUnitSettingRow(
+          icon: Icons.fact_check_outlined,
+          iconColor: UserTheme.statusInfo,
+          title: 'Drop-off batches',
+          subtitle: 'Review parcels the chute sensor could not confirm',
+          onTap: _openDropoffBatches,
+        ),
       _buildUnitSettingRow(
         icon: Icons.link_off_rounded,
         iconColor: UserTheme.statusError,
@@ -1512,6 +1521,14 @@ class _DropboxControlScreenState extends State<DropboxControlScreen> {
         ],
       ),
     );
+  }
+
+  void _openDropoffBatches() {
+    final box = _dropbox;
+    if (box == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DropoffBatchesScreen(deviceId: box.deviceId),
+    ));
   }
 
   void _openOfflineUnlock() {

@@ -103,4 +103,45 @@ test('confirmed deposit replay commits once and rolls back on failure', {
   assert.equal((await Dropbox.findById(box._id)).dropoffCount, 1);
   assert.equal(await Notification.countDocuments(), 1);
   assert.equal(await DeliveryReceipt.countDocuments(), 1);
+
+  const missed = await Tracking.create({ trackingId: 'SPD-MISSED', userId: 'owner-a' });
+  const detected = await Tracking.create({ trackingId: 'SPD-DETECTED', userId: 'owner-a' });
+  const { Rider, ScanLog } = {
+    Rider: require('../models/Rider'),
+    ScanLog: require('../models/ScanLog'),
+  };
+  await Promise.all([Rider.init(), ScanLog.init()]);
+  const authorize = barcode => hardware.timeout(3500).emitWithAck('verifyBatchScan', { barcode });
+  assert.deepEqual(await authorize(missed.trackingId), { ok: true, trackingRecordId: String(missed._id) });
+  assert.equal((await authorize('UNKNOWN-WAYBILL')).ok, false);
+  const sendItem = payload => hardware.timeout(3500).emitWithAck('batchDropoffItem', payload);
+  const missedItem = { batchId: 'batch-one', eventId: 'batch-one-0', trackingRecordId: String(missed._id), needsReview: true };
+  const detectedItem = { batchId: 'batch-one', eventId: 'batch-one-1', trackingRecordId: String(detected._id), needsReview: false };
+  assert.deepEqual(await sendItem(missedItem), { ok: true, eventId: missedItem.eventId, duplicate: false });
+  assert.equal((await sendItem(missedItem)).duplicate, true);
+  assert.equal((await authorize(missed.trackingId)).ok, false);
+  assert.equal((await sendItem(detectedItem)).ok, true);
+  assert.equal((await Tracking.findById(missed._id)).status, 'pending');
+  assert.equal((await Dropbox.findById(box._id)).dropoffCount, 2);
+  assert.equal(await Notification.countDocuments(), 2);
+
+  const endpoint = `${url}/api/dropbox/${deviceId}`;
+  const headers = userId => ({ authorization: `Bearer ${generateToken(userId)}`, 'content-type': 'application/json' });
+  const list = await fetch(`${endpoint}/dropoff-batches`, { headers: headers('owner-a') });
+  assert.equal(list.status, 200);
+  const { items } = await list.json();
+  assert.equal(items.length, 2);
+  const review = items.find(item => item.needsReview);
+  const confirm = (barcode, userId = 'owner-a') => fetch(
+    `${endpoint}/dropoff-reviews/${encodeURIComponent(review._id)}/confirm`,
+    { method: 'POST', headers: headers(userId), body: JSON.stringify({ barcode }) },
+  );
+  assert.equal((await confirm(missed.trackingId, 'owner-b')).status, 403);
+  assert.equal((await confirm(detected.trackingId)).status, 400);
+  assert.equal((await confirm(missed.trackingId)).status, 200);
+  assert.equal((await confirm(missed.trackingId)).status, 200);
+  assert.equal((await sendItem(missedItem)).duplicate, true);
+  assert.equal((await Tracking.findById(missed._id)).status, 'delivered');
+  assert.equal((await Dropbox.findById(box._id)).dropoffCount, 3);
+  assert.equal(await Notification.countDocuments(), 3);
 });

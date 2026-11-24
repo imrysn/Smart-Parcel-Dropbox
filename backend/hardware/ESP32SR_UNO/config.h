@@ -22,6 +22,17 @@
 #ifndef SPD_FIRMWARE_VERSION
 #define SPD_FIRMWARE_VERSION "1.0.0"
 #endif
+
+// Set these values in the bench device configuration after testing the chute and bin.
+#ifndef SPD_BATCH_CHUTE_NEAR_CM
+#define SPD_BATCH_CHUTE_NEAR_CM 0
+#endif
+#ifndef SPD_BATCH_CHUTE_SAMPLE_MS
+#define SPD_BATCH_CHUTE_SAMPLE_MS 0
+#endif
+#ifndef SPD_BATCH_MAX_ITEMS
+#define SPD_BATCH_MAX_ITEMS 0
+#endif
 #ifndef SERVER_HOST
 #define SERVER_HOST   "smart-parcel-dropbox-depth.onrender.com"
 #endif
