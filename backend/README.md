@@ -139,7 +139,7 @@ Enable the ESP32's Multiple Parcels menu only after testing the chute and latch 
 
 The rider scans and drops one parcel at a time. **Red** stops new scans while the rider closes the entry door. Closing the door also stops new scans and finishes the batch if the rider skips Red. The firmware resolves any active attempt and requires reed-confirmed closure before replay. It retains one batch in flash until acknowledged. New scans require online authorization in this trial. If the connection drops, the box can finish and preserve the items already authorized. A reboot during an open batch sends its retained items for owner review after the door is closed.
 
-The owner opens **Dropbox → Manage → Drop-off batches** and scans the waybill for any item marked **Needs review**. The backend applies delivery status, bin count, and notification together after confirmation. A rejected flash record stays available for reconciliation and prevents another batch on that unit.
+The owner opens **Dropbox → Manage → Drop-off batches** and scans the waybill for any item marked **Needs review**. Both parcel modes reject that waybill until review is resolved. Single Parcel on a paired box also requires online authorization during the trial. If the chute stays blocked after an authorized drop, the box saves the attempt for review and resumes scanning once the chute is steadily clear. A rejected flash record stays available for reconciliation and prevents another batch on that unit.
 
 ### `doorStateUpdate`
 

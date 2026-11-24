@@ -737,7 +737,9 @@ void loop() {
 
             String localID = String(isReceivingMode ? registeredDropOff : registeredPickup);
             
-            if (localID.length() > 0 && scanned == localID) {
+            // A paired box must check current inbound eligibility, including owner review.
+            const bool allowLocalMatch = !isReceivingMode || !deviceRegistered;
+            if (allowLocalMatch && localID.length() > 0 && scanned == localID) {
               Serial.println("[FLOW] LOCAL AUTHORIZATION: Match found in manual registry.");
               displayMessage("VALID ID", "LOCAL AUTH");
               triggerBuzzer(2);
@@ -752,8 +754,8 @@ void loop() {
               actionDelayStart  = millis();
               actionDelayActive = true;
             } 
-            else if (socketIO.isConnected()) {
-              Serial.println("[FLOW] No local match. Requesting server verification...");
+            else if (isReceivingMode ? cloudDeviceAuthenticated() : socketIO.isConnected()) {
+              Serial.println("[FLOW] Requesting server verification...");
               displayMessage("VERIFYING...", "Please wait");
               emitVerifyScan(scanned, modeName);
               scanResultReceived = false;
@@ -761,8 +763,9 @@ void loop() {
               changeState(VERIFYING_SCAN);
             } 
             else {
-              Serial.println("[WARN] Offline and No local ID match.");
-              displayMessage("INVALID ID", "RETRY SCAN");
+              Serial.println("[WARN] No available authorization.");
+              if (isReceivingMode && deviceRegistered) displayMessage("NO SERVER", "Reconnect to verify parcel");
+              else displayMessage("INVALID ID", "RETRY SCAN");
               triggerCyberChirp(2);
               currentTrackingId[0] = '\0'; 
               consecutiveScanFails++;

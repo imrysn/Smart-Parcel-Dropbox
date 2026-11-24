@@ -104,7 +104,7 @@ const verifyBarcode = async (req, res) => {
     let tracking = await Tracking.findOne({
       trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') },
       userId: { $in: registeredUsers }
-    });
+    }, '+pendingDropoffReviewId');
 
     // Flexible trim/append 'T' fallback for Shopee/J&T
     if (!tracking && sanitizedBarcode.toUpperCase().endsWith('T')) {
@@ -112,14 +112,14 @@ const verifyBarcode = async (req, res) => {
       tracking = await Tracking.findOne({
         trackingId: { $regex: new RegExp(`^${trimmed}$`, 'i') },
         userId: { $in: registeredUsers }
-      });
+      }, '+pendingDropoffReviewId');
     }
     if (!tracking) {
       const appended = escapeRegex(sanitizedBarcode + 'T');
       tracking = await Tracking.findOne({
         trackingId: { $regex: new RegExp(`^${appended}$`, 'i') },
         userId: { $in: registeredUsers }
-      });
+      }, '+pendingDropoffReviewId');
     }
 
     if (!tracking) {
@@ -131,6 +131,10 @@ const verifyBarcode = async (req, res) => {
         message: 'Tracking ID not recognized or registered to owner',
       });
       return res.status(404).json({ allowed: false, message: 'Tracking ID not found in owner registry' });
+    }
+
+    if (tracking.pendingDropoffReviewId) {
+      return res.status(409).json({ allowed: false, reason: 'needs_review', message: 'Parcel awaiting owner review.' });
     }
 
     if (tracking.mode !== 'drop_off' || !['pending', 'in_transit'].includes(tracking.status)) {
@@ -173,18 +177,17 @@ const syncActiveBarcodes = async (req, res) => {
   try {
     const { deviceId } = req.params;
 
-    const dropbox = await Dropbox.findOne({ deviceId });
-    if (!dropbox || !dropbox.isRegistered) {
+    const dropbox = await registeredBoxForDevice(deviceId);
+    if (!dropbox) {
       return res.status(404).json({ message: 'Unregistered hardware device' });
     }
 
-    const registeredUsers = dropbox.userIds && dropbox.userIds.length > 0
-      ? dropbox.userIds
-      : (dropbox.userId ? [dropbox.userId] : []);
+    const registeredUsers = membersOf(dropbox);
 
     const activeTrackings = await Tracking.find({
       userId: { $in: registeredUsers },
-      status: { $in: ['pending', 'in_transit', 'awaiting_pickup'] }
+      status: { $in: ['pending', 'in_transit', 'awaiting_pickup'] },
+      pendingDropoffReviewId: { $exists: false },
     }).select('trackingId mode status createdAt');
 
     res.json({

@@ -133,7 +133,7 @@ void saveBatchOutcome(BatchOutcome outcome) {
   } else if (outcome == BatchOutcome::review) {
     clearAt = 0;
     enterBatchStage(BatchStage::rearming);
-    displayMessage("CHECKING CHUTE", "Parcel saved for owner review");
+    displayMessage("CHECKING CHUTE", "Wait for chute to clear");
   } else {
     enterBatchStage(BatchStage::scan);
     showBatchScanner();
@@ -231,7 +231,7 @@ void updateBatchDropoff() {
       if (distance <= SPD_BATCH_CHUTE_NEAR_CM) {
         clearAt = 0;
         if ((batchStage == BatchStage::opening || batchStage == BatchStage::passage) && rawDoorOpen) nearSeen = true;
-        else if (opened && doorOpen) finishBatchScanning();
+        else if (opened && doorOpen && batchStage != BatchStage::rearming) finishBatchScanning();
       } else if (clearAt == 0) {
         clearAt = now;
       }
@@ -247,8 +247,7 @@ void updateBatchDropoff() {
     if (nearSeen && clear) {
       saveBatchOutcome(BatchOutcome::confirmed);
     } else if (now - stageAt >= attemptMs || (doorClosed && !nearSeen)) {
-      // A healthy, clear chute lets the rider keep going after a missed detection.
-      if (!clear) finishing = true;
+      // Keep the missed item for review. Rearm only after the chute is clear again.
       saveBatchOutcome(BatchOutcome::review);
     }
     return;

@@ -64,14 +64,14 @@ async function findTrackingFlexibly(inputId, userIds) {
   const scope = { userId: { $in: userIds } };
 
   // 1. Try case-insensitive exact match
-  let tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+  let tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } }, '+pendingDropoffReviewId');
   if (tracking) return tracking;
 
   // 2. Try match after removing trailing 'T'
   if (clean.toUpperCase().endsWith('T')) {
     const trimmedId = escapeRegex(clean.substring(0, clean.length - 1));
     console.log(`🔍 [FLEX-MATCH] Trying with trimmed ID: ${trimmedId} (Original: ${inputId})`);
-    tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${trimmedId}$`, 'i') } });
+    tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${trimmedId}$`, 'i') } }, '+pendingDropoffReviewId');
     if (tracking) {
       console.log(`✅ [FLEX-MATCH] Match found after trimming 'T'`);
       return tracking;
@@ -80,7 +80,7 @@ async function findTrackingFlexibly(inputId, userIds) {
 
   // 3. Try matching if DB record has 'T' but scan doesn't
   const appended = escapeRegex(clean + 'T');
-  tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${appended}$`, 'i') } });
+  tracking = await Tracking.findOne({ ...scope, trackingId: { $regex: new RegExp(`^${appended}$`, 'i') } }, '+pendingDropoffReviewId');
   if (tracking) {
     console.log(`✅ [FLEX-MATCH] Match found by appending 'T' back to scan`);
     return tracking;
@@ -88,7 +88,7 @@ async function findTrackingFlexibly(inputId, userIds) {
 
   // 4. Try matching Courier Pickup OTP PIN (e.g. 6-digit PIN scanned or entered)
   if (/^\d{6}$/.test(clean)) {
-    tracking = await Tracking.findOne({ ...scope, courierOtp: clean, courierOtpExpiresAt: { $gt: new Date() }, status: { $in: ['awaiting_pickup', 'ready_for_pickup', 'pending'] } });
+    tracking = await Tracking.findOne({ ...scope, courierOtp: clean, courierOtpExpiresAt: { $gt: new Date() }, status: { $in: ['awaiting_pickup', 'ready_for_pickup', 'pending'] } }, '+pendingDropoffReviewId');
     if (tracking) {
       console.log(`✅ [FLEX-MATCH] Match found by Courier Pickup OTP: ${clean}`);
       return tracking;
@@ -363,7 +363,9 @@ io.on('connection', (socket) => {
   on('registerTracking', async (data) => {
     const box = await pairedBoxForUser(socket.userId);
     if (!box || typeof data?.trackingId !== 'string') return;
-    const tracking = await Tracking.findOne({ trackingId: data.trackingId, userId: socket.userId });
+    const tracking = await Tracking.findOne({
+      trackingId: data.trackingId, userId: socket.userId, pendingDropoffReviewId: { $exists: false },
+    });
     if (tracking) io.to(deviceRoom(box.deviceId)).emit('registerTracking', { trackingId: tracking.trackingId, mode: tracking.mode });
   });
 
@@ -515,6 +517,9 @@ io.on('connection', (socket) => {
       // E.g., a pick_up scan on a parcel that is still 'pending',
       // or a drop_off scan on a parcel that is already 'awaiting_pickup'.
       const isPickUpMode = (mode === 'pick_up' || mode === 'pickup');
+      if (!isPickUpMode && tracking.pendingDropoffReviewId) {
+        return socket.emit('scanResult', { valid: false, trackingId, mode, reason: 'needs_review' });
+      }
       const allowedStatuses = isPickUpMode
         ? ['ready_for_pickup', 'awaiting_pickup', 'pending']
         : ['pending', 'in_transit'];
@@ -670,7 +675,7 @@ io.on('connection', (socket) => {
     const box = await registeredBoxForDevice(socket.deviceId);
     const tracking = await findTrackingFlexibly(barcode, membersOf(box));
     if (!tracking || tracking.mode !== 'drop_off' || !['pending', 'in_transit'].includes(tracking.status) ||
-        await Tracking.exists({ _id: tracking._id, pendingDropoffReviewId: { $exists: true } })) {
+        tracking.pendingDropoffReviewId) {
       return reply({ ok: false, reason: 'tracking_ineligible' });
     }
     reply({ ok: true, trackingRecordId: String(tracking._id) });
@@ -702,7 +707,11 @@ io.on('connection', (socket) => {
     const update = { status };
     const timeFields = { delivered: 'deliveredAt', retrieved: 'retrievedAt', done: 'doneAt' };
     if (timeFields[status]) update[timeFields[status]] = new Date();
-    const updated = await Tracking.updateOne({ _id: tracking._id, status: tracking.status }, { $set: update });
+    const updated = await Tracking.updateOne({
+      _id: tracking._id,
+      status: tracking.status,
+      ...(!pickup && { pendingDropoffReviewId: { $exists: false } }),
+    }, { $set: update });
     if (!updated.modifiedCount) return;
 
     const collected = status === 'retrieved' || (pickup && status === 'done');

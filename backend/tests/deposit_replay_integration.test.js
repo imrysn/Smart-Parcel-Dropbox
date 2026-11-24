@@ -120,6 +120,36 @@ test('confirmed deposit replay commits once and rolls back on failure', {
   assert.deepEqual(await sendItem(missedItem), { ok: true, eventId: missedItem.eventId, duplicate: false });
   assert.equal((await sendItem(missedItem)).duplicate, true);
   assert.equal((await authorize(missed.trackingId)).ok, false);
+
+  const singleScan = once(hardware, 'scanResult');
+  hardware.emit('verifyScan', { trackingId: missed.trackingId, mode: 'drop_off' });
+  assert.deepEqual((await singleScan)[0], {
+    valid: false, trackingId: missed.trackingId, mode: 'drop_off', reason: 'needs_review',
+  });
+
+  const deviceHeaders = {
+    'X-SPD-Device-ID': deviceId, Authorization: `Device ${key}`, 'content-type': 'application/json',
+  };
+  const httpScan = await fetch(`${url}/api/hardware/verify-barcode`, {
+    method: 'POST', headers: deviceHeaders, body: JSON.stringify({ deviceId, barcode: missed.trackingId }),
+  });
+  assert.equal(httpScan.status, 409);
+  assert.equal((await httpScan.json()).reason, 'needs_review');
+  const cache = await fetch(`${url}/api/hardware/sync-active-barcodes/${deviceId}`, { headers: deviceHeaders });
+  assert.deepEqual((await cache.json()).barcodes, [detected.trackingId]);
+
+  const updateOne = Tracking.updateOne;
+  let observeUpdate;
+  const updateAttempt = new Promise(resolve => { observeUpdate = resolve; });
+  const statusWrite = t.mock.method(Tracking, 'updateOne', async (...args) => {
+    const result = await updateOne.apply(Tracking, args);
+    observeUpdate(result);
+    return result;
+  });
+  hardware.emit('statusUpdate', { trackingId: missed.trackingId, mode: 'drop_off', status: 'delivered' });
+  assert.equal((await updateAttempt).modifiedCount, 0);
+  statusWrite.mock.restore();
+
   assert.equal((await sendItem(detectedItem)).ok, true);
   assert.equal((await Tracking.findById(missed._id)).status, 'pending');
   assert.equal((await Dropbox.findById(box._id)).dropoffCount, 2);
@@ -127,6 +157,14 @@ test('confirmed deposit replay commits once and rolls back on failure', {
 
   const endpoint = `${url}/api/dropbox/${deviceId}`;
   const headers = userId => ({ authorization: `Bearer ${generateToken(userId)}`, 'content-type': 'application/json' });
+  const manual = await fetch(`${url}/api/tracking/${missed.trackingId}/status`, {
+    method: 'PATCH', headers: headers('owner-a'), body: JSON.stringify({ status: 'delivered' }),
+  });
+  assert.equal(manual.status, 409);
+  const demo = await fetch(`${url}/api/tracking/${missed.trackingId}/simulate`, {
+    method: 'POST', headers: headers('owner-a'),
+  });
+  assert.equal(demo.status, 409);
   const list = await fetch(`${endpoint}/dropoff-batches`, { headers: headers('owner-a') });
   assert.equal(list.status, 200);
   const { items } = await list.json();
