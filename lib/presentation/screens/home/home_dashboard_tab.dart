@@ -79,10 +79,9 @@ class HomeDashboardTab extends StatelessWidget {
               future: databaseService.getUserData(userId),
               builder: (context, userSnap) {
                 final rawName = userSnap.data?['fullName'] as String?;
-                final firstName =
-                    (rawName != null && rawName.trim().isNotEmpty)
-                        ? rawName.trim().split(' ').first
-                        : 'User';
+                final firstName = (rawName != null && rawName.trim().isNotEmpty)
+                    ? rawName.trim().split(' ').first
+                    : 'User';
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14, left: 2),
@@ -141,16 +140,15 @@ class HomeDashboardTab extends StatelessWidget {
                         o.mode == 'pick_up' &&
                         (o.status == 'registered' || o.status == 'pending'))
                     .length;
-                final inBoxParcel = allOrders
-                    .where((o) => o.status == 'delivered')
-                    .firstOrNull;
+                final inBoxParcel =
+                    allOrders.where((o) => o.status == 'delivered').firstOrNull;
                 final recentOrders = allOrders.take(2).toList();
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (!hasDropbox) ...[
-                      _buildNoDropboxBanner(context, isDark),
+                      _buildNoDropboxBanner(context),
                       const SizedBox(height: 14),
                     ],
 
@@ -209,7 +207,7 @@ class HomeDashboardTab extends StatelessWidget {
                       ],
                     ),
 
-                    const SizedBox(height: 22),
+                    const SizedBox(height: UserUi.dashboardSpacing),
 
                     // ─── 4. Recent Orders Section Header ───
                     Row(
@@ -284,61 +282,48 @@ class HomeDashboardTab extends StatelessWidget {
     );
   }
 
-  Widget _buildNoDropboxBanner(BuildContext context, bool isDark) {
-    final borderColor = isDark ? Colors.white : Colors.black;
-    return Container(
+  Widget _buildNoDropboxBanner(BuildContext context) {
+    final colors = UserUi.dashboardColors(context);
+    return UserUi.dashboardCard(
+      context,
       margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? UserTheme.nightCard : Colors.white,
-        borderRadius: BorderRadius.circular(UserTheme.radiusL),
-        border: Border.all(
-          color: borderColor,
-          width: 1.0,
-        ),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-            Row(
-              children: [
-                Icon(Icons.qr_code_scanner_rounded,
-                    color: borderColor, size: 22),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Set Up Your Dropbox',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      letterSpacing: -0.3,
-                    ),
+          Row(
+            children: [
+              Icon(Icons.qr_code_scanner_rounded,
+                  color: colors.foreground, size: 22),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Set Up Your Dropbox',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    letterSpacing: -0.3,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Register your Smart Parcel Dropbox to sync deliveries and pickups with your phone.',
-              style: TextStyle(
-                color: isDark
-                    ? UserTheme.nightTextSecondary
-                    : UserTheme.dayTextSecondary,
-                fontSize: 13,
-                height: 1.5,
               ),
-            ),
-            const SizedBox(height: 16),
-            UserUi.premiumButton(
-              label: 'Register Hardware',
-              onTap: onSetupDropbox,
-              icon: Icons.arrow_forward_rounded,
-              color: isDark ? Colors.white : Colors.black,
-              textColor: isDark ? Colors.black : Colors.white,
-            ),
-          ],
-        ),
-      );
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Register your Smart Parcel Dropbox to sync deliveries and pickups with your phone.',
+            style:
+                TextStyle(color: colors.secondary, fontSize: 13, height: 1.5),
+          ),
+          const SizedBox(height: 16),
+          UserUi.premiumButton(
+            label: 'Register Hardware',
+            onTap: onSetupDropbox,
+            icon: Icons.arrow_forward_rounded,
+            color: colors.foreground,
+            textColor: colors.surface,
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildQuickActionButton({
@@ -347,47 +332,12 @@ class HomeDashboardTab extends StatelessWidget {
     required String label,
     required VoidCallback onTap,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isDark ? Colors.white : Colors.black;
-    final textColor = isDark ? Colors.white : Colors.black;
-
     return Expanded(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(UserTheme.radiusL),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(UserTheme.radiusL),
-              border: Border.all(
-                color: borderColor,
-                width: 1.0,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 17, color: textColor),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: textColor,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        style: UserUi.dashboardOutlineStyle(context),
+        icon: Icon(icon, size: 17),
+        label: Text(label, textAlign: TextAlign.center),
       ),
     );
   }

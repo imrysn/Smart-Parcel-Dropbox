@@ -29,6 +29,7 @@ const trackingSchema = new mongoose.Schema({
   },
   registeredAt: { type: Date, default: Date.now },
   deliveredAt: { type: Date },
+  pendingDropoffReviewId: { type: String, select: false },
   retrievedAt: { type: Date },
   doneAt: { type: Date },   // Set when rider marks parcel as collected
 

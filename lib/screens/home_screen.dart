@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
+import '../config/dev_mode.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/database_service.dart';
@@ -31,8 +32,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const _devModePreference = 'dropbox_dev_mode';
-
   final AuthService _authService = AuthService();
   final _preferences = SecureStorageService();
   final DatabaseService _databaseService = DatabaseService();
@@ -46,17 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _outboundFilterIndex = 0; // 0: All, 1: Awaiting Pickup, 2: Completed
 
   bool _hasDropbox = true;
-  bool _devModeEnabled =
-      kDebugMode && !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  bool _devModeEnabled = DevMode.isEnabled(null);
   bool _devModeBusy = true;
-
-  bool get _supportsDevMode =>
-      kIsWeb ||
-      const {
-        TargetPlatform.android,
-        TargetPlatform.iOS,
-        TargetPlatform.windows,
-      }.contains(defaultTargetPlatform);
 
   // Stream subscriptions for cleanup
   StreamSubscription<bool>? _connectionSub;
@@ -74,14 +64,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _initUser();
-    if (_supportsDevMode) unawaited(_restoreDevMode());
+    if (DevMode.isSupported) unawaited(_restoreDevMode());
   }
 
   Future<void> _restoreDevMode() async {
-    final saved = await _preferences.getPreference(_devModePreference);
+    final saved = await _preferences.getPreference(DevMode.preferenceKey);
     if (!mounted) return;
     setState(() {
-      if (saved != null) _devModeEnabled = saved == 'true';
+      _devModeEnabled = DevMode.isEnabled(saved);
       _devModeBusy = false;
     });
   }
@@ -90,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_devModeBusy) return;
     setState(() => _devModeBusy = true);
     final saved = await _preferences.savePreference(
-      _devModePreference,
+      DevMode.preferenceKey,
       enabled.toString(),
     );
     if (!mounted) return;
@@ -228,14 +218,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dashboard = UserUi.dashboardColors(context);
+    final page = _selectedIndex <= 1
+        ? BoxDecoration(color: dashboard.background)
+        : UserUi.pageBackground(context);
     final showingCabinet = _selectedIndex == 2;
     final interceptCabinet = showingCabinet &&
         (kIsWeb || defaultTargetPlatform == TargetPlatform.iOS);
+    final viewport = MediaQuery.sizeOf(context);
+    final compactNavigation = viewport.width < 420 || viewport.height < 700;
     
     return Container(
-      decoration: UserUi.pageBackground(context),
+      decoration: page,
       child: Scaffold(
         backgroundColor: Colors.transparent,
         extendBody: true,
@@ -244,11 +239,11 @@ class _HomeScreenState extends State<HomeScreen> {
           context: context,
           title: _getAppBarTitle(),
           centerTitle: false,
-          backgroundColor: showingCabinet ? Colors.transparent : null,
+          backgroundColor: showingCabinet ? Colors.transparent : page.color,
           actions: [
             if (_selectedIndex == 1)
               IconButton(
-                icon: const Icon(Icons.add_circle_outline_rounded, color: UserTheme.primaryOrange, size: 22),
+                icon: const Icon(Icons.add_circle_outline_rounded, size: 22),
                 tooltip: _ordersMode == 0 ? 'Add Tracking ID' : 'Schedule Pickup',
                 onPressed: () {
                   if (_ordersMode == 0) {
@@ -293,86 +288,128 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 480),
               child: Padding(
-                padding: EdgeInsets.fromLTRB(UserUi.horizontalGutter(context), 0, UserUi.horizontalGutter(context), 14),
+                padding: EdgeInsets.fromLTRB(
+                  UserUi.horizontalGutter(context),
+                  0,
+                  UserUi.horizontalGutter(context),
+                  compactNavigation ? 8 : 14,
+                ),
                 child: PointerInterceptor(
                   intercepting: interceptCabinet,
                   child: Container(
-                  height: 62,
-                  decoration: BoxDecoration(
-                    color: (isDark ? UserTheme.nightCard : UserTheme.dayCard)
-                        .withValues(alpha: UserTheme.floatingSurfaceOpacity),
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : Colors.black.withValues(alpha: 0.06),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
+                    decoration: BoxDecoration(
+                      color: dashboard.surface.withValues(
+                        alpha: UserTheme.floatingSurfaceOpacity,
                       ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(4, (index) {
-                      final isSelected = _selectedIndex == index;
-                      IconData icon; IconData activeIcon; String label;
-                      if (index == 0) { icon = Icons.grid_view_outlined; activeIcon = Icons.grid_view_rounded; label = 'Home'; }
-                      else if (index == 1) { icon = Icons.inventory_2_outlined; activeIcon = Icons.inventory_2_rounded; label = 'Orders'; }
-                      else if (index == 2) { icon = Icons.dns_outlined; activeIcon = Icons.dns_rounded; label = 'Dropbox'; }
-                      else { icon = Icons.person_outline_rounded; activeIcon = Icons.person_rounded; label = 'Profile'; }
+                      borderRadius: BorderRadius.circular(
+                        compactNavigation ? 24 : 28,
+                      ),
+                      border: Border.all(color: dashboard.border),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(
+                            alpha: isDark ? 0.35 : 0.06,
+                          ),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: List.generate(4, (index) {
+                        final isSelected = _selectedIndex == index;
+                        final (icon, activeIcon, label) = switch (index) {
+                          0 => (Icons.home_outlined, Icons.home_rounded, 'Home'),
+                          1 => (
+                            Icons.local_shipping_outlined,
+                            Icons.local_shipping_rounded,
+                            'Orders',
+                          ),
+                          2 => (null, null, 'Dropbox'),
+                          _ => (
+                            Icons.person_outline_rounded,
+                            Icons.person_rounded,
+                            'Profile',
+                          ),
+                        };
+                        final symbol = isSelected ? activeIcon : icon;
+                        final color = isSelected
+                            ? dashboard.accent
+                            : dashboard.secondary;
+                        final iconSize = compactNavigation ? 22.0 : 24.0;
 
-                      final inactiveColor = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
-                      final selectedColor = index == 0
-                          ? (isDark ? Colors.white : Colors.black)
-                          : (index == 2
-                              ? (isDark ? UserTheme.primaryOrangeLight : UserTheme.primaryOrangeOnLight)
-                              : UserTheme.primaryOrange);
-
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectTab(index);
-                              if (index <= 1 && _userId != null) {
-                                _databaseService.refreshTracking(_userId!);
-                                if (index == 0) _checkDropbox();
-                              }
-                            });
-                          },
-                          behavior: HitTestBehavior.opaque,
+                        return Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  isSelected ? activeIcon : icon,
-                                  size: 22,
-                                  color: isSelected ? selectedColor : inactiveColor,
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            child: IconButton(
+                              tooltip: label,
+                              isSelected: isSelected,
+                              color: color,
+                              iconSize: iconSize,
+                              style: IconButton.styleFrom(
+                                minimumSize: Size(
+                                  48,
+                                  compactNavigation ? 48 : 54,
                                 ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                    color: isSelected ? selectedColor : inactiveColor,
+                                padding: EdgeInsets.zero,
+                                overlayColor: Colors.transparent,
+                                visualDensity: VisualDensity.standard,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    compactNavigation ? 16 : 18,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ],
+                              ).copyWith(
+                                foregroundBuilder: (context, states, child) {
+                                  final focused =
+                                      states.contains(WidgetState.focused);
+                                  final pressed =
+                                      states.contains(WidgetState.pressed);
+                                  final highlighted = isSelected ||
+                                      focused ||
+                                      pressed ||
+                                      states.contains(WidgetState.hovered);
+                                  return Container(
+                                    width: iconSize + 14,
+                                    height: iconSize + 10,
+                                    alignment: Alignment.center,
+                                    decoration: highlighted
+                                        ? BoxDecoration(
+                                            color: color.withValues(
+                                              alpha: pressed ? 0.18 : 0.10,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(14),
+                                            border: focused
+                                                ? Border.all(color: color)
+                                                : null,
+                                          )
+                                        : null,
+                                    child: child,
+                                  );
+                                },
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _selectTab(index);
+                                  if (index <= 1 && _userId != null) {
+                                    _databaseService.refreshTracking(_userId!);
+                                    if (index == 0) _checkDropbox();
+                                  }
+                                });
+                              },
+                              icon: symbol == null
+                                  ? CustomPaint(
+                                      size: Size.square(iconSize),
+                                      painter: _DropboxCabinetPainter(color),
+                                    )
+                                  : Icon(symbol),
                             ),
                           ),
-                        ),
-                      );
-                    }),
-                  ),
+                        );
+                      }),
+                    ),
                   ),
                 ),
               ),
@@ -431,7 +468,7 @@ class _HomeScreenState extends State<HomeScreen> {
           biometricService: _biometricService,
           devModeEnabled: _devModeEnabled,
           devModeBusy: _devModeBusy,
-          supportsDevMode: _supportsDevMode,
+          supportsDevMode: DevMode.isSupported,
           onDevModeChanged: _setDevMode,
         );
       default:
@@ -454,4 +491,44 @@ class _HomeScreenState extends State<HomeScreen> {
         );
     }
   }
+}
+
+class _DropboxCabinetPainter extends CustomPainter {
+  const _DropboxCabinetPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+
+    canvas.save();
+    canvas.scale(size.width / 24, size.height / 24);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTRB(4.5, 2, 19.5, 22),
+        const Radius.circular(2),
+      ),
+      stroke,
+    );
+    canvas.drawLine(const Offset(4.5, 10), const Offset(19.5, 10), stroke);
+    canvas.drawLine(const Offset(12.5, 2), const Offset(12.5, 10), stroke);
+    canvas.drawLine(const Offset(15.5, 6), const Offset(17, 6), stroke);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTRB(8.5, 13.5, 15.5, 19),
+        const Radius.circular(1),
+      ),
+      stroke,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_DropboxCabinetPainter oldDelegate) =>
+      color != oldDelegate.color;
 }

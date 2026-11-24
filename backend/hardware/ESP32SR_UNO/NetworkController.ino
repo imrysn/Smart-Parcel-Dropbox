@@ -185,6 +185,9 @@ void sendDeviceHeartbeat(bool immediate) {
 
 void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) {
   switch (type) {
+    case sIOtype_ACK:
+      handleBatchAck(payload, length);
+      break;
     case sIOtype_CONNECT:
       deviceAuthenticated = false;
       offlineClockNonce = "";
@@ -236,7 +239,7 @@ void socketIOEvent(socketIOmessageType_t type, uint8_t* payload, size_t length) 
         const String door = doc[1]["type"].as<String>();
         const bool valid = !requestId.isEmpty() && (action == "open" || action == "close") &&
           (door == "top" || door == "pickup" || door == "received");
-        if (!valid) {
+        if (!valid || (door == "top" && currentState == BATCH_DROPOFF)) {
           emitDoorCommandResult(requestId, false);
           break;
         }

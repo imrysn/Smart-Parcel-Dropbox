@@ -73,6 +73,8 @@ enum SystemState {
   DEVICE_UNREGISTERED,
   SHOWING_REGISTRATION_QR,
   IDLE,
+  DROPOFF_MODE,
+  BATCH_DROPOFF,
   PICKUP_DOOR_OPEN,
   WAITING_FOR_SCAN,
   VERIFYING_SCAN,
@@ -225,6 +227,13 @@ void handleRegisterTracking(const String& payload);
 void handleControlDoor(const String& payload);
 void emitWifiScanResult(int n);
 int  readReedDebounced(int pin);
+float sampleDropoffChute();
+bool batchDropoffAvailable();
+bool cloudDeviceAuthenticated();
+bool startBatchDropoff();
+void updateBatchDropoff();
+void serviceBatchReplay();
+void handleBatchAck(const uint8_t* payload, size_t length);
 void setPickupLock(bool unlock);
 
 extern const int US_PLATFORM[2];

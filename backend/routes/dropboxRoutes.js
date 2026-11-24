@@ -6,7 +6,9 @@ const User = require('../models/User');
 const { authMiddleware } = require('../utils/auth');
 
 const { pendingRegistrations } = require('../controllers/hardwareController');
-const { deviceRoom, registeredBoxForDevice, issueOfflineUnlockGrant, canIssueOfflineUnlockGrant } = require('../utils/deviceSessions');
+const DeliveryReceipt = require('../models/DeliveryReceipt');
+const { confirmDropoffReview, publishDelivery } = require('../utils/depositReplay');
+const { deviceRoom, membersOf, registeredBoxForDevice, issueOfflineUnlockGrant, canIssueOfflineUnlockGrant } = require('../utils/deviceSessions');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -17,6 +19,47 @@ function resolvePrimaryOwnerId(dropbox) {
 
 // All dropbox routes are protected
 router.use(authMiddleware);
+
+router.get('/:deviceId/dropoff-batches', async (req, res) => {
+  try {
+    const box = await registeredBoxForDevice(req.params.deviceId);
+    if (!membersOf(box).includes(req.userId)) {
+      return res.status(403).json({ message: 'Dropbox access required.' });
+    }
+    // Return whole recent batches so their delivered and review counts stay consistent.
+    const scope = { deviceId: box.deviceId, userId: req.userId, batchId: { $exists: true } };
+    const batches = await DeliveryReceipt.aggregate([
+      { $match: scope },
+      { $group: { _id: '$batchId', lastReceivedAt: { $max: '$receivedAt' } } },
+      { $sort: { lastReceivedAt: -1 } },
+      { $limit: 10 },
+    ]);
+    const pending = await DeliveryReceipt.distinct('batchId', { ...scope, needsReview: true, reviewedAt: null });
+    const items = await DeliveryReceipt.find({
+      ...scope, batchId: { $in: [...new Set([...pending, ...batches.map(batch => batch._id)])] },
+    }).select('batchId trackingId needsReview reviewedAt receivedAt').sort({ receivedAt: -1 }).lean();
+    return res.json({ items });
+  } catch (error) {
+    console.error('Drop-off batch lookup failed:', error.message);
+    return res.status(500).json({ message: 'Could not load drop-off batches.' });
+  }
+});
+
+router.post('/:deviceId/dropoff-reviews/:receiptId/confirm', async (req, res) => {
+  try {
+    const box = await registeredBoxForDevice(req.params.deviceId);
+    if (!membersOf(box).includes(req.userId)) {
+      return res.status(403).json({ message: 'Dropbox access required.' });
+    }
+    const result = await confirmDropoffReview(box.deviceId, req.userId, req.params.receiptId, req.body?.barcode);
+    if (result.status !== 200) return res.status(result.status).json({ message: result.message });
+    publishDelivery(req.app.get('io'), result.delivery);
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('Drop-off review confirmation failed:', error.message);
+    return res.status(500).json({ message: 'Could not confirm this drop-off.' });
+  }
+});
 
 router.post('/:deviceId/offline-unlock-grant', async (req, res) => {
   try {

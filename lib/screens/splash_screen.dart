@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import '../config/user_theme.dart';
+import '../config/dev_mode.dart';
+import '../widgets/startup_intro.dart';
 import '../widgets/user_ui.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/database_service.dart';
+import '../services/secure_storage_service.dart';
 import '../services/user_service.dart';
 import '../services/service_locator.dart';
 
@@ -18,12 +22,23 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  static const _introPreference = 'startup_intro_v1';
+  static const _titleDuration = Duration(milliseconds: 280);
+
   late final AuthService _authService;
   late final DatabaseService _databaseService;
   late final BiometricService _biometricService;
+  final _preferences = SecureStorageService();
+  final _introFinished = Completer<void>();
+  Future<void> _titleReady = Future<void>.value();
 
   bool _biometricLocked = false;
   bool _authenticating = false;
+  bool _checkingIntro = true;
+  bool _introChecked = false;
+  bool _showIntro = false;
+  bool _revealTitle = false;
+  bool _startupPending = true;
 
   @override
   void initState() {
@@ -36,6 +51,57 @@ class _SplashScreenState extends State<SplashScreen> {
     _checkAuthState();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_introChecked) return;
+    _introChecked = true;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _checkingIntro = false;
+      _introFinished.complete();
+    } else {
+      unawaited(_prepareIntro());
+    }
+  }
+
+  Future<void> _prepareIntro() async {
+    const preferenceTimeout = Duration(milliseconds: 350);
+    final (seen, devModePreference) = await (
+      _preferences
+          .getPreference(_introPreference)
+          .timeout(preferenceTimeout, onTimeout: () => 'true'),
+      _preferences
+          .getPreference(DevMode.preferenceKey)
+          .timeout(preferenceTimeout, onTimeout: () => 'false'),
+    ).wait;
+    if (!mounted) return;
+    final playIntro =
+        (seen != 'true' || DevMode.isEnabled(devModePreference)) &&
+        !MediaQuery.disableAnimationsOf(context);
+    setState(() {
+      _checkingIntro = false;
+      _showIntro = playIntro;
+    });
+    if (!playIntro) _introFinished.complete();
+  }
+
+  void _finishIntro(bool played) {
+    if (!_showIntro) return;
+    if (played) _titleReady = Future<void>.delayed(_titleDuration);
+    setState(() {
+      _showIntro = false;
+      _revealTitle = played;
+    });
+    unawaited(_preferences.savePreference(_introPreference, 'true'));
+    _introFinished.complete();
+  }
+
+  @override
+  void dispose() {
+    if (!_introFinished.isCompleted) _introFinished.complete();
+    super.dispose();
+  }
+
   Future<void> _checkAuthState() async {
     await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) return;
@@ -44,7 +110,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!isLoggedIn || await _authService.isTokenExpired()) {
       await _authService.signOut();
       if (!mounted) return;
-      _navigateToLogin();
+      await _completeStartup(signedIn: false);
       return;
     }
 
@@ -52,7 +118,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (userId == null) {
       await _authService.signOut();
       if (!mounted) return;
-      _navigateToLogin();
+      await _completeStartup(signedIn: false);
       return;
     }
 
@@ -63,7 +129,7 @@ class _SplashScreenState extends State<SplashScreen> {
     } on SessionExpiredException {
       await _authService.signOut();
       if (!mounted) return;
-      _navigateToLogin();
+      await _completeStartup(signedIn: false);
       return;
     } catch (e) {
       debugPrint('Splash session refresh deferred (offline/slow): $e');
@@ -73,13 +139,27 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // Optional Biometric Lock on Launch (mobile platforms)
     final bioEnabled = await _authService.isBiometricLockEnabled();
-    final bioAvailable = bioEnabled && await _biometricService.isBiometricAvailable();
-    if (bioAvailable) {
-      await _promptBiometrics();
-      return;
-    }
+    final bioAvailable =
+        bioEnabled && await _biometricService.isBiometricAvailable();
+    await _completeStartup(signedIn: true, promptBiometrics: bioAvailable);
+  }
 
-    _navigateToHome();
+  Future<void> _completeStartup({
+    required bool signedIn,
+    bool promptBiometrics = false,
+  }) async {
+    if (!mounted) return;
+    setState(() => _startupPending = false);
+    await _introFinished.future;
+    await _titleReady;
+    if (!mounted) return;
+    if (promptBiometrics) {
+      await _promptBiometrics();
+    } else if (signedIn) {
+      _navigateToHome();
+    } else {
+      _navigateToLogin();
+    }
   }
 
   Future<void> _promptBiometrics() async {
@@ -115,121 +195,114 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
-    final secondaryText = isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary;
-    final mutedText = isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
+    if (_showIntro) return StartupIntro(onFinished: _finishIntro);
+    if (_checkingIntro) {
+      return const Scaffold(backgroundColor: StartupIntro.background);
+    }
 
+    final colors = UserUi.dashboardColors(context);
+    final showEndCard = _revealTitle && !_biometricLocked;
+    final animate = showEndCard && !MediaQuery.disableAnimationsOf(context);
+    final title = Text(
+      StartupIntro.title,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: colors.foreground,
+        fontSize: 27,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.8,
+        height: 1.18,
+      ),
+    );
     return Scaffold(
-      backgroundColor: isDark ? UserTheme.nightBackground : UserTheme.dayBackground,
+      backgroundColor: colors.background,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final cabinetHeight = (constraints.maxHeight * 0.36).clamp(
+              120.0,
+              264.0,
+            );
+
             return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.center,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 420,
+                    minHeight: constraints.maxHeight,
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const SizedBox.shrink(),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Spacer(),
-                              Container(
-                                width: 76,
-                                height: 76,
-                                decoration: BoxDecoration(
-                                  color: UserTheme.primaryOrange.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(22),
-                                  border: Border.all(
-                                    color: UserTheme.primaryOrange.withValues(alpha: 0.28),
+                              if (!showEndCard) ...[
+                                _buildCabinetPreview(
+                                  height: cabinetHeight,
+                                  accent: colors.accent,
+                                  shadow: colors.foreground,
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                              if (animate)
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0, end: 1),
+                                  duration: _titleDuration,
+                                  curve: Curves.easeOutCubic,
+                                  child: title,
+                                  builder: (context, value, child) => Opacity(
+                                    opacity: value,
+                                    child: Transform.translate(
+                                      offset: Offset(0, 6 * (1 - value)),
+                                      child: child,
+                                    ),
                                   ),
-                                ),
-                                child: const Icon(
-                                  Icons.inventory_2_rounded,
-                                  size: 38,
-                                  color: UserTheme.primaryOrange,
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              Text(
-                                'Smart Parcel Drop Box',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w800,
-                                  color: primaryText,
-                                  letterSpacing: -0.6,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Secure Contactless Deliveries',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: secondaryText,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(height: 36),
-                              if (_biometricLocked) ...[
+                                )
+                              else
+                                title,
+                              if (!showEndCard) ...[
+                                const SizedBox(height: 6),
                                 Text(
-                                  'App Locked',
+                                  'Secure Contactless Deliveries',
+                                  textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                    color: primaryText,
+                                    color: colors.secondary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                                const SizedBox(height: 12),
-                                UserUi.premiumButton(
-                                  label: _authenticating ? 'Verifying...' : 'Unlock with Biometrics',
-                                  onTap: _authenticating ? () {} : _promptBiometrics,
-                                  isLoading: _authenticating,
-                                  icon: Icons.fingerprint_rounded,
-                                ),
-                                const SizedBox(height: 10),
-                                TextButton(
-                                  onPressed: () async {
-                                    await _authService.signOut();
-                                    if (!mounted) return;
-                                    _navigateToLogin();
-                                  },
-                                  child: Text(
-                                    'Sign out',
-                                    style: TextStyle(color: secondaryText, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ] else
-                                const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.4,
-                                    valueColor: AlwaysStoppedAnimation<Color>(UserTheme.primaryOrange),
-                                  ),
-                                ),
-                              const Spacer(),
-                              const SizedBox(height: 24),
-                              Text(
+                              ],
+                              if (_biometricLocked) ...[
+                                const SizedBox(height: 24),
+                                _buildUnlockActions(context),
+                              ] else if (_startupPending) ...[
+                                const SizedBox(height: 24),
+                                _buildStartupStatus(context),
+                              ],
+                            ],
+                          ),
+                          if (showEndCard)
+                            const SizedBox.shrink()
+                          else
+                            Padding(
+                              padding: const EdgeInsets.only(top: 24),
+                              child: Text(
                                 'Cavite State University · Bacoor Campus',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: mutedText,
+                                  color: colors.secondary,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
@@ -239,6 +312,128 @@ class _SplashScreenState extends State<SplashScreen> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _buildCabinetPreview({
+    required double height,
+    required Color accent,
+    required Color shadow,
+  }) {
+    return SizedBox(
+      width: height * 1.14,
+      height: height,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0, -0.15),
+                  radius: 0.62,
+                  colors: [
+                    accent.withValues(alpha: 0.14),
+                    accent.withValues(alpha: 0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: height * 0.05,
+            child: Container(
+              width: height * 0.44,
+              height: height * 0.04,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(height),
+                boxShadow: [
+                  BoxShadow(
+                    color: shadow.withValues(alpha: 0.18),
+                    blurRadius: 14,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Image.asset(
+            'assets/dropbox/smart-parcel-dropbox.png',
+            width: height * 0.875,
+            height: height,
+            fit: BoxFit.contain,
+            excludeFromSemantics: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStartupStatus(BuildContext context) {
+    final colors = UserUi.dashboardColors(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!MediaQuery.disableAnimationsOf(context)) ...[
+          ExcludeSemantics(
+            child: SizedBox(
+              width: 76,
+              child: LinearProgressIndicator(
+                minHeight: 3,
+                borderRadius: BorderRadius.circular(3),
+                backgroundColor: colors.border,
+                color: colors.accent,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        Text(
+          'Starting up…',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: colors.secondary,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUnlockActions(BuildContext context) {
+    final colors = UserUi.dashboardColors(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'App Locked',
+          style: TextStyle(
+            color: colors.foreground,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 12),
+        UserUi.premiumButton(
+          label: _authenticating ? 'Verifying...' : 'Unlock with Biometrics',
+          onTap: _authenticating ? () {} : _promptBiometrics,
+          isLoading: _authenticating,
+          icon: Icons.fingerprint_rounded,
+          color: colors.foreground,
+          textColor: colors.surface,
+        ),
+        const SizedBox(height: 10),
+        TextButton(
+          onPressed: () async {
+            await _authService.signOut();
+            if (!mounted) return;
+            _navigateToLogin();
+          },
+          style: TextButton.styleFrom(foregroundColor: colors.secondary),
+          child: const Text('Sign out'),
+        ),
+      ],
     );
   }
 }

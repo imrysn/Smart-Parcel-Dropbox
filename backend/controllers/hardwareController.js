@@ -6,6 +6,7 @@
 const Dropbox = require('../models/Dropbox');
 const Tracking = require('../models/Tracking');
 const ScanLog = require('../models/ScanLog');
+const { membersOf, registeredBoxForDevice } = require('../utils/deviceSessions');
 
 // In-memory store for pending device registrations { token -> { deviceId, expiresAtMs } }
 const pendingRegistrations = new Map();
@@ -63,19 +64,19 @@ const initToken = async (req, res) => {
 };
 
 /**
- * Verify scanned parcel barcode with multi-carrier normalization and single-use enforcement
+ * Authorize entry access for an eligible inbound barcode.
  * POST /api/hardware/verify-barcode
  */
 const verifyBarcode = async (req, res) => {
   try {
     const { deviceId, barcode } = req.body;
 
-    if (!deviceId || !barcode) {
+    if (!deviceId || typeof barcode !== 'string') {
       return res.status(400).json({ allowed: false, message: 'deviceId and barcode are required' });
     }
 
     // 1. Multi-carrier normalization: strip non-alphanumeric characters except hyphens
-    let sanitizedBarcode = barcode.trim().replace(/[^a-zA-Z0-9-]/g, '');
+    const sanitizedBarcode = barcode.trim().replace(/[^a-zA-Z0-9-]/g, '');
     if (!sanitizedBarcode) {
       return res.status(400).json({ allowed: false, message: 'Invalid barcode payload' });
     }
@@ -83,14 +84,12 @@ const verifyBarcode = async (req, res) => {
     console.log(`📦 [BARCODE-SCAN] Device: ${deviceId} | Raw: ${barcode} | Sanitized: ${sanitizedBarcode}`);
 
     // 2. Find associated dropbox and registered users
-    const dropbox = await Dropbox.findOne({ deviceId });
-    if (!dropbox || !dropbox.isRegistered) {
+    const dropbox = await registeredBoxForDevice(deviceId);
+    if (!dropbox) {
       return res.status(404).json({ allowed: false, message: 'Unregistered or unknown device' });
     }
 
-    const registeredUsers = dropbox.userIds && dropbox.userIds.length > 0
-      ? dropbox.userIds
-      : (dropbox.userId ? [dropbox.userId] : []);
+    const registeredUsers = membersOf(dropbox);
 
     if (registeredUsers.length === 0) {
       return res.status(403).json({ allowed: false, message: 'No registered owners for this device' });
@@ -105,7 +104,7 @@ const verifyBarcode = async (req, res) => {
     let tracking = await Tracking.findOne({
       trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') },
       userId: { $in: registeredUsers }
-    });
+    }, '+pendingDropoffReviewId');
 
     // Flexible trim/append 'T' fallback for Shopee/J&T
     if (!tracking && sanitizedBarcode.toUpperCase().endsWith('T')) {
@@ -113,70 +112,55 @@ const verifyBarcode = async (req, res) => {
       tracking = await Tracking.findOne({
         trackingId: { $regex: new RegExp(`^${trimmed}$`, 'i') },
         userId: { $in: registeredUsers }
-      });
+      }, '+pendingDropoffReviewId');
     }
     if (!tracking) {
       const appended = escapeRegex(sanitizedBarcode + 'T');
       tracking = await Tracking.findOne({
         trackingId: { $regex: new RegExp(`^${appended}$`, 'i') },
         userId: { $in: registeredUsers }
-      });
+      }, '+pendingDropoffReviewId');
     }
 
     if (!tracking) {
       // Log failed scan
       await ScanLog.create({
-        deviceId,
-        barcode: sanitizedBarcode,
-        success: false,
-        reason: 'Tracking ID not recognized or registered to owner',
-        scannedAt: new Date()
+        scannedId: sanitizedBarcode,
+        mode: 'drop_off',
+        status: 'rejected',
+        message: 'Tracking ID not recognized or registered to owner',
       });
       return res.status(404).json({ allowed: false, message: 'Tracking ID not found in owner registry' });
     }
 
-    // 4. Enforce Single-Use Anti-Rescan Security Rule
-    if (['delivered', 'done', 'retrieved'].includes(tracking.status)) {
-      await ScanLog.create({
-        deviceId,
-        barcode: sanitizedBarcode,
-        success: false,
-        reason: 'Single-use security restriction: Parcel already delivered',
-        scannedAt: new Date()
-      });
-      return res.status(400).json({ allowed: false, message: 'Parcel already delivered! Re-scan denied.' });
+    if (tracking.pendingDropoffReviewId) {
+      return res.status(409).json({ allowed: false, reason: 'needs_review', message: 'Parcel awaiting owner review.' });
     }
 
-    // 5. Valid deposit: update status and log scan
-    tracking.status = 'delivered';
-    tracking.deliveredAt = new Date();
-    await tracking.save();
+    if (tracking.mode !== 'drop_off' || !['pending', 'in_transit'].includes(tracking.status)) {
+      await ScanLog.create({
+        scannedId: sanitizedBarcode,
+        trackingId: tracking.trackingId,
+        mode: 'drop_off',
+        status: 'rejected',
+        message: 'Tracking record is not eligible for drop-off',
+      });
+      return res.status(400).json({ allowed: false, message: 'Tracking record is not eligible for drop-off.' });
+    }
 
     await ScanLog.create({
-      deviceId,
-      barcode: sanitizedBarcode,
-      success: true,
-      reason: 'Valid drop-off deposit',
-      scannedAt: new Date()
+      scannedId: sanitizedBarcode,
+      trackingId: tracking.trackingId,
+      mode: 'drop_off',
+      status: 'authorized',
+      message: 'Entry access authorized. Deposit confirmation pending.',
     });
-
-    // Notify connected clients via Socket.IO
-    const io = req.app.get('io');
-    if (io) {
-      io.to(tracking.userId).emit('trackingStatusChanged', {
-        deviceId,
-        trackingId: tracking.trackingId,
-        status: 'delivered',
-        mode: 'drop_off',
-        timestamp: tracking.deliveredAt
-      });
-    }
 
     return res.json({
       allowed: true,
       action: 'open_door',
       trackingId: tracking.trackingId,
-      message: 'Barcode verified. Drop box unlocked.'
+      message: 'Entry access authorized. Deposit confirmation pending.'
     });
 
   } catch (error) {
@@ -193,18 +177,17 @@ const syncActiveBarcodes = async (req, res) => {
   try {
     const { deviceId } = req.params;
 
-    const dropbox = await Dropbox.findOne({ deviceId });
-    if (!dropbox || !dropbox.isRegistered) {
+    const dropbox = await registeredBoxForDevice(deviceId);
+    if (!dropbox) {
       return res.status(404).json({ message: 'Unregistered hardware device' });
     }
 
-    const registeredUsers = dropbox.userIds && dropbox.userIds.length > 0
-      ? dropbox.userIds
-      : (dropbox.userId ? [dropbox.userId] : []);
+    const registeredUsers = membersOf(dropbox);
 
     const activeTrackings = await Tracking.find({
       userId: { $in: registeredUsers },
-      status: { $in: ['pending', 'in_transit', 'awaiting_pickup'] }
+      status: { $in: ['pending', 'in_transit', 'awaiting_pickup'] },
+      pendingDropoffReviewId: { $exists: false },
     }).select('trackingId mode status createdAt');
 
     res.json({

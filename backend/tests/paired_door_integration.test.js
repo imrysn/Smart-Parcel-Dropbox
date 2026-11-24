@@ -6,6 +6,8 @@ const { createHmac, randomBytes } = require('node:crypto');
 const Dropbox = require('../models/Dropbox');
 const Notification = require('../models/Notification');
 const Tracking = require('../models/Tracking');
+const Rider = require('../models/Rider');
+const ScanLog = require('../models/ScanLog');
 const { generateToken } = require('../utils/auth');
 const connect = require(path.join(path.dirname(require.resolve('socket.io')), '../client-dist/socket.io.js'));
 
@@ -17,6 +19,18 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
   const keyB = randomBytes(32).toString('hex');
   process.env.SPD_DEVICE_KEYS = JSON.stringify({ 'BOX-A': keyA, 'BOX-B': keyB });
   process.env.JWT_SECRET = randomBytes(32).toString('hex');
+  const autoAcceptSettings = {
+    NODE_ENV: process.env.NODE_ENV,
+    SPD_ALLOW_AUTO_ACCEPT: process.env.SPD_ALLOW_AUTO_ACCEPT,
+  };
+  process.env.NODE_ENV = 'production';
+  process.env.SPD_ALLOW_AUTO_ACCEPT = 'true';
+  t.after(() => {
+    for (const [name, value] of Object.entries(autoAcceptSettings)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
   const pushSetting = process.env.SPD_PUSH_ENABLED;
   process.env.SPD_PUSH_ENABLED = 'true';
   const boxes = [
@@ -171,4 +185,33 @@ test('paired phones receive only their box heartbeat, lock result, and delivery'
   assert.equal(unrelatedDeliveries, 0);
   assert.equal(unrelatedVolumeReports, 0);
   assert.equal(storeTelemetry.mock.callCount(), 2);
+
+  await t.test('a production backend ignores the bench Auto-Accept flag', async t => {
+    const pending = { ...parcel, status: 'pending' };
+    Tracking.findOne.mock.mockImplementation(async filter =>
+      filter.userId.$in.includes(pending.userId) &&
+      filter.trackingId?.$regex.test(pending.trackingId) ? pending : null);
+    t.mock.method(Rider, 'findOne', async () => null);
+    t.mock.method(ScanLog, 'create', async entry => new ScanLog(entry));
+    const createTracking = t.mock.method(Tracking, 'create', async data => new Tracking(data));
+
+    const toggle = once(phoneA, 'autoAcceptStatus');
+    phoneA.emit('toggleAutoAccept', { enabled: true });
+    assert.deepEqual((await toggle)[0], { enabled: false });
+    const status = once(phoneA, 'autoAcceptStatus');
+    phoneA.emit('getAutoAcceptStatus');
+    assert.deepEqual((await status)[0], { enabled: false });
+
+    async function scan(trackingId) {
+      const result = once(boxA, 'scanResult');
+      boxA.emit('verifyScan', { trackingId, mode: 'drop_off' });
+      return (await result)[0];
+    }
+
+    const rejected = await scan('SPD-UNREGISTERED');
+    assert.equal(rejected.valid, false);
+    assert.equal(rejected.reason, 'not_registered');
+    assert.equal((await scan(pending.trackingId)).valid, true);
+    assert.equal(createTracking.mock.callCount(), 0);
+  });
 });

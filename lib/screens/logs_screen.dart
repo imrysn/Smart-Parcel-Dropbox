@@ -273,42 +273,44 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 
   void _showLogDetails(BuildContext context, ScanLogModel log) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showDialog(
+    UserUi.showDashboardDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(UserTheme.radiusL)),
-        title: const Text('Scan Details', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text('Scan details'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDetailRow(context, 'Status', log.accessGranted ? 'Access Granted' : 'Access Denied'),
-              _buildDetailRow(context, 'Date & Time', log.getFullFormattedDateTime()),
-              _buildDetailRow(context, 'Scanned Code', log.scannedCode, isMonospace: true),
+              _buildDetailRow(ctx, 'Status',
+                  log.accessGranted ? 'Access Granted' : 'Access Denied'),
+              _buildDetailRow(
+                  ctx, 'Date & Time', log.getFullFormattedDateTime()),
+              _buildDetailRow(ctx, 'Scanned Code', log.scannedCode,
+                  isMonospace: true),
               if (log.trackingId != null)
-                _buildDetailRow(context, 'Tracking ID', log.trackingId!, isMonospace: true),
+                _buildDetailRow(ctx, 'Tracking ID', log.trackingId!,
+                    isMonospace: true),
               if (log.userId != null)
-                _buildDetailRow(context, 'User ID', log.userId!, isMonospace: true),
+                _buildDetailRow(ctx, 'User ID', log.userId!, isMonospace: true),
               if (log.reason != null)
-                _buildDetailRow(context, 'Reason', log.reason!),
+                _buildDetailRow(ctx, 'Reason', log.reason!),
             ],
           ),
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close'),
+            child: const Text('Done'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDetailRow(BuildContext context, String label, String value, {bool isMonospace = false}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Widget _buildDetailRow(BuildContext context, String label, String value,
+      {bool isMonospace = false}) {
+    final colors = UserUi.dashboardColors(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -318,7 +320,7 @@ class _LogsScreenState extends State<LogsScreen> {
             label,
             style: TextStyle(
               fontSize: 12,
-              color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextSecondary,
+              color: colors.secondary,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -329,7 +331,7 @@ class _LogsScreenState extends State<LogsScreen> {
               fontSize: 14,
               fontFamily: isMonospace ? 'monospace' : null,
               fontWeight: FontWeight.w600,
-              color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
+              color: colors.foreground,
             ),
           ),
         ],

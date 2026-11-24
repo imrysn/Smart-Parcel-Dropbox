@@ -51,123 +51,39 @@ class _AddTrackingScreenState extends State<AddTrackingScreen> {
   Future<void> _showAddShopDialog(BuildContext context) async {
     final textController = TextEditingController();
     final formKey = GlobalKey<FormState>();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final newShop = await showDialog<String>(
+    final newShop = await UserUi.showDashboardDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(UserTheme.radiusL),
-          side: BorderSide(
-            color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.08),
-          ),
-        ),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: UserTheme.primaryOrange.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.add_business_rounded,
-                color: UserTheme.primaryOrange,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              'Add Merchant / Shop',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-              ),
-            ),
-          ],
-        ),
+        title: const Text('Add merchant or shop'),
+        scrollable: true,
         content: Form(
           key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Enter the courier or merchant name:',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: textController,
-                autofocus: true,
-                textCapitalization: TextCapitalization.words,
-                style: TextStyle(
-                  color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'e.g. Amazon, DHL, FedEx',
-                  hintStyle: TextStyle(
-                    color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: isDark ? UserTheme.nightSurface : UserTheme.daySurface,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.1),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: UserTheme.primaryOrange, width: 1.5),
-                  ),
-                ),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Please enter a shop name';
-                  }
-                  return null;
-                },
-              ),
-            ],
+          child: TextFormField(
+            controller: textController,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Courier or merchant name',
+              hintText: 'e.g. Amazon, DHL, FedEx',
+            ),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Please enter a shop name'
+                : null,
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(
-              'CANCEL',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-              ),
-            ),
+            child: const Text('Cancel'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: UserTheme.primaryOrange,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+          FilledButton(
             onPressed: () {
               if (formKey.currentState!.validate()) {
                 Navigator.of(ctx).pop(textController.text.trim());
               }
             },
-            child: const Text(
-              'ADD',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
+            child: const Text('Add'),
           ),
         ],
       ),

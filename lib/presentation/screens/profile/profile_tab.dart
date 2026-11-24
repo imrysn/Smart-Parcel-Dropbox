@@ -13,6 +13,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/biometric_service.dart';
 import '../../../services/database_service.dart';
 import '../../../services/input_validator.dart';
+import '../../../widgets/startup_intro.dart';
 import '../../../widgets/user_ui.dart';
 
 /// Profile Tab
@@ -349,35 +350,67 @@ class _ProfileTabState extends State<ProfileTab> {
                   clipBehavior: Clip.antiAlias,
                   child: Material(
                     type: MaterialType.transparency,
-                    child: SwitchListTile.adaptive(
-                      secondary: Icon(
-                        Icons.science_outlined,
-                        size: 20,
-                        color: secondaryText,
-                      ),
-                      title: Text(
-                        'Dev mode',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: primaryText,
+                    child: Column(
+                      children: [
+                        SwitchListTile.adaptive(
+                          secondary: Icon(
+                            Icons.science_outlined,
+                            size: 20,
+                            color: secondaryText,
+                          ),
+                          title: Text(
+                            'Dev mode',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: primaryText,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Replay the intro on launch and simulate weather and time of day in Dropbox.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? UserTheme.nightTextMuted
+                                  : UserTheme.dayTextMuted,
+                            ),
+                          ),
+                          value: widget.devModeEnabled,
+                          activeTrackColor: isDark ? Colors.white : Colors.black,
+                          activeThumbColor: isDark ? Colors.black : Colors.white,
+                          onChanged: widget.devModeBusy
+                              ? null
+                              : widget.onDevModeChanged,
                         ),
-                      ),
-                      subtitle: Text(
-                        'Enable weather and time-of-day simulation in Dropbox.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark
-                              ? UserTheme.nightTextMuted
-                              : UserTheme.dayTextMuted,
-                        ),
-                      ),
-                      value: widget.devModeEnabled,
-                      activeTrackColor: isDark ? Colors.white : Colors.black,
-                      activeThumbColor: isDark ? Colors.black : Colors.white,
-                      onChanged: widget.devModeBusy
-                          ? null
-                          : widget.onDevModeChanged,
+                        if (widget.devModeEnabled)
+                          ListTile(
+                            leading: Icon(
+                              Icons.play_circle_outline_rounded,
+                              size: 20,
+                              color: secondaryText,
+                            ),
+                            title: Text(
+                              'Replay startup intro',
+                              style: TextStyle(
+                                color: primaryText,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (routeContext) => StartupIntro(
+                                  showEndCard: true,
+                                  onFinished: (_) {
+                                    if (ModalRoute.of(routeContext)?.isCurrent == true) {
+                                      Navigator.of(routeContext).pop();
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -554,50 +587,56 @@ class _ProfileTabState extends State<ProfileTab> {
   }
 
   Future<void> _pickAndUploadPhoto(String? currentPhoto) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isDark ? Colors.white : Colors.black;
-    final primaryText = isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
-    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+    final primaryText = UserUi.dashboardColors(context).foreground;
+    final bool isDesktop =
+        !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
-    final source = await showModalBottomSheet<ImageSource?>(
+    final source = await UserUi.showDashboardSheet<ImageSource?>(
       context: context,
-      backgroundColor: isDark ? UserTheme.nightCard : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(UserTheme.radiusL)),
-        side: BorderSide(color: borderColor, width: 1.0),
-      ),
+      isScrollControlled: true,
       builder: (bottomSheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Profile Photo',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: primaryText,
-                ),
-                textAlign: TextAlign.center,
+                'Profile photo',
+                style: Theme.of(bottomSheetContext).textTheme.titleLarge,
               ),
               const SizedBox(height: 18),
               if (!isDesktop)
                 ListTile(
-                  leading: Icon(Icons.photo_camera_outlined, color: primaryText),
-                  title: Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w700, color: primaryText)),
-                  onTap: () => Navigator.of(bottomSheetContext).pop(ImageSource.camera),
+                  leading:
+                      Icon(Icons.photo_camera_outlined, color: primaryText),
+                  title: Text('Take photo',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, color: primaryText)),
+                  onTap: () =>
+                      Navigator.of(bottomSheetContext).pop(ImageSource.camera),
                 ),
               ListTile(
-                leading: Icon(isDesktop ? Icons.folder_open_rounded : Icons.photo_library_outlined, color: primaryText),
-                title: Text(isDesktop ? 'Choose Image File' : 'Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w700, color: primaryText)),
-                onTap: () => Navigator.of(bottomSheetContext).pop(ImageSource.gallery),
+                leading: Icon(
+                    isDesktop
+                        ? Icons.folder_open_rounded
+                        : Icons.photo_library_outlined,
+                    color: primaryText),
+                title: Text(
+                    isDesktop ? 'Choose image file' : 'Choose from gallery',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700, color: primaryText)),
+                onTap: () =>
+                    Navigator.of(bottomSheetContext).pop(ImageSource.gallery),
               ),
               if (currentPhoto != null && currentPhoto.isNotEmpty) ...[
                 ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded, color: UserTheme.statusError),
-                  title: const Text('Remove Photo', style: TextStyle(fontWeight: FontWeight.w700, color: UserTheme.statusError)),
+                  leading: const Icon(Icons.delete_outline_rounded,
+                      color: UserTheme.statusError),
+                  title: const Text('Remove photo',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: UserTheme.statusError)),
                   onTap: () async {
                     Navigator.of(bottomSheetContext).pop();
                     await _removePhoto();
@@ -652,8 +691,10 @@ class _ProfileTabState extends State<ProfileTab> {
       if (mounted) {
         String message = 'Failed to update photo: $e';
         if (e is PlatformException &&
-            (e.code == 'channel-error' || e.message?.contains('FileSelectorApi') == true)) {
-          message = 'Please restart the app to link the Windows file picker plugin.';
+            (e.code == 'channel-error' ||
+                e.message?.contains('FileSelectorApi') == true)) {
+          message =
+              'Please restart the app to link the Windows file picker plugin.';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -783,10 +824,11 @@ class _ProfileTabState extends State<ProfileTab> {
       text: isEmpty ? '' : currentValue,
     );
 
-    showDialog(
+    UserUi.showDashboardDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Edit $title'),
+        title: Text('Edit ${title.toLowerCase()}'),
+        scrollable: true,
         content: TextField(
           controller: controller,
           decoration: InputDecoration(
@@ -803,7 +845,7 @@ class _ProfileTabState extends State<ProfileTab> {
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () async {
               final newValue = controller.text.trim();
               final messenger = ScaffoldMessenger.of(context);
@@ -891,11 +933,11 @@ class _ProfileTabState extends State<ProfileTab> {
     bool submitting = false;
     final messenger = ScaffoldMessenger.of(context);
 
-    showDialog(
+    UserUi.showDashboardDialog(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Change Password'),
+          title: const Text('Change password'),
           content: SingleChildScrollView(
             child: Form(
               key: formKey,
@@ -938,12 +980,11 @@ class _ProfileTabState extends State<ProfileTab> {
           ),
           actions: [
             TextButton(
-              onPressed: submitting
-                  ? null
-                  : () => Navigator.of(dialogContext).pop(),
+              onPressed:
+                  submitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: submitting
                   ? null
                   : () async {
@@ -988,11 +1029,11 @@ class _ProfileTabState extends State<ProfileTab> {
     final messenger = ScaffoldMessenger.of(context);
     final rootNavigator = Navigator.of(context);
 
-    showDialog(
+    UserUi.showDashboardDialog(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Delete Account?'),
+          title: const Text('Delete account?'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1018,15 +1059,14 @@ class _ProfileTabState extends State<ProfileTab> {
                   deleting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: deleting || confirmController.text.trim() != 'DELETE'
                   ? null
                   : () async {
                       setDialogState(() => deleting = true);
                       final dialogNav = Navigator.of(dialogContext);
                       try {
-                        await widget.databaseService
-                            .deleteUser(widget.userId);
+                        await widget.databaseService.deleteUser(widget.userId);
                         if (dialogContext.mounted) dialogNav.pop();
                         if (mounted) {
                           rootNavigator.pushAndRemoveUntil(
@@ -1046,10 +1086,7 @@ class _ProfileTabState extends State<ProfileTab> {
                         );
                       }
                     },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: UserTheme.statusError,
-                foregroundColor: Colors.white,
-              ),
+              style: UserUi.dashboardFilledStyle(context, destructive: true),
               child: Text(deleting ? 'Deleting...' : 'Delete'),
             ),
           ],
@@ -1064,19 +1101,21 @@ class _ProfileTabState extends State<ProfileTab> {
     if (message != null) {
       confirm = true;
     } else {
-      confirm = await showDialog<bool>(
+      confirm = await UserUi.showDashboardDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout?'),
+          title: const Text('Log out?'),
+          scrollable: true,
+          content: const Text(
+              'You’ll need to sign in again to manage your Dropbox.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Cancel'),
             ),
-            TextButton(
+            FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Logout'),
+              child: const Text('Log out'),
             ),
           ],
         ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../config/user_theme.dart';
 import '../../models/tracking_model.dart';
 import '../../screens/tracking_details_screen.dart';
+import '../../widgets/user_ui.dart';
 import 'carrier_badge.dart';
 import 'delivery_timeline.dart';
 
@@ -66,10 +67,11 @@ class OrderCard extends StatelessWidget {
     required TrackingModel tracking,
   }) async {
     final messenger = ScaffoldMessenger.of(context);
-    return showDialog(
+    return UserUi.showDashboardDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete Tracking?'),
+        title: const Text('Delete tracking?'),
+        scrollable: true,
         content: Text(
           'Are you sure you want to remove ${tracking.shopName} (${tracking.trackingId}) from your list?\n\nThis action cannot be undone.',
         ),
@@ -78,7 +80,7 @@ class OrderCard extends StatelessWidget {
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () async {
               Navigator.of(dialogContext).pop();
               messenger.showSnackBar(
@@ -103,10 +105,8 @@ class OrderCard extends StatelessWidget {
                 );
               }
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: UserTheme.statusError,
-              foregroundColor: Colors.white,
-            ),
+            style:
+                UserUi.dashboardFilledStyle(dialogContext, destructive: true),
             child: const Text('Delete'),
           ),
         ],
@@ -116,121 +116,120 @@ class OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isDark ? Colors.white : Colors.black;
+    final colors = UserUi.dashboardColors(context);
     final stage = stageForOrder(order);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: isDark ? UserTheme.nightCard : Colors.white,
-        borderRadius: BorderRadius.circular(UserTheme.radiusL),
-        border: Border.all(
-          color: borderColor,
-          width: 1.0,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap ??
-              () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => TrackingDetailsScreen(tracking: order),
+    return UserUi.dashboardCard(
+      context,
+      padding: EdgeInsets.zero,
+      margin: const EdgeInsets.only(bottom: UserUi.dashboardSpacing),
+      child: InkWell(
+        onTap: onTap ??
+            () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => TrackingDetailsScreen(tracking: order),
+                ),
+              );
+            },
+        borderRadius: BorderRadius.circular(UserUi.dashboardCardRadius),
+        child: Padding(
+          padding: const EdgeInsets.all(UserUi.dashboardSpacing),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: (stage.isPickup &&
+                            order.customerName != null &&
+                            order.customerName!.trim().isNotEmpty)
+                        ? Text(
+                            'To: ${order.customerName!.trim()}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.2,
+                              color: colors.foreground,
+                            ),
+                          )
+                        : CarrierBadge(shopName: order.shopName),
                   ),
-                );
-              },
-          borderRadius: BorderRadius.circular(UserTheme.radiusL),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: (stage.isPickup && order.customerName != null && order.customerName!.trim().isNotEmpty)
-                          ? Text(
-                              'To: ${order.customerName!.trim()}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.2,
-                                color: isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary,
-                              ),
-                            )
-                          : CarrierBadge(shopName: order.shopName),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
                       order.getStatusText(),
+                      textAlign: TextAlign.end,
                       style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
+                        color: colors.foreground,
                         fontWeight: FontWeight.w800,
                         fontSize: 12,
                         letterSpacing: 0.3,
                       ),
                     ),
-                    if (showDelete && onDelete != null) ...[
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: Icon(
-                          Icons.delete_outline_rounded,
-                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                          size: 18,
-                        ),
-                        onPressed: onDelete,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        visualDensity: VisualDensity.compact,
-                        tooltip: 'Delete Tracking',
+                  ),
+                  if (showDelete && onDelete != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        color: colors.secondary,
+                        size: 18,
                       ),
-                    ],
+                      onPressed: onDelete,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Delete Tracking',
+                    ),
                   ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        (stage.isPickup && order.courierName != null && order.courierName!.trim().isNotEmpty)
-                            ? '${order.courierName!.trim()} • ${order.trackingId}'
-                            : order.trackingId,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          fontFamily: (stage.isPickup && order.courierName != null && order.courierName!.trim().isNotEmpty)
-                              ? null
-                              : 'monospace',
-                        ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      (stage.isPickup &&
+                              order.courierName != null &&
+                              order.courierName!.trim().isNotEmpty)
+                          ? '${order.courierName!.trim()} • ${order.trackingId}'
+                          : order.trackingId,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.secondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: (stage.isPickup &&
+                                order.courierName != null &&
+                                order.courierName!.trim().isNotEmpty)
+                            ? null
+                            : 'monospace',
                       ),
                     ),
-                    if (order.registeredAt != null) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        timeAgo(order.registeredAt),
-                        style: TextStyle(
-                          color: isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                        ),
+                  ),
+                  if (order.registeredAt != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      timeAgo(order.registeredAt),
+                      style: TextStyle(
+                        color: colors.secondary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ],
+                    ),
                   ],
-                ),
-                const SizedBox(height: 14),
-                DeliveryTimeline(
-                  stageIndex: stage.stageIndex,
-                  isPickup: stage.isPickup,
-                ),
-              ],
-            ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              DeliveryTimeline(
+                stageIndex: stage.stageIndex,
+                isPickup: stage.isPickup,
+              ),
+            ],
           ),
         ),
       ),

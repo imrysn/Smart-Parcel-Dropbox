@@ -67,6 +67,10 @@ float getDistance(const int pins[]) {
   return a;
 }
 
+float sampleDropoffChute() {
+  return _getDistanceRaw(US_DROPOFF);
+}
+
 // Timers for remote in-app door unlocks (auto-relock thermal protection)
 static unsigned long remoteTopOpenTime      = 0;
 static unsigned long remotePickupOpenTime   = 0;
@@ -117,8 +121,10 @@ void processSensors() {
   lastUsPickupDist   = 999.0;
 
   // Poll only the active Drop-Off ultrasonic sensor
-  lastUsDropoffDist = getDistance(US_DROPOFF);
-  lastUsDropoffTime = millis();
+  if (currentState != BATCH_DROPOFF) {
+    lastUsDropoffDist = getDistance(US_DROPOFF);
+    lastUsDropoffTime = millis();
+  }
 
   // Thermal Auto-Relock Safety for Remote App Unlocks (15 seconds max energized time)
   // Re-locking after 15s de-energizes the solenoid coil while slam latches allow the door

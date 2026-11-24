@@ -20,10 +20,9 @@ class CameraBarcodeScannerDialog extends StatefulWidget {
   const CameraBarcodeScannerDialog({super.key});
 
   static Future<ScannedBarcodeResult?> scan(BuildContext context) {
-    return showModalBottomSheet<ScannedBarcodeResult>(
+    return UserUi.showDashboardSheet<ScannedBarcodeResult>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => const CameraBarcodeScannerDialog(),
     );
   }
@@ -91,75 +90,36 @@ class _CameraBarcodeScannerDialogState
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryText =
-        isDark ? UserTheme.nightTextPrimary : UserTheme.dayTextPrimary;
-    final mutedText =
-        isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted;
+    final colors = UserUi.dashboardColors(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
-    return Center(
-      heightFactor: 1,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Container(
-          height: _manualMode
-              ? null
-              : MediaQuery.sizeOf(context).height * 0.78,
+    return SizedBox(
+      height: _manualMode ? null : MediaQuery.sizeOf(context).height * 0.78,
+      child: SafeArea(
+        top: false,
+        child: Padding(
           padding: EdgeInsets.only(bottom: bottomInset),
-          decoration: BoxDecoration(
-            color: isDark ? UserTheme.nightCard : UserTheme.dayCard,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(UserTheme.radiusXL),
-            ),
-          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: 12),
-              Container(
-                width: 38,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white24 : Colors.black12,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 14),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(9),
-                      decoration: BoxDecoration(
-                        color: UserTheme.primaryOrange.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.qr_code_scanner_rounded,
-                        color: UserTheme.primaryOrange,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Waybill Barcode Scanner',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: primaryText,
-                            ),
+                            'Waybill barcode scanner',
+                            style: Theme.of(context).textTheme.titleLarge,
                           ),
                           Text(
                             _manualMode
                                 ? 'Type or paste the tracking barcode'
                                 : 'Align courier shipping label inside frame',
-                            style: TextStyle(fontSize: 12, color: mutedText),
+                            style: TextStyle(
+                                fontSize: 12, color: colors.secondary),
                           ),
                         ],
                       ),
@@ -174,37 +134,41 @@ class _CameraBarcodeScannerDialogState
               ),
               const SizedBox(height: 14),
               if (_manualMode)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextField(
-                        controller: _manualController,
-                        autofocus: true,
-                        textCapitalization: TextCapitalization.characters,
-                        decoration: const InputDecoration(
-                          labelText: 'Tracking ID / Waybill',
-                          hintText: 'e.g. SPXPH123456789',
-                          prefixIcon: Icon(Icons.tag_rounded),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          controller: _manualController,
+                          autofocus: true,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            labelText: 'Tracking ID / Waybill',
+                            hintText: 'e.g. SPXPH123456789',
+                            prefixIcon: Icon(Icons.tag_rounded),
+                          ),
+                          onSubmitted: _completeWithCode,
                         ),
-                        onSubmitted: _completeWithCode,
-                      ),
-                      const SizedBox(height: 16),
-                      UserUi.premiumButton(
-                        label: 'Use Barcode',
-                        icon: Icons.check_rounded,
-                        onTap: () => _completeWithCode(_manualController.text),
-                      ),
-                      if (SmartScannerView.isCameraSupportedPlatform) ...[
-                        const SizedBox(height: 10),
-                        TextButton.icon(
-                          onPressed: () => setState(() => _manualMode = false),
-                          icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                          label: const Text('Use Camera Instead'),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: () =>
+                              _completeWithCode(_manualController.text),
+                          child: const Text('Use barcode'),
                         ),
+                        if (SmartScannerView.isCameraSupportedPlatform) ...[
+                          const SizedBox(height: 10),
+                          TextButton.icon(
+                            onPressed: () =>
+                                setState(() => _manualMode = false),
+                            icon: const Icon(Icons.qr_code_scanner_rounded,
+                                size: 18),
+                            label: const Text('Use camera instead'),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 )
               else

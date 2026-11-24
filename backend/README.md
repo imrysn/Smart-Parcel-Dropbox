@@ -125,6 +125,22 @@ Check ESP32 connection status.
 
 ## WebSocket Events
 
+### `confirmedDeposit`
+
+Authenticated firmware can replay one confirmed inbound deposit at a time using a Socket.IO acknowledgment callback. Send a stable `eventId` (1–64 letters, digits, underscores, or hyphens) and the MongoDB `trackingRecordId` from the box's authorization record. Include `occurredAt` as a UTC ISO timestamp with milliseconds when the box has trusted time. Otherwise omit it, and the server uses its receipt time.
+
+Discard the local event only after the matching `{ ok: true, eventId, duplicate, notificationId }` acknowledgment. Retry a lost acknowledgment or server failure with the same payload. Keep an event with an eligibility or identity conflict for operator review. The replay transaction requires a [MongoDB replica set or sharded cluster](https://www.mongodb.com/docs/manual/core/transactions/).
+
+To exercise replay from a simulated box, set `SPD_TEST_MONGO_URI` to an isolated test replica set and run `node --test backend/tests/deposit_replay_integration.test.js` from the repository root. The test creates and drops its own randomly named database.
+
+### Multiple Parcels bench trial
+
+Enable the ESP32's Multiple Parcels menu only after testing the chute and latch on a supervised unit. In its private `device_secrets.h`, set the measured `SPD_BATCH_CHUTE_NEAR_CM`, the sensor's supported `SPD_BATCH_CHUTE_SAMPLE_MS`, and the supervised `SPD_BATCH_MAX_ITEMS` (up to 32 saved items). This limit bounds the batch; it does not measure remaining bin capacity.
+
+The rider scans and drops one parcel at a time. **Red** stops new scans while the rider closes the entry door. Closing the door also stops new scans and finishes the batch if the rider skips Red. The firmware resolves any active attempt and requires reed-confirmed closure before replay. It retains one batch in flash until acknowledged. New scans require online authorization in this trial. If the connection drops, the box can finish and preserve the items already authorized. A reboot during an open batch sends its retained items for owner review after the door is closed.
+
+The owner opens **Dropbox → Manage → Drop-off batches** and scans the waybill for any item marked **Needs review**. Both parcel modes reject that waybill until review is resolved. Single Parcel on a paired box also requires online authorization during the trial. If the chute stays blocked after an authorized drop, the box saves the attempt for review and resumes scanning once the chute is steadily clear. A rejected flash record stays available for reconciliation and prevents another batch on that unit.
+
 ### `doorStateUpdate`
 
 Emitted when door state changes.

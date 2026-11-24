@@ -113,7 +113,7 @@ exports.updateTrackingStatus = async (req, res) => {
         }
 
         const tracking = await Tracking.findOneAndUpdate(
-            { _id: existing._id },
+            { _id: existing._id, pendingDropoffReviewId: { $exists: false } },
             {
                 $set: {
                     status,
@@ -123,6 +123,8 @@ exports.updateTrackingStatus = async (req, res) => {
             },
             { new: true }
         );
+
+        if (!tracking) return res.status(409).json({ message: 'Resolve this parcel in Drop-off batches.' });
 
         // Log the change in DeliveryLog
         await DeliveryLog.create({
@@ -196,13 +198,18 @@ exports.simulateTracking = async (req, res) => {
     try {
         const rawId = (req.params.trackingId || '').trim();
         const escaped = escapeRegex(rawId);
-        const tracking = await Tracking.findOne({ trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        const tracking = await Tracking.findOne(
+            { trackingId: { $regex: new RegExp(`^${escaped}$`, 'i') } }, '+pendingDropoffReviewId'
+        );
 
         if (!tracking) {
             return res.status(404).json({ message: 'Tracking ID not found' });
         }
         if (tracking.userId !== req.userId) {
             return res.status(403).json({ message: 'Access denied: cannot simulate another user\'s parcel' });
+        }
+        if (tracking.pendingDropoffReviewId) {
+            return res.status(409).json({ message: 'Resolve this parcel in Drop-off batches.' });
         }
 
         const trackingId = tracking.trackingId;
@@ -223,7 +230,7 @@ exports.simulateTracking = async (req, res) => {
                 await new Promise(resolve => setTimeout(resolve, 5000));
 
                 const updated = await Tracking.findOneAndUpdate(
-                    { _id: tracking._id },
+                    { _id: tracking._id, pendingDropoffReviewId: { $exists: false } },
                     { 
                         $set: { 
                             status: nextStatus,
@@ -235,6 +242,7 @@ exports.simulateTracking = async (req, res) => {
                     { new: true }
                 );
 
+                if (!updated) return;
                 if (io) {
                     io.to(updated.userId).emit('trackingUpdate', updated);
                     io.to(updated.userId).emit('trackingStatusChanged', {

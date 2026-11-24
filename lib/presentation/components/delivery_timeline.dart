@@ -23,8 +23,11 @@ class DeliveryTimeline extends StatelessWidget {
     final clampedIndex = stageIndex.clamp(0, stages.length - 1);
     final isComplete = clampedIndex == stages.length - 1;
     final primaryTrack = activeColor ?? (isDark ? Colors.white : Colors.black);
-    final effectiveActiveColor = isComplete ? UserTheme.statusSuccess : primaryTrack;
-    final inactiveTrack = isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.08);
+    final effectiveActiveColor =
+        isComplete ? UserTheme.statusSuccess : primaryTrack;
+    final inactiveTrack = isDark
+        ? Colors.white.withValues(alpha: 0.1)
+        : Colors.black.withValues(alpha: 0.08);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -34,7 +37,8 @@ class DeliveryTimeline extends StatelessWidget {
             final isReached = index <= clampedIndex;
             return Expanded(
               child: Padding(
-                padding: EdgeInsets.only(right: index < stages.length - 1 ? 6 : 0),
+                padding:
+                    EdgeInsets.only(right: index < stages.length - 1 ? 6 : 0),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 220),
                   height: 4,
@@ -53,16 +57,22 @@ class DeliveryTimeline extends StatelessWidget {
           children: List.generate(stages.length, (index) {
             final isCurrent = index == clampedIndex;
             final isReached = index <= clampedIndex;
-            return Text(
-              stages[index],
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-                color: isCurrent
-                    ? effectiveActiveColor
-                    : (isReached
-                        ? (isDark ? UserTheme.nightTextSecondary : UserTheme.dayTextSecondary)
-                        : (isDark ? UserTheme.nightTextMuted : UserTheme.dayTextMuted)),
+            return Flexible(
+              child: Text(
+                stages[index],
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                  color: isCurrent
+                      ? effectiveActiveColor
+                      : (isReached
+                          ? (isDark
+                              ? UserTheme.nightTextSecondary
+                              : UserTheme.dayTextSecondary)
+                          : (isDark
+                              ? UserTheme.nightTextMuted
+                              : UserTheme.dayTextMuted)),
+                ),
               ),
             );
           }),
